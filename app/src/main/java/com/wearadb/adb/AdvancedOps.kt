@@ -177,11 +177,15 @@ object AdvancedOps {
     /**
      * 从 PNG 数据中截取到 IEND 标记（含 4 字节 CRC）。
      * 去掉尾部可能存在的 shell prompt 等非 PNG 数据。
+     * 从尾部往前搜索，找到第一个 IEND 即可（IEND 是 PNG 最后一个 chunk）。
      */
     private fun trimToIend(data: ByteArray): ByteArray? {
         if (data.size < 12) return null
-        // 从尾部往前搜索 IEND（尾部杂数据通常很少）
-        for (i in data.size - 12 downTo maxOf(0, data.size - 256)) {
+        // IEND 通常在文件末尾附近，但尾部可能有 shell prompt 等杂数据
+        // 从尾部往前搜索，范围扩大到 4KB（覆盖大部分尾部垃圾）
+        val searchRange = minOf(data.size - 12, 4096)
+        for (i in data.size - 12 downTo data.size - 12 - searchRange) {
+            if (i < 0) break
             if (data[i] == 0x49.toByte() &&
                 data[i + 1] == 0x45.toByte() &&
                 data[i + 2] == 0x4E.toByte() &&
