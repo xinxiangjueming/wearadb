@@ -7,8 +7,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
@@ -29,6 +31,7 @@ import com.wearadb.ui.AppFilter
 import com.wearadb.ui.AppViewModel
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
+import com.wearadb.ui.utils.adaptiveHorizontalPadding
 
 @Composable
 fun AppsScreen(
@@ -83,13 +86,17 @@ fun AppsScreen(
         }
     }
 
+    val hPadding = adaptiveHorizontalPadding()
+
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }, containerColor = c.background, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp).padding(padding),
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(280.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = hPadding).padding(padding),
             contentPadding = PaddingValues(top = statusBarPad + 8.dp, bottom = navBarPad + 32.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Row(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回", tint = c.onBackground) }
                     Spacer(Modifier.width(8.dp))
@@ -105,8 +112,8 @@ fun AppsScreen(
                     }
                 }
             }
-            item { WearInput(value = searchQuery, onValueChange = { searchQuery = it }, placeholder = "搜索包名...") }
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) { WearInput(value = searchQuery, onValueChange = { searchQuery = it }, placeholder = "搜索包名...") }
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChipItem("全部", filter == AppFilter.ALL) { viewModel.setAppsFilter(AppFilter.ALL) }
                     FilterChipItem("系统", filter == AppFilter.SYSTEM) { viewModel.setAppsFilter(AppFilter.SYSTEM) }
@@ -114,22 +121,21 @@ fun AppsScreen(
                 }
             }
             if (loading) {
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     Box(modifier = Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = c.accent, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
                     }
                 }
             }
             if (filter == AppFilter.ALL && searchQuery.isBlank()) {
-                // 分组显示：系统应用 + 第三方应用
                 if (systemApps.isNotEmpty()) {
-                    item { SectionHeader("系统应用 (${systemApps.size})") }
+                    item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("系统应用 (${systemApps.size})") }
                     items(systemApps, key = { it.packageName }) { app ->
                         AppListItem(app, expandedPkg, onToggleExpand = { expandedPkg = it }, viewModel = viewModel, snackbarMessage = { snackbarMessage = it })
                     }
                 }
                 if (thirdPartyApps.isNotEmpty()) {
-                    item { SectionHeader("第三方应用 (${thirdPartyApps.size})") }
+                    item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("第三方应用 (${thirdPartyApps.size})") }
                     items(thirdPartyApps, key = { it.packageName }) { app ->
                         AppListItem(app, expandedPkg, onToggleExpand = { expandedPkg = it }, viewModel = viewModel, snackbarMessage = { snackbarMessage = it })
                     }

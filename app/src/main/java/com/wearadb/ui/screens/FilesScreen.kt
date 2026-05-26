@@ -30,6 +30,8 @@ import com.wearadb.data.model.FileEntry
 import com.wearadb.ui.AppViewModel
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
+import com.wearadb.ui.utils.isExpandedScreen
+import com.wearadb.ui.utils.adaptiveHorizontalPadding
 
 @Composable
 fun FilesScreen(
@@ -95,10 +97,12 @@ fun FilesScreen(
     val statusBarPad = WindowInsets.statusBars.union(WindowInsets.displayCutout)
         .asPaddingValues().calculateTopPadding()
     val navBarPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val expanded = isExpandedScreen()
+    val hPadding = adaptiveHorizontalPadding()
 
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }, containerColor = c.background, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp).padding(padding)
+            modifier = Modifier.fillMaxSize().padding(horizontal = hPadding).padding(padding)
         ) {
             // ── Top Bar ──
             Row(modifier = Modifier.fillMaxWidth().padding(top = statusBarPad + 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -138,7 +142,7 @@ fun FilesScreen(
                 QuickPathChip("/tmp") { viewModel.navigateToPath("/tmp"); selectedFile = null }
             }
 
-            // ── 文件列表 ──
+            // ── 文件列表 + 详情 ──
             if (loading) {
                 Box(modifier = Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = c.accent, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
@@ -147,7 +151,75 @@ fun FilesScreen(
                 Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                     Text("空目录", style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant)
                 }
+            } else if (expanded) {
+                // ── 大屏：列表 + 详情分栏 ──
+                Row(modifier = Modifier.weight(1f)) {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        contentPadding = PaddingValues(bottom = navBarPad + 16.dp, end = 8.dp)
+                    ) {
+                        itemsIndexed(
+                            items = files,
+                            key = { index, file -> "${file.path}|${file.name}|$index" }
+                        ) { _, file ->
+                            FileCard(file, selectedFile?.path == file.path,
+                                onClick = {
+                                    if (file.isDirectory) { viewModel.navigateToPath(file.path); selectedFile = null }
+                                    else selectedFile = if (selectedFile?.path == file.path) null else file
+                                },
+                                onDelete = { viewModel.deleteFile(file.path) { snackbarMessage = it } },
+                                onView = { viewModel.readFile(file.path) { content -> fileContent = content; showFileContent = true } },
+                                onPull = {
+                                    viewModel.pullFile(file.path) { result ->
+                                        if (result.success && result.data != null) {
+                                            pendingPullData = file.name to result.data
+                                            saveLauncher.launch(file.name)
+                                        } else {
+                                            snackbarMessage = "拉取失败: ${result.message}"
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                    }
+                    // 详情面板
+                    if (selectedFile != null && !selectedFile!!.isDirectory) {
+                        Spacer(Modifier.width(1.dp).fillMaxHeight().background(c.outlineVariant))
+                        Column(
+                            modifier = Modifier.weight(1f).fillMaxHeight()
+                                .padding(start = 16.dp, top = 8.dp, bottom = navBarPad + 16.dp)
+                        ) {
+                            Text(selectedFile!!.name, style = MaterialTheme.typography.titleLarge, color = c.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Spacer(Modifier.height(8.dp))
+                            Text("大小: ${formatSize(selectedFile!!.size)}", style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant)
+                            Text("权限: ${selectedFile!!.permissions}", style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant, fontFamily = FontFamily.Monospace)
+                            Text("修改: ${selectedFile!!.lastModified}", style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant)
+                            Spacer(Modifier.height(16.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FileActionButton("查看", c.accent, c.onSurface) {
+                                    viewModel.readFile(selectedFile!!.path) { content -> fileContent = content; showFileContent = true }
+                                }
+                                FileActionButton("拉取", c.info, c.onSurface) {
+                                    viewModel.pullFile(selectedFile!!.path) { result ->
+                                        if (result.success && result.data != null) {
+                                            pendingPullData = selectedFile!!.name to result.data
+                                            saveLauncher.launch(selectedFile!!.name)
+                                        } else {
+                                            snackbarMessage = "拉取失败: ${result.message}"
+                                        }
+                                    }
+                                }
+                                FileActionButton("删除", c.buttonDanger, c.buttonDangerText) {
+                                    viewModel.deleteFile(selectedFile!!.path) { snackbarMessage = it }
+                                    selectedFile = null
+                                }
+                            }
+                        }
+                    }
+                }
             } else {
+                // ── 小屏：单栏列表 ──
                 LazyColumn(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(6.dp),

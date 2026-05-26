@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.ui.theme.WearAdbTheme
 import com.wearadb.ui.AppViewModel
+import com.wearadb.ui.utils.adaptiveHorizontalPadding
 
 data class TerminalLine(val text: String, val isCommand: Boolean = false)
 
@@ -53,8 +54,10 @@ fun ShellScreen(
         .asPaddingValues().calculateTopPadding()
     val navBarPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
+    val hPadding = adaptiveHorizontalPadding()
+
     Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp).imePadding()
+        modifier = Modifier.fillMaxSize().padding(horizontal = hPadding).imePadding()
     ) {
         // ── Top Bar ──
         Row(

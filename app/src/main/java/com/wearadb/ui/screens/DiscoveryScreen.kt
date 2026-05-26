@@ -22,6 +22,7 @@ import com.wearadb.data.repository.DiscoveredDevice
 import com.wearadb.ui.AppViewModel
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
+import com.wearadb.ui.utils.adaptiveHorizontalPadding
 
 @Composable
 fun DiscoveryScreen(
@@ -48,8 +49,10 @@ fun DiscoveryScreen(
     val connectDevices = devices.filter { !it.isPairing }
     val pairingDevices = devices.filter { it.isPairing }
 
+    val hPadding = adaptiveHorizontalPadding()
+
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+        modifier = Modifier.fillMaxSize().padding(horizontal = hPadding),
         contentPadding = PaddingValues(top = statusBarPad + 8.dp, bottom = navBarPad + 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {

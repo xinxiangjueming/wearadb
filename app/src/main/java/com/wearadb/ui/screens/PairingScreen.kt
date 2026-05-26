@@ -17,6 +17,7 @@ import com.wearadb.ui.AppViewModel
 import com.wearadb.ui.PairingState
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
+import com.wearadb.ui.utils.adaptiveHorizontalPadding
 
 @Composable
 fun PairingScreen(
@@ -43,10 +44,13 @@ fun PairingScreen(
         .asPaddingValues().calculateTopPadding()
     val navBarPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
+    val hPadding = adaptiveHorizontalPadding()
+    val maxInputWidth = 500.dp
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 20.dp)
+            .padding(horizontal = hPadding)
             .padding(top = statusBarPad + 8.dp, bottom = navBarPad + 16.dp)
     ) {
         Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -75,7 +79,7 @@ fun PairingScreen(
             value = hostInput, onValueChange = { hostInput = it },
             label = "IP",
             placeholder = "192.168.1.100",
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().widthIn(max = maxInputWidth),
             imeAction = androidx.compose.ui.text.input.ImeAction.Next
         )
         Spacer(Modifier.height(10.dp))
@@ -83,7 +87,7 @@ fun PairingScreen(
             value = portInput, onValueChange = { portInput = it.filter { ch -> ch.isDigit() } },
             label = "端口",
             placeholder = "37123",
-            modifier = Modifier.fillMaxWidth(0.4f),
+            modifier = Modifier.fillMaxWidth(0.4f).widthIn(max = maxInputWidth),
             imeAction = androidx.compose.ui.text.input.ImeAction.Next
         )
         Spacer(Modifier.height(10.dp))
@@ -93,7 +97,7 @@ fun PairingScreen(
             label = "配对码",
             placeholder = "6位数字",
             keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
-            modifier = Modifier.fillMaxWidth(0.5f)
+            modifier = Modifier.fillMaxWidth(0.5f).widthIn(max = maxInputWidth)
         )
 
         Spacer(Modifier.height(20.dp))
