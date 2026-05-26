@@ -8,6 +8,9 @@ import com.wearadb.data.repository.DiscoveredDevice
 import com.wearadb.data.repository.PullResult
 import com.wearadb.data.model.*
 import com.wearadb.data.repository.AdbRepository
+import com.wearadb.fastboot.FastbootConnectionState
+import com.wearadb.fastboot.FastbootDevice
+import com.wearadb.fastboot.FastbootRepository
 import io.github.muntashirakon.adb.AdbStream
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -16,7 +19,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class AppViewModel @Inject constructor(
-    private val repository: AdbRepository
+    private val repository: AdbRepository,
+    private val fastbootRepository: FastbootRepository
 ) : ViewModel() {
 
     val connectionState: StateFlow<ConnectionState> = repository.connectionState
@@ -77,6 +81,22 @@ class AppViewModel @Inject constructor(
     val opResult: SharedFlow<String> = _opResult.asSharedFlow()
 
     private var shellStream: AdbStream? = null
+
+    // ── Fastboot ──
+    val fastbootConnectionState: StateFlow<FastbootConnectionState> = fastbootRepository.connectionState
+    val fastbootConnectedDevice: StateFlow<FastbootDevice?> = fastbootRepository.connectedDevice
+
+    private val _fastbootDevices = MutableStateFlow<List<FastbootDevice>>(emptyList())
+    val fastbootDevices: StateFlow<List<FastbootDevice>> = _fastbootDevices.asStateFlow()
+
+    private val _fastbootInfo = MutableStateFlow<Map<String, String>>(emptyMap())
+    val fastbootInfo: StateFlow<Map<String, String>> = _fastbootInfo.asStateFlow()
+
+    private val _fastbootResult = MutableSharedFlow<String>()
+    val fastbootResult: SharedFlow<String> = _fastbootResult.asSharedFlow()
+
+    private val _fastbootFlashProgress = MutableStateFlow(-1)
+    val fastbootFlashProgress: StateFlow<Int> = _fastbootFlashProgress.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -381,9 +401,137 @@ class AppViewModel @Inject constructor(
     fun removeDevice(address: String) { viewModelScope.launch { repository.removeDevice(address) } }
     fun toggleFavorite(address: String) { viewModelScope.launch { repository.toggleFavorite(address) } }
 
+    // ── Fastboot ──
+
+    fun scanFastbootDevices() {
+        _fastbootDevices.value = fastbootRepository.scanDevices()
+    }
+
+    fun connectFastboot(device: FastbootDevice) {
+        viewModelScope.launch {
+            val success = fastbootRepository.connect(device)
+            if (success) {
+                loadFastbootInfo()
+            }
+        }
+    }
+
+    fun disconnectFastboot() {
+        fastbootRepository.disconnect()
+        _fastbootInfo.value = emptyMap()
+    }
+
+    private fun loadFastbootInfo() {
+        viewModelScope.launch {
+            _fastbootInfo.value = fastbootRepository.getDeviceInfo()
+        }
+    }
+
+    fun fastbootReboot() {
+        viewModelScope.launch {
+            val result = fastbootRepository.reboot()
+            _fastbootResult.emit(result)
+            disconnectFastboot()
+        }
+    }
+
+    fun fastbootRebootRecovery() {
+        viewModelScope.launch {
+            val result = fastbootRepository.rebootRecovery()
+            _fastbootResult.emit(result)
+            disconnectFastboot()
+        }
+    }
+
+    fun fastbootRebootBootloader() {
+        viewModelScope.launch {
+            val result = fastbootRepository.rebootBootloader()
+            _fastbootResult.emit(result)
+            // 重启到 bootloader 后重新扫描
+            kotlinx.coroutines.delay(2000)
+            scanFastbootDevices()
+        }
+    }
+
+    fun fastbootFlash(partition: String, data: ByteArray) {
+        viewModelScope.launch {
+            _fastbootFlashProgress.value = 0
+            val result = fastbootRepository.flash(partition, data) { progress ->
+                _fastbootFlashProgress.value = progress
+            }
+            _fastbootResult.emit(result)
+            _fastbootFlashProgress.value = -1
+        }
+    }
+
+    fun fastbootErase(partition: String) {
+        viewModelScope.launch {
+            val result = fastbootRepository.erase(partition)
+            _fastbootResult.emit(result)
+        }
+    }
+
+    fun fastbootOem(command: String) {
+        viewModelScope.launch {
+            val result = fastbootRepository.oem(command)
+            _fastbootResult.emit(result)
+        }
+    }
+
+    fun loadFastbootVarAll() {
+        viewModelScope.launch {
+            _fastbootInfo.value = fastbootRepository.getVarAll()
+        }
+    }
+
+    fun fastbootFlashingUnlock() {
+        viewModelScope.launch {
+            val result = fastbootRepository.flashingUnlock()
+            _fastbootResult.emit(result)
+        }
+    }
+
+    fun fastbootFlashingLock() {
+        viewModelScope.launch {
+            val result = fastbootRepository.flashingLock()
+            _fastbootResult.emit(result)
+        }
+    }
+
+    fun fastbootBoot(data: ByteArray) {
+        viewModelScope.launch {
+            _fastbootFlashProgress.value = 0
+            val result = fastbootRepository.boot(data) { progress ->
+                _fastbootFlashProgress.value = progress
+            }
+            _fastbootResult.emit(result)
+            _fastbootFlashProgress.value = -1
+        }
+    }
+
+    fun fastbootStage(data: ByteArray) {
+        viewModelScope.launch {
+            _fastbootFlashProgress.value = 0
+            val result = fastbootRepository.stage(data) { progress ->
+                _fastbootFlashProgress.value = progress
+            }
+            _fastbootResult.emit(result)
+            _fastbootFlashProgress.value = -1
+        }
+    }
+
+    fun fastbootFetch() {
+        viewModelScope.launch {
+            val (message, data) = fastbootRepository.fetch()
+            _fastbootResult.emit(message)
+            // data 可以保存到文件，这里只提示大小
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         disconnect()
+        fastbootRepository.destroy()
         repository.destroy()
     }
 }

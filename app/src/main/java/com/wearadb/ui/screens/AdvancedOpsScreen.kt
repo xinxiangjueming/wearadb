@@ -35,6 +35,7 @@ private data class OpsItem(val icon: ImageVector, val label: String, val onClick
 fun AdvancedOpsScreen(
     onBack: () -> Unit,
     onNavigateToFiles: () -> Unit,
+    onNavigateToFastboot: () -> Unit,
     viewModel: AppViewModel = hiltViewModel()
 ) {
     val c = WearAdbTheme.colors
@@ -121,6 +122,12 @@ fun AdvancedOpsScreen(
         item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("电源") }
         item(span = { GridItemSpan(maxLineSpan) }) {
             OpsButton(Icons.Outlined.RestartAlt, "重启设备") { showRebootDialog = true }
+        }
+
+        // ── Fastboot ──
+        item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("有线调试") }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            OpsButton(Icons.Outlined.DeveloperBoard, "Fastboot 模式") { onNavigateToFastboot() }
         }
     }
 

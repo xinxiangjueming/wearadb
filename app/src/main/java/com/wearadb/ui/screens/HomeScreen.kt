@@ -33,6 +33,7 @@ fun HomeScreen(
     onNavigateToDiscovery: () -> Unit,
     onNavigateToPairing: () -> Unit,
     onNavigateToAdvanced: () -> Unit,
+    onNavigateToFastboot: () -> Unit,
     viewModel: AppViewModel = hiltViewModel()
 ) {
     val c = WearAdbTheme.colors
@@ -141,6 +142,11 @@ fun HomeScreen(
                                         onClick = onNavigateToPairing,
                                         variant = ButtonVariant.Secondary
                                     )
+                                    WearButton(
+                                        text = "Fastboot (USB)",
+                                        onClick = onNavigateToFastboot,
+                                        variant = ButtonVariant.Secondary
+                                    )
                                 }
                             }
                             AnimatedVisibility(visible = connectionState == ConnectionState.ERROR) {
@@ -193,7 +199,7 @@ fun HomeScreen(
                         item {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 FeatureCard(Icons.Outlined.Build, "高级", "重启/截屏/音量", Modifier.weight(1f), onNavigateToAdvanced)
-                                Spacer(Modifier.weight(1f))
+                                FeatureCard(Icons.Outlined.DeveloperBoard, "Fastboot", "刷机/线刷", Modifier.weight(1f), onNavigateToFastboot)
                             }
                         }
                     }
@@ -267,17 +273,24 @@ fun HomeScreen(
                                 enabled = hostInput.isNotBlank() && !isConnecting
                             )
                             Spacer(Modifier.height(10.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    WearButton(
+                                        text = "发现设备",
+                                        onClick = onNavigateToDiscovery,
+                                        modifier = Modifier.weight(1f),
+                                        variant = ButtonVariant.Secondary
+                                    )
+                                    WearButton(
+                                        text = "配对",
+                                        onClick = onNavigateToPairing,
+                                        modifier = Modifier.weight(1f),
+                                        variant = ButtonVariant.Secondary
+                                    )
+                                }
                                 WearButton(
-                                    text = "发现设备",
-                                    onClick = onNavigateToDiscovery,
-                                    modifier = Modifier.weight(1f),
-                                    variant = ButtonVariant.Secondary
-                                )
-                                WearButton(
-                                    text = "配对",
-                                    onClick = onNavigateToPairing,
-                                    modifier = Modifier.weight(1f),
+                                    text = "Fastboot (USB)",
+                                    onClick = onNavigateToFastboot,
                                     variant = ButtonVariant.Secondary
                                 )
                             }
@@ -307,7 +320,7 @@ fun HomeScreen(
                     item {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             FeatureCard(Icons.Outlined.Build, "高级", "重启/截屏/音量", Modifier.weight(1f), onNavigateToAdvanced)
-                            Spacer(Modifier.weight(1f))
+                            FeatureCard(Icons.Outlined.DeveloperBoard, "Fastboot", "刷机/线刷", Modifier.weight(1f), onNavigateToFastboot)
                         }
                     }
                 }

@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
+    <!-- USB Host 模式（fastboot 设备需要） -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
     <application
         android:name=".WearAdbApp"
         android:allowBackup="true"

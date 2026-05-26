@@ -18,6 +18,7 @@ object Routes {
     const val DISCOVERY = "discovery"
     const val PAIRING = "pairing"
     const val ADVANCED = "advanced"
+    const val FASTBOOT = "fastboot"
 
     // 生成带参数的配对路由
     fun pairing(host: String = "", port: Int = 0) =
@@ -38,7 +39,8 @@ fun AppNavGraph(navController: NavHostController) {
                 onNavigateToFiles = { navController.navigate(Routes.FILES) },
                 onNavigateToDiscovery = { navController.navigate(Routes.DISCOVERY) },
                 onNavigateToPairing = { navController.navigate(Routes.pairing()) },  // 手动配对无参数
-                onNavigateToAdvanced = { navController.navigate(Routes.ADVANCED) }
+                onNavigateToAdvanced = { navController.navigate(Routes.ADVANCED) },
+                onNavigateToFastboot = { navController.navigate(Routes.FASTBOOT) }
             )
         }
         composable(Routes.SHELL) {
@@ -80,7 +82,13 @@ fun AppNavGraph(navController: NavHostController) {
         composable(Routes.ADVANCED) {
             AdvancedOpsScreen(
                 onBack = { navController.popBackStack() },
-                onNavigateToFiles = { navController.navigate(Routes.FILES) }
+                onNavigateToFiles = { navController.navigate(Routes.FILES) },
+                onNavigateToFastboot = { navController.navigate(Routes.FASTBOOT) }
+            )
+        }
+        composable(Routes.FASTBOOT) {
+            FastbootScreen(
+                onBack = { navController.popBackStack() }
             )
         }
     }
