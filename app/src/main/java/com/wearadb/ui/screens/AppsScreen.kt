@@ -1,0 +1,242 @@
+package com.wearadb.ui.screens
+
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.automirrored.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.wearadb.data.model.AppEntry
+import com.wearadb.ui.AppFilter
+import com.wearadb.ui.AppViewModel
+import com.wearadb.ui.components.*
+import com.wearadb.ui.theme.WearAdbTheme
+
+@Composable
+fun AppsScreen(
+    onBack: () -> Unit,
+    viewModel: AppViewModel = hiltViewModel()
+) {
+    val c = WearAdbTheme.colors
+    val apps by viewModel.apps.collectAsState()
+    val loading by viewModel.appsLoading.collectAsState()
+    val filter by viewModel.appsFilter.collectAsState()
+    var searchQuery by remember { mutableStateOf("") }
+    var expandedPkg by remember { mutableStateOf<String?>(null) }
+    var snackbarMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) { viewModel.loadApps() }
+
+    val filteredApps = remember(apps, filter, searchQuery) {
+        val base = when (filter) {
+            AppFilter.ALL -> apps
+            AppFilter.SYSTEM -> apps.filter { it.isSystem }
+            AppFilter.THIRD_PARTY -> apps.filter { !it.isSystem }
+        }
+        if (searchQuery.isBlank()) base else base.filter { it.packageName.contains(searchQuery, ignoreCase = true) }
+    }
+
+    // 分组数据（仅"全部"模式使用）
+    val systemApps = remember(filteredApps) { filteredApps.filter { it.isSystem } }
+    val thirdPartyApps = remember(filteredApps) { filteredApps.filter { !it.isSystem } }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(snackbarMessage) {
+        snackbarMessage?.let { snackbarHostState.showSnackbar(it); snackbarMessage = null }
+    }
+
+    val statusBarPad = WindowInsets.statusBars.union(WindowInsets.displayCutout)
+        .asPaddingValues().calculateTopPadding()
+    val navBarPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+    // APK 安装：拉起系统文件选择器
+    val context = LocalContext.current
+    val apkPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri ?: return@rememberLauncherForActivityResult
+        try {
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            if (bytes != null) {
+                viewModel.installApk(bytes) { result -> snackbarMessage = result }
+            } else {
+                snackbarMessage = "读取 APK 失败"
+            }
+        } catch (e: Exception) {
+            snackbarMessage = "读取异常: ${e.message}"
+        }
+    }
+
+    Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }, containerColor = c.background, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp).padding(padding),
+            contentPadding = PaddingValues(top = statusBarPad + 8.dp, bottom = navBarPad + 32.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            item {
+                Row(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回", tint = c.onBackground) }
+                    Spacer(Modifier.width(8.dp))
+                    Text("应用管理", style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
+                    Spacer(Modifier.weight(1f))
+                    Text("${filteredApps.size}", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
+                    Spacer(Modifier.width(8.dp))
+                    IconButton(onClick = { apkPicker.launch("application/vnd.android.package-archive") }) {
+                        Icon(Icons.Outlined.InstallMobile, "安装 APK", tint = c.accent, modifier = Modifier.size(20.dp))
+                    }
+                    IconButton(onClick = { viewModel.loadApps(force = true) }) {
+                        Icon(Icons.Outlined.Refresh, "刷新", tint = c.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
+            item { WearInput(value = searchQuery, onValueChange = { searchQuery = it }, placeholder = "搜索包名...") }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChipItem("全部", filter == AppFilter.ALL) { viewModel.setAppsFilter(AppFilter.ALL) }
+                    FilterChipItem("系统", filter == AppFilter.SYSTEM) { viewModel.setAppsFilter(AppFilter.SYSTEM) }
+                    FilterChipItem("第三方", filter == AppFilter.THIRD_PARTY) { viewModel.setAppsFilter(AppFilter.THIRD_PARTY) }
+                }
+            }
+            if (loading) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = c.accent, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
+                    }
+                }
+            }
+            if (filter == AppFilter.ALL && searchQuery.isBlank()) {
+                // 分组显示：系统应用 + 第三方应用
+                if (systemApps.isNotEmpty()) {
+                    item { SectionHeader("系统应用 (${systemApps.size})") }
+                    items(systemApps, key = { it.packageName }) { app ->
+                        AppListItem(app, expandedPkg, onToggleExpand = { expandedPkg = it }, viewModel = viewModel, snackbarMessage = { snackbarMessage = it })
+                    }
+                }
+                if (thirdPartyApps.isNotEmpty()) {
+                    item { SectionHeader("第三方应用 (${thirdPartyApps.size})") }
+                    items(thirdPartyApps, key = { it.packageName }) { app ->
+                        AppListItem(app, expandedPkg, onToggleExpand = { expandedPkg = it }, viewModel = viewModel, snackbarMessage = { snackbarMessage = it })
+                    }
+                }
+            } else {
+                items(filteredApps, key = { it.packageName }) { app ->
+                    AppListItem(app, expandedPkg, onToggleExpand = { expandedPkg = it }, viewModel = viewModel, snackbarMessage = { snackbarMessage = it })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppListItem(
+    app: AppEntry,
+    expandedPkg: String?,
+    onToggleExpand: (String?) -> Unit,
+    viewModel: AppViewModel,
+    snackbarMessage: (String) -> Unit
+) {
+    val isExpanded = expandedPkg == app.packageName
+    val onUninstall = remember(app.packageName) { { viewModel.uninstallApp(app.packageName) { snackbarMessage(it) } } }
+    val onClear = remember(app.packageName) { { viewModel.clearAppData(app.packageName) { snackbarMessage(it) } } }
+    val onStop = remember(app.packageName) { { viewModel.forceStopApp(app.packageName) { snackbarMessage(it) } } }
+    val onToggleEnabled = remember(app.packageName) {
+        {
+            if (app.isEnabled) viewModel.disableApp(app.packageName) { snackbarMessage(it) }
+            else viewModel.enableApp(app.packageName) { snackbarMessage(it) }
+            viewModel.loadApps(force = true)
+        }
+    }
+    AppCard(
+        app = app, expanded = isExpanded,
+        onToggleExpand = { onToggleExpand(if (isExpanded) null else app.packageName) },
+        onUninstall = onUninstall,
+        onClearData = onClear,
+        onForceStop = onStop,
+        onToggleEnabled = onToggleEnabled
+    )
+}
+
+@Composable
+private fun FilterChipItem(text: String, selected: Boolean, onClick: () -> Unit) {
+    val c = WearAdbTheme.colors
+    val cr = WearAdbTheme.shape.cornerRadius
+    val shape = remember { RoundedCornerShape(cr) }
+    Box(
+        modifier = Modifier
+            .clip(shape)
+            .background(if (selected) c.chipSelected else c.chipDefault, shape)
+            .then(if (selected) Modifier.border(1.dp, c.selectedBorder, shape) else Modifier.border(1.dp, c.outlineVariant, shape))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+    ) {
+        Text(text, style = MaterialTheme.typography.labelLarge, color = if (selected) c.chipSelectedText else c.chipDefaultText)
+    }
+}
+
+@Composable
+private fun AppCard(
+    app: AppEntry, expanded: Boolean, onToggleExpand: () -> Unit,
+    onUninstall: () -> Unit, onClearData: () -> Unit, onForceStop: () -> Unit, onToggleEnabled: () -> Unit
+) {
+    val c = WearAdbTheme.colors
+    val cr = WearAdbTheme.shape.cornerRadius
+    val shape = remember { RoundedCornerShape(cr) }
+    Column(
+        modifier = Modifier.fillMaxWidth().clip(shape).background(c.surfaceVariant, shape)
+            .border(1.dp, c.outlineVariant, shape).clickable(onClick = onToggleExpand).padding(16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(8.dp).clip(RoundedCornerShape(4.dp))
+                .background(if (app.isSystem) c.systemAppDot else c.thirdPartyAppDot))
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(app.packageName, style = MaterialTheme.typography.titleMedium, color = c.onSurface,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row {
+                    if (app.versionName.isNotEmpty()) Text("v${app.versionName}", style = MaterialTheme.typography.labelMedium, color = c.onSurfaceVariant)
+                    if (!app.isEnabled) { Spacer(Modifier.width(8.dp)); Text("已禁用", style = MaterialTheme.typography.labelSmall, color = c.disabledBadge) }
+                }
+            }
+            Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null,
+                tint = c.onSurfaceVariant, modifier = Modifier.size(20.dp))
+        }
+        if (expanded) {
+            Column {
+                Spacer(Modifier.height(12.dp)); HorizontalDivider(color = c.outlineVariant); Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AppActionButton("停止", c.buttonSecondary, c.buttonSecondaryText) { onForceStop() }
+                    AppActionButton("清除数据", c.info, c.onSurface) { onClearData() }
+                    AppActionButton(if (app.isEnabled) "禁用" else "启用", c.buttonSecondary, c.buttonSecondaryText) { onToggleEnabled() }
+                }
+                Spacer(Modifier.height(8.dp))
+                if (!app.isSystem) AppActionButton("卸载", c.buttonDanger, c.buttonDangerText) { onUninstall() }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppActionButton(text: String, bgColor: Color, textColor: Color, onClick: () -> Unit) {
+    val shape = remember { RoundedCornerShape(20.dp) }
+    Box(
+        modifier = Modifier.clip(shape).background(bgColor.copy(alpha = 0.12f), shape)
+            .border(1.dp, bgColor.copy(alpha = 0.25f), shape)
+            .clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp)
+    ) { Text(text, style = MaterialTheme.typography.labelLarge, color = textColor) }
+}

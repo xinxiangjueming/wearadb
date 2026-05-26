@@ -1,0 +1,59 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+/app/build
+# ====== 构建输出 ======
+/build/
+/app/build/
+/captures
+.externalNativeBuild/
+.cxx/
+*.apk
+*.ap_
+*.aab
+*.dex
+*.class
+
+# ====== 本地配置 & 敏感文件 ======
+local.properties
+*.keystore
+!debug.keystore
+google-services.json        # 谨慎：含私钥，最好通过 CI 注入，不要上传公开库
+*.jks
+
+# ====== IDE 环境（Android Studio） ======
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/gradle.xml
+.idea/assetWizardSettings.xml
+.idea/dictionaries
+.idea/vcs.xml
+.idea/navEditor.xml
+# .idea/caches/
+# .idea/modules.xml
+# 可考虑保留 .idea/misc.xml 等共享配置，但安全起见先全忽略，再按需放开
+.idea/
+*.iml
+
+# ====== Gradle ======
+.gradle/
+gradle-app.setting
+!gradle/wrapper/gradle-wrapper.jar
+gradle.properties          # 仅当里面存放了敏感信息（如密码）时才忽略；通常保留
+
+# ====== 操作系统生成文件 ======
+.DS_Store
+Thumbs.db
+*.swp
+*.bak
+
+# ====== 其他 ======
+*.log
+/tmp/
