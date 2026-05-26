@@ -20,6 +20,8 @@ import com.wearadb.ui.AppViewModel
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
+import com.wearadb.ui.utils.formatBytes
+import com.wearadb.ui.utils.isLandscape
 
 @Composable
 fun DeviceInfoScreen(
@@ -37,6 +39,7 @@ fun DeviceInfoScreen(
     val navBarPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     val hPadding = adaptiveHorizontalPadding()
+    val landscape = isLandscape()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = hPadding),
@@ -68,63 +71,135 @@ fun DeviceInfoScreen(
 
         val d = info ?: return@LazyColumn
 
-        item(key = "hdr_basic") { SectionHeader("基本信息") }
-        item(key = "card_basic") {
-            WearCard {
-                InfoRow("品牌", d.brand); InfoRow("型号", d.model); InfoRow("设备代号", d.device)
-                InfoRow("序列号", d.serialno); InfoRow("ABI", d.abi)
+        if (landscape) {
+            // ── 横屏：基本信息+系统 并排 ──
+            item(key = "row_basic_system") {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        SectionHeader("基本信息")
+                        WearCard {
+                            InfoRow("品牌", d.brand); InfoRow("型号", d.model); InfoRow("设备代号", d.device)
+                            InfoRow("序列号", d.serialno); InfoRow("ABI", d.abi)
+                        }
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        SectionHeader("系统")
+                        WearCard {
+                            InfoRow("Android 版本", d.androidVersion); InfoRow("SDK", d.sdkVersion)
+                            InfoRow("Build ID", d.buildId); InfoRow("指纹", d.fingerprint, mono = true)
+                        }
+                    }
+                }
             }
-        }
-        item(key = "hdr_system") { SectionHeader("系统") }
-        item(key = "card_system") {
-            WearCard {
-                InfoRow("Android 版本", d.androidVersion); InfoRow("SDK", d.sdkVersion)
-                InfoRow("Build ID", d.buildId); InfoRow("指纹", d.fingerprint, mono = true)
+            // ── 横屏：屏幕+电池 并排 ──
+            if (d.screenWidth > 0 || d.batteryLevel >= 0) {
+                item(key = "row_screen_battery") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (d.screenWidth > 0) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                SectionHeader("屏幕")
+                                WearCard {
+                                    InfoRow("分辨率", "${d.screenWidth} × ${d.screenHeight}"); InfoRow("DPI", d.density.toString())
+                                }
+                            }
+                        }
+                        if (d.batteryLevel >= 0) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                SectionHeader("电池")
+                                WearCard {
+                                    if (d.batteryDesignCapacity > 0) InfoRow("设计容量", "${d.batteryDesignCapacity} mAh")
+                                    if (d.batteryTechnology.isNotEmpty()) InfoRow("电池类型", d.batteryTechnology)
+                                    if (d.batteryHealth.isNotEmpty()) InfoRow("健康状态", d.batteryHealth)
+                                    Spacer(Modifier.height(8.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = when {
+                                                d.batteryLevel > 80 -> Icons.Outlined.BatteryFull
+                                                d.batteryLevel > 30 -> Icons.Outlined.Battery5Bar
+                                                else -> Icons.Outlined.Battery1Bar
+                                            },
+                                            contentDescription = null,
+                                            tint = when {
+                                                d.batteryLevel > 50 -> c.accent
+                                                d.batteryLevel > 20 -> c.warning
+                                                else -> c.error
+                                            },
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                        Spacer(Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            InfoRow("电量", "${d.batteryLevel}%")
+                                            InfoRow("状态", d.batteryStatus)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-        }
-        if (d.screenWidth > 0) {
-            item(key = "hdr_screen") { SectionHeader("屏幕") }
-            item(key = "card_screen") { WearCard { InfoRow("分辨率", "${d.screenWidth} × ${d.screenHeight}"); InfoRow("DPI", d.density.toString()) } }
-        }
-        if (d.batteryLevel >= 0) {
-            item(key = "hdr_battery") { SectionHeader("电池") }
-            item(key = "card_battery") {
+        } else {
+            // ── 竖屏：逐行排列 ──
+            item(key = "hdr_basic") { SectionHeader("基本信息") }
+            item(key = "card_basic") {
                 WearCard {
-                    if (d.batteryDesignCapacity > 0) InfoRow("设计容量", "${d.batteryDesignCapacity} mAh")
-                    if (d.batteryCurrentCapacity > 0) InfoRow("当前容量", "${d.batteryCurrentCapacity} mAh")
-                    if (d.batteryTechnology.isNotEmpty()) InfoRow("电池类型", d.batteryTechnology)
-                    if (d.batteryHealth.isNotEmpty()) InfoRow("健康状态", d.batteryHealth)
-                    if (d.batteryVoltage > 0) InfoRow("电压", "${"%.2f".format(d.batteryVoltage / 1000.0)} V")
-                    if (d.batteryTemperature > 0) InfoRow("温度", "${"%.1f".format(d.batteryTemperature / 10.0)}°C")
-                    Spacer(Modifier.height(8.dp))
-                    HorizontalDivider(color = c.outlineVariant)
-                    Spacer(Modifier.height(8.dp))
-                    InfoRow("电量", "${d.batteryLevel}%")
-                    InfoRow("状态", d.batteryStatus)
-                    Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = when {
-                                d.batteryLevel > 80 -> Icons.Outlined.BatteryFull
-                                d.batteryLevel > 30 -> Icons.Outlined.Battery5Bar
-                                else -> Icons.Outlined.Battery1Bar
-                            },
-                            contentDescription = null,
-                            tint = when {
-                                d.batteryLevel > 50 -> c.accent
-                                d.batteryLevel > 20 -> c.warning
-                                else -> c.error
-                            },
-                            modifier = Modifier.size(28.dp)
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Box(modifier = Modifier.weight(1f)) {
-                            BatteryBar(fraction = d.batteryLevel / 100f)
+                    InfoRow("品牌", d.brand); InfoRow("型号", d.model); InfoRow("设备代号", d.device)
+                    InfoRow("序列号", d.serialno); InfoRow("ABI", d.abi)
+                }
+            }
+            item(key = "hdr_system") { SectionHeader("系统") }
+            item(key = "card_system") {
+                WearCard {
+                    InfoRow("Android 版本", d.androidVersion); InfoRow("SDK", d.sdkVersion)
+                    InfoRow("Build ID", d.buildId); InfoRow("指纹", d.fingerprint, mono = true)
+                }
+            }
+            if (d.screenWidth > 0) {
+                item(key = "hdr_screen") { SectionHeader("屏幕") }
+                item(key = "card_screen") { WearCard { InfoRow("分辨率", "${d.screenWidth} × ${d.screenHeight}"); InfoRow("DPI", d.density.toString()) } }
+            }
+            if (d.batteryLevel >= 0) {
+                item(key = "hdr_battery") { SectionHeader("电池") }
+                item(key = "card_battery") {
+                    WearCard {
+                        if (d.batteryDesignCapacity > 0) InfoRow("设计容量", "${d.batteryDesignCapacity} mAh")
+                        if (d.batteryCurrentCapacity > 0) InfoRow("当前容量", "${d.batteryCurrentCapacity} mAh")
+                        if (d.batteryTechnology.isNotEmpty()) InfoRow("电池类型", d.batteryTechnology)
+                        if (d.batteryHealth.isNotEmpty()) InfoRow("健康状态", d.batteryHealth)
+                        if (d.batteryVoltage > 0) InfoRow("电压", "${"%.2f".format(d.batteryVoltage / 1000.0)} V")
+                        if (d.batteryTemperature > 0) InfoRow("温度", "${"%.1f".format(d.batteryTemperature / 10.0)}°C")
+                        Spacer(Modifier.height(8.dp))
+                        HorizontalDivider(color = c.outlineVariant)
+                        Spacer(Modifier.height(8.dp))
+                        InfoRow("电量", "${d.batteryLevel}%")
+                        InfoRow("状态", d.batteryStatus)
+                        Spacer(Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = when {
+                                    d.batteryLevel > 80 -> Icons.Outlined.BatteryFull
+                                    d.batteryLevel > 30 -> Icons.Outlined.Battery5Bar
+                                    else -> Icons.Outlined.Battery1Bar
+                                },
+                                contentDescription = null,
+                                tint = when {
+                                    d.batteryLevel > 50 -> c.accent
+                                    d.batteryLevel > 20 -> c.warning
+                                    else -> c.error
+                                },
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Box(modifier = Modifier.weight(1f)) {
+                                BatteryBar(fraction = d.batteryLevel / 100f)
+                            }
                         }
                     }
                 }
             }
         }
+
+        // ── 内存与存储（横竖屏共用，全宽） ──
         item(key = "hdr_mem") { SectionHeader("内存与存储") }
         item(key = "card_mem") {
             val memTotalBytes = remember(d.memTotal) { parseMemBytes(d.memTotal) }
@@ -203,14 +278,6 @@ private fun BatteryBar(fraction: Float) {
             modifier = Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).fillMaxHeight().clip(shape).background(barColor)
         )
     }
-}
-
-private fun formatBytes(bytes: Long): String = when {
-    bytes < 1024 -> "${bytes}B"
-    bytes < 1024 * 1024 -> "${"%.0f".format(bytes / 1024.0)}KB"
-    bytes < 1024L * 1024 * 1024 -> "${"%.1f".format(bytes / (1024.0 * 1024.0))}MB"
-    bytes < 1024L * 1024 * 1024 * 1024 -> "${"%.1f".format(bytes / (1024.0 * 1024.0 * 1024.0))}GB"
-    else -> "${"%.2f".format(bytes / (1024.0 * 1024.0 * 1024.0 * 1024.0))}TB"
 }
 
 private fun parseMemBytes(value: String): Long {

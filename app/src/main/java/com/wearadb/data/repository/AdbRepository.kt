@@ -234,7 +234,6 @@ class AdbRepository @Inject constructor(
                 )
                 deviceRepository.saveLastHost(host)
                 deviceRepository.saveLastPort(port)
-                tryDisableBluetooth()
             } else {
                 android.util.Log.w("AdbRepo", "connect() returned false")
                 _connectionState.value = ConnectionState.ERROR
@@ -272,7 +271,7 @@ class AdbRepository @Inject constructor(
     suspend fun getLastHost(): String = deviceRepository.getLastHost()
     suspend fun getLastPort(): Int = deviceRepository.getLastPort()
 
-    private suspend fun tryDisableBluetooth() {
+    suspend fun disableBluetoothAfterConnect() {
         try { runSingleCommand("svc bluetooth disable", 5000) } catch (_: Exception) {}
     }
 

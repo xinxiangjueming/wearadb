@@ -3,6 +3,7 @@ package com.wearadb.ui.screens
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import java.util.zip.ZipInputStream
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -28,9 +29,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.data.model.FileEntry
 import com.wearadb.ui.AppViewModel
+import com.wearadb.ui.utils.formatBytes
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
-import com.wearadb.ui.utils.isExpandedScreen
+import com.wearadb.ui.utils.useDualPane
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
 
 @Composable
@@ -58,7 +60,7 @@ fun FilesScreen(
         pendingPullData = null
         try {
             context.contentResolver.openOutputStream(uri)?.use { it.write(data) }
-            snackbarMessage = "已保存: $name (${formatSize(data.size.toLong())})"
+            snackbarMessage = "已保存: $name (${formatBytes(data.size.toLong())})"
         } catch (e: Exception) {
             snackbarMessage = "保存失败: ${e.message}"
         }
@@ -97,7 +99,7 @@ fun FilesScreen(
     val statusBarPad = WindowInsets.statusBars.union(WindowInsets.displayCutout)
         .asPaddingValues().calculateTopPadding()
     val navBarPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val expanded = isExpandedScreen()
+    val expanded = useDualPane()
     val hPadding = adaptiveHorizontalPadding()
 
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }, containerColor = c.background, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
@@ -179,6 +181,24 @@ fun FilesScreen(
                                             snackbarMessage = "拉取失败: ${result.message}"
                                         }
                                     }
+                                },
+                                onInstall = {
+                                    viewModel.pullFile(file.path) { result ->
+                                        if (result.success && result.data != null) {
+                                            if (file.name.endsWith(".apks")) {
+                                                val apkParts = unzipApks(result.data)
+                                                if (apkParts.isNotEmpty()) {
+                                                    viewModel.installSplitApk(apkParts) { msg -> snackbarMessage = msg }
+                                                } else {
+                                                    snackbarMessage = "⚠️ .apks 文件中未找到 APK"
+                                                }
+                                            } else {
+                                                viewModel.installApk(result.data) { msg -> snackbarMessage = msg }
+                                            }
+                                        } else {
+                                            snackbarMessage = "拉取失败: ${result.message}"
+                                        }
+                                    }
                                 }
                             )
                         }
@@ -192,7 +212,7 @@ fun FilesScreen(
                         ) {
                             Text(selectedFile!!.name, style = MaterialTheme.typography.titleLarge, color = c.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Spacer(Modifier.height(8.dp))
-                            Text("大小: ${formatSize(selectedFile!!.size)}", style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant)
+                            Text("大小: ${formatBytes(selectedFile!!.size)}", style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant)
                             Text("权限: ${selectedFile!!.permissions}", style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant, fontFamily = FontFamily.Monospace)
                             Text("修改: ${selectedFile!!.lastModified}", style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant)
                             Spacer(Modifier.height(16.dp))
@@ -207,6 +227,26 @@ fun FilesScreen(
                                             saveLauncher.launch(selectedFile!!.name)
                                         } else {
                                             snackbarMessage = "拉取失败: ${result.message}"
+                                        }
+                                    }
+                                }
+                                if (selectedFile!!.name.endsWith(".apk") || selectedFile!!.name.endsWith(".apks")) {
+                                    FileActionButton("安装", c.accent, c.onSurface) {
+                                        viewModel.pullFile(selectedFile!!.path) { result ->
+                                            if (result.success && result.data != null) {
+                                                if (selectedFile!!.name.endsWith(".apks")) {
+                                                    val apkParts = unzipApks(result.data)
+                                                    if (apkParts.isNotEmpty()) {
+                                                        viewModel.installSplitApk(apkParts) { msg -> snackbarMessage = msg }
+                                                    } else {
+                                                        snackbarMessage = "⚠️ .apks 文件中未找到 APK"
+                                                    }
+                                                } else {
+                                                    viewModel.installApk(result.data) { msg -> snackbarMessage = msg }
+                                                }
+                                            } else {
+                                                snackbarMessage = "拉取失败: ${result.message}"
+                                            }
                                         }
                                     }
                                 }
@@ -245,6 +285,24 @@ fun FilesScreen(
                                         snackbarMessage = "拉取失败: ${result.message}"
                                     }
                                 }
+                            },
+                            onInstall = {
+                                viewModel.pullFile(file.path) { result ->
+                                    if (result.success && result.data != null) {
+                                        if (file.name.endsWith(".apks")) {
+                                            val apkParts = unzipApks(result.data)
+                                            if (apkParts.isNotEmpty()) {
+                                                viewModel.installSplitApk(apkParts) { msg -> snackbarMessage = msg }
+                                            } else {
+                                                snackbarMessage = "⚠️ .apks 文件中未找到 APK"
+                                            }
+                                        } else {
+                                            viewModel.installApk(result.data) { msg -> snackbarMessage = msg }
+                                        }
+                                    } else {
+                                        snackbarMessage = "拉取失败: ${result.message}"
+                                    }
+                                }
                             }
                         )
                     }
@@ -263,7 +321,14 @@ fun FilesScreen(
             title = { Text("文件内容", style = MaterialTheme.typography.titleMedium, color = c.onSurface) },
             text = {
                 LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
-                    item { Text(fileContent.take(10000), style = MaterialTheme.typography.labelMedium, color = c.onSurface, fontFamily = FontFamily.Monospace) }
+                    item {
+                        val displayContent = fileContent.take(10000)
+                        Text(displayContent, style = MaterialTheme.typography.labelMedium, color = c.onSurface, fontFamily = FontFamily.Monospace)
+                        if (fileContent.length > 10000) {
+                            Spacer(Modifier.height(8.dp))
+                            Text("⚠️ 内容过长，仅显示前 10000 字符（共 ${fileContent.length} 字符）", style = MaterialTheme.typography.labelSmall, color = c.error)
+                        }
+                    }
                 }
             },
             confirmButton = { TextButton(onClick = { showFileContent = false }) { Text("关闭", color = c.accent) } }
@@ -285,7 +350,7 @@ private fun QuickPathChip(path: String, onClick: () -> Unit) {
 @Composable
 private fun FileCard(
     file: FileEntry, isSelected: Boolean,
-    onClick: () -> Unit, onDelete: () -> Unit, onView: () -> Unit, onPull: () -> Unit
+    onClick: () -> Unit, onDelete: () -> Unit, onView: () -> Unit, onPull: () -> Unit, onInstall: () -> Unit
 ) {
     val c = WearAdbTheme.colors
     val shape = remember { RoundedCornerShape(20.dp) }
@@ -304,7 +369,7 @@ private fun FileCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(file.name, style = MaterialTheme.typography.titleMedium, color = c.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row {
-                    if (!file.isDirectory) { Text(formatSize(file.size), style = MaterialTheme.typography.labelSmall, color = c.onSurfaceVariant); Spacer(Modifier.width(12.dp)) }
+                    if (!file.isDirectory) { Text(formatBytes(file.size), style = MaterialTheme.typography.labelSmall, color = c.onSurfaceVariant); Spacer(Modifier.width(12.dp)) }
                     Text(file.permissions, style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace, color = c.onSurfaceVariant)
                     Spacer(Modifier.width(12.dp))
                     Text(file.lastModified, style = MaterialTheme.typography.labelSmall, color = c.onSurfaceVariant)
@@ -315,6 +380,9 @@ private fun FileCard(
             Row(modifier = Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (!file.isDirectory) FileActionButton("查看", c.accent, c.onSurface) { onView() }
                 if (!file.isDirectory) FileActionButton("拉取", c.info, c.onSurface) { onPull() }
+                if (!file.isDirectory && (file.name.endsWith(".apk") || file.name.endsWith(".apks"))) {
+                    FileActionButton("安装", c.accent, c.onSurface) { onInstall() }
+                }
                 FileActionButton("删除", c.buttonDanger, c.buttonDangerText) { onDelete() }
             }
         }
@@ -331,9 +399,20 @@ private fun FileActionButton(text: String, bgColor: Color, textColor: Color, onC
     ) { Text(text, style = MaterialTheme.typography.labelLarge, color = textColor) }
 }
 
-private fun formatSize(bytes: Long): String = when {
-    bytes < 1024 -> "${bytes}B"
-    bytes < 1024 * 1024 -> "${bytes / 1024}KB"
-    bytes < 1024 * 1024 * 1024 -> "${"%.1f".format(bytes / (1024.0 * 1024.0))}MB"
-    else -> "${"%.2f".format(bytes / (1024.0 * 1024.0 * 1024.0))}GB"
+private fun unzipApks(apksData: ByteArray): List<Pair<String, ByteArray>> {
+    val result = mutableListOf<Pair<String, ByteArray>>()
+    try {
+        val zis = ZipInputStream(apksData.inputStream())
+        var entry = zis.nextEntry
+        while (entry != null) {
+            if (!entry.isDirectory && entry.name.endsWith(".apk")) {
+                result.add(entry.name to zis.readBytes())
+            }
+            entry = zis.nextEntry
+        }
+        zis.close()
+    } catch (_: Exception) {}
+    return result
 }
+
+

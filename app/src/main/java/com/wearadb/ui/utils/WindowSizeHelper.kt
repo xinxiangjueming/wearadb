@@ -1,5 +1,6 @@
 package com.wearadb.ui.utils
 
+import android.content.res.Configuration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.platform.LocalConfiguration
@@ -14,12 +15,29 @@ import androidx.compose.ui.unit.dp
  * - Expanded: width ≥ 840dp （平板横屏）
  */
 
+/** 判断当前是否为横屏 */
+@Composable
+@ReadOnlyComposable
+fun isLandscape(): Boolean {
+    return LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+}
+
 /** 判断当前窗口是否为大屏（Medium 或 Expanded） */
 @Composable
 @ReadOnlyComposable
 fun isExpandedScreen(): Boolean {
     val config = LocalConfiguration.current
     return config.screenWidthDp >= 600
+}
+
+/**
+ * 判断是否应使用分栏布局
+ * 条件：大屏 OR 横屏（手机横屏也走分栏）
+ */
+@Composable
+@ReadOnlyComposable
+fun useDualPane(): Boolean {
+    return isExpandedScreen() || isLandscape()
 }
 
 /** 返回适配后的水平边距：Compact 20dp，Medium 32dp，Expanded 48dp */

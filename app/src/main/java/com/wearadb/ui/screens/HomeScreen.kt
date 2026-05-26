@@ -41,8 +41,9 @@ fun HomeScreen(
     val devices by viewModel.devices.collectAsState(initial = emptyList())
     val lastHost by viewModel.lastHost.collectAsState()
     val lastPort by viewModel.lastPort.collectAsState()
+    val showBluetoothDialog by viewModel.showBluetoothDialog.collectAsState()
 
-    val expanded = isExpandedScreen()
+    val expanded = useDualPane()
     val hPadding = adaptiveHorizontalPadding()
 
     val statusBarPad = remember {
@@ -327,6 +328,20 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    // ── 连接成功后询问是否关闭蓝牙 ──
+    if (showBluetoothDialog) {
+        val cr = WearAdbTheme.shape.cornerRadius
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissBluetoothDialog() },
+            containerColor = c.surface,
+            shape = RoundedCornerShape(cr),
+            title = { Text("连接成功", style = MaterialTheme.typography.titleMedium, color = c.onSurface) },
+            text = { Text("是否关闭设备蓝牙以节省电量？", style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant) },
+            confirmButton = { TextButton(onClick = { viewModel.confirmDisableBluetooth() }) { Text("关闭蓝牙", color = c.accent) } },
+            dismissButton = { TextButton(onClick = { viewModel.dismissBluetoothDialog() }) { Text("保留", color = c.onSurfaceVariant) } }
+        )
     }
 }
 

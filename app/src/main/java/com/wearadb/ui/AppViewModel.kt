@@ -62,6 +62,10 @@ class AppViewModel @Inject constructor(
     private val _screenshotLoading = MutableStateFlow(false)
     val screenshotLoading: StateFlow<Boolean> = _screenshotLoading.asStateFlow()
 
+    // Bluetooth dialog
+    private val _showBluetoothDialog = MutableStateFlow(false)
+    val showBluetoothDialog: StateFlow<Boolean> = _showBluetoothDialog.asStateFlow()
+
     // Last IP
     private val _lastHost = MutableStateFlow("")
     val lastHost: StateFlow<String> = _lastHost.asStateFlow()
@@ -95,9 +99,21 @@ class AppViewModel @Inject constructor(
     // ── Connection ──
     fun connect(host: String, port: Int = 5555, useTls: Boolean = false) {
         viewModelScope.launch {
-            try { repository.connect(host, port, useTls) } catch (_: Exception) {}
+            try {
+                repository.connect(host, port, useTls)
+                if (repository.connectionState.value == ConnectionState.CONNECTED) {
+                    _showBluetoothDialog.value = true
+                }
+            } catch (_: Exception) {}
         }
     }
+
+    fun confirmDisableBluetooth() {
+        _showBluetoothDialog.value = false
+        viewModelScope.launch { repository.disableBluetoothAfterConnect() }
+    }
+
+    fun dismissBluetoothDialog() { _showBluetoothDialog.value = false }
 
     fun disconnect() {
         viewModelScope.launch {
