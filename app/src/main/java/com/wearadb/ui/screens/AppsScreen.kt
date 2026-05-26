@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.util.zip.ZipInputStream
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.data.model.AppEntry
 import com.wearadb.ui.AppFilter
@@ -70,14 +71,39 @@ fun AppsScreen(
         .asPaddingValues().calculateTopPadding()
     val navBarPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-    // APK 安装：拉起系统文件选择器
+    // APK 安装：拉起系统文件选择器（支持 .apk 和 .apks）
     val context = LocalContext.current
     val apkPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri ?: return@rememberLauncherForActivityResult
         try {
             val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
             if (bytes != null) {
-                viewModel.installApk(bytes) { result -> snackbarMessage = result }
+                val fileName = uri.lastPathSegment ?: ""
+                if (fileName.endsWith(".apks", ignoreCase = true) ||
+                    fileName.endsWith(".xapk", ignoreCase = true) ||
+                    fileName.endsWith(".apkm", ignoreCase = true)
+                ) {
+                    // Split APK: 解压并逐个提取
+                    val apkFiles = mutableListOf<Pair<String, ByteArray>>()
+                    ZipInputStream(bytes.inputStream()).use { zip ->
+                        var entry = zip.nextEntry
+                        while (entry != null) {
+                            if (!entry.isDirectory && entry.name.endsWith(".apk", ignoreCase = true)) {
+                                val name = entry.name.substringAfterLast('/')
+                                apkFiles.add(name to zip.readBytes())
+                            }
+                            entry = zip.nextEntry
+                        }
+                    }
+                    if (apkFiles.isNotEmpty()) {
+                        viewModel.installSplitApk(apkFiles) { result -> snackbarMessage = result }
+                    } else {
+                        snackbarMessage = "未找到 APK 文件"
+                    }
+                } else {
+                    // 普通 APK
+                    viewModel.installApk(bytes) { result -> snackbarMessage = result }
+                }
             } else {
                 snackbarMessage = "读取 APK 失败"
             }
@@ -104,8 +130,8 @@ fun AppsScreen(
                     Spacer(Modifier.weight(1f))
                     Text("${filteredApps.size}", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
                     Spacer(Modifier.width(8.dp))
-                    IconButton(onClick = { apkPicker.launch("application/vnd.android.package-archive") }) {
-                        Icon(Icons.Outlined.InstallMobile, "安装 APK", tint = c.accent, modifier = Modifier.size(20.dp))
+                    IconButton(onClick = { apkPicker.launch("*/*") }) {
+                        Icon(Icons.Outlined.InstallMobile, "安装 APK/APKS", tint = c.accent, modifier = Modifier.size(20.dp))
                     }
                     IconButton(onClick = { viewModel.loadApps(force = true) }) {
                         Icon(Icons.Outlined.Refresh, "刷新", tint = c.onSurfaceVariant, modifier = Modifier.size(20.dp))

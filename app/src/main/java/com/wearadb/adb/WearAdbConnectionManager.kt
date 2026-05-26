@@ -91,7 +91,7 @@ class WearAdbConnectionManager private constructor(
             val subject = X500Principal("CN=wear-adb")
             val serial = BigInteger.ONE
             val notBefore = Date()
-            val notAfter = Date(System.currentTimeMillis() + 365L * 24 * 60 * 60 * 1000)
+            val notAfter = Date(System.currentTimeMillis() + 10L * 365 * 24 * 60 * 60 * 1000)
 
             val builder = JcaX509v3CertificateBuilder(
                 subject, serial, notBefore, notAfter, subject, publicKey

@@ -123,7 +123,6 @@ object AdbOutputParser {
             buildId = props["ro.build.display.id"] ?: "",
             fingerprint = props["ro.build.fingerprint"] ?: "",
             abi = props["ro.product.cpu.abi"] ?: "",
-            cpuAbi = props["ro.product.cpu.abilist"] ?: "",
             serialno = props["ro.serialno"] ?: "",
             batteryLevel = batteryLevel,
             batteryStatus = batteryStatus,

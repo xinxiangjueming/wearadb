@@ -79,6 +79,17 @@ class AppViewModel @Inject constructor(
             _lastHost.value = repository.getLastHost()
             _lastPort.value = repository.getLastPort()
         }
+        // 监听连接状态，断开时清空已加载数据
+        viewModelScope.launch {
+            repository.connectionState.collect { state ->
+                if (state == ConnectionState.DISCONNECTED || state == ConnectionState.ERROR) {
+                    _apps.value = emptyList()
+                    _files.value = emptyList()
+                    _deviceInfo.value = null
+                    _currentPath.value = "/sdcard"
+                }
+            }
+        }
     }
 
     // ── Connection ──
@@ -173,11 +184,15 @@ class AppViewModel @Inject constructor(
     }
 
     // ── Apps ──
+    private var appsLoadedOnce = false
     fun loadApps(force: Boolean = false) {
         viewModelScope.launch {
-            if (!force && _apps.value.isNotEmpty()) return@launch
+            if (!force && appsLoadedOnce && _apps.value.isNotEmpty()) return@launch
             _appsLoading.value = true
-            try { _apps.value = repository.getInstalledPackages() } catch (_: Exception) {}
+            try {
+                _apps.value = repository.getInstalledPackages()
+                appsLoadedOnce = true
+            } catch (_: Exception) {}
             _appsLoading.value = false
         }
     }
@@ -208,6 +223,15 @@ class AppViewModel @Inject constructor(
         viewModelScope.launch {
             onResult("正在安装...")
             val result = repository.installApk(apkData)
+            onResult(result)
+            loadApps(force = true)
+        }
+    }
+
+    fun installSplitApk(apkFiles: List<Pair<String, ByteArray>>, onResult: (String) -> Unit) {
+        viewModelScope.launch {
+            onResult("正在安装 Split APK (${apkFiles.size} 个文件)...")
+            val result = repository.installSplitApk(apkFiles)
             onResult(result)
             loadApps(force = true)
         }

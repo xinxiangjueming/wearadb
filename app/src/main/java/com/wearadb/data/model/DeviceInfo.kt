@@ -25,7 +25,6 @@ data class DeviceInfo(
     val uptime: String = "",
     val memTotal: String = "",
     val memAvail: String = "",
-    val cpuAbi: String = "",
     // 存储信息 (bytes)
     val storageTotal: Long = 0,
     val storageUsed: Long = 0,

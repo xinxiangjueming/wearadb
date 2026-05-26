@@ -484,7 +484,58 @@ class AdbRepository @Inject constructor(
         }
     }
 
-    // ── 文件操作 ──
+    // ── 安装 Split APK (.apks) ──
+    suspend fun installSplitApk(apkFiles: List<Pair<String, ByteArray>>): String = withContext(Dispatchers.IO) {
+        val tmpDir = "/data/local/tmp/_wearadb_split_${System.currentTimeMillis()}"
+        try {
+            // 1. 创建临时目录
+            runSingleCommand("mkdir -p $tmpDir", 5000)
+            // 2. 推送所有 split APK 到设备
+            for ((name, data) in apkFiles) {
+                val remotePath = "$tmpDir/$name"
+                val pushResult = pushFile(data, remotePath)
+                if (!pushResult.contains("成功")) {
+                    runSingleCommand("rm -rf $tmpDir", 5000)
+                    return@withContext "推送失败 ($name): $pushResult"
+                }
+            }
+            // 3. 创建安装会话
+            val totalSize = apkFiles.sumOf { it.second.size }
+            val createResult = runSingleCommand("pm install-create -S $totalSize", 30000)
+            val sessionId = Regex("sessionId\\s*[=:]?\\s*(\\d+)", RegexOption.IGNORE_CASE)
+                .find(createResult)?.groupValues?.get(1)
+                ?: Regex("(\\d+)").find(createResult.trim())?.groupValues?.get(1)
+            if (sessionId == null) {
+                runSingleCommand("rm -rf $tmpDir", 5000)
+                return@withContext "创建会话失败: ${createResult.trim()}"
+            }
+            // 4. 写入每个 split APK
+            for ((name, _) in apkFiles) {
+                val remotePath = "$tmpDir/$name"
+                val writeResult = runSingleCommand("pm install-write $sessionId \"$name\" $remotePath", 60000)
+                if (!writeResult.contains("Success") && writeResult.trim().isNotEmpty() &&
+                    !writeResult.contains("success", ignoreCase = true)) {
+                    runSingleCommand("pm install-abandon $sessionId", 5000)
+                    runSingleCommand("rm -rf $tmpDir", 5000)
+                    return@withContext "写入失败 ($name): ${writeResult.trim()}"
+                }
+            }
+            // 5. 提交安装
+            val commitResult = runSingleCommand("pm install-commit $sessionId", 60000)
+            // 6. 清理临时文件
+            runSingleCommand("rm -rf $tmpDir", 5000)
+            // 7. 返回结果
+            val clean = commitResult.trim()
+            when {
+                clean.contains("Success") -> "Split APK 安装成功 (${apkFiles.size} 个文件)"
+                clean.isEmpty() -> "安装失败: 无响应"
+                else -> "安装失败: $clean"
+            }
+        } catch (e: Exception) {
+            runSingleCommand("rm -rf $tmpDir", 5000)
+            "安装异常: ${e.message}"
+        }
+    }
     suspend fun listFiles(path: String): List<FileEntry> = withContext(Dispatchers.IO) {
         val output = runSingleCommand("ls -Lla $path 2>&1")
         android.util.Log.d("AdbRepo", "listFiles($path) output length=${output.length}, first300=${output.take(300)}")
