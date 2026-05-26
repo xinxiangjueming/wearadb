@@ -18,7 +18,16 @@ import javax.inject.Singleton
 class FastbootRepository @Inject constructor(
     @ApplicationContext private val appContext: Context
 ) {
-    private val manager = FastbootManager(appContext)
+    private val _connectLog = MutableStateFlow("")
+    val connectLog: StateFlow<String> = _connectLog.asStateFlow()
+    private val logLines = mutableListOf<String>()
+
+    private val manager = FastbootManager(appContext) { msg ->
+        synchronized(logLines) {
+            logLines.add(msg)
+            _connectLog.value = logLines.joinToString("\n")
+        }
+    }
 
     private val _connectionState = MutableStateFlow(FastbootConnectionState.DISCONNECTED)
     val connectionState: StateFlow<FastbootConnectionState> = _connectionState.asStateFlow()
@@ -34,6 +43,7 @@ class FastbootRepository @Inject constructor(
 
     suspend fun connect(device: FastbootDevice): Boolean = withContext(Dispatchers.IO) {
         try {
+            synchronized(logLines) { logLines.clear(); _connectLog.value = "" }
             _connectionState.value = FastbootConnectionState.CONNECTING
             val success = manager.connect(device)
             if (success) {

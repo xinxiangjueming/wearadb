@@ -85,6 +85,7 @@ class AppViewModel @Inject constructor(
     // ── Fastboot ──
     val fastbootConnectionState: StateFlow<FastbootConnectionState> = fastbootRepository.connectionState
     val fastbootConnectedDevice: StateFlow<FastbootDevice?> = fastbootRepository.connectedDevice
+    val fastbootConnectLog: StateFlow<String> = fastbootRepository.connectLog
 
     private val _fastbootDevices = MutableStateFlow<List<FastbootDevice>>(emptyList())
     val fastbootDevices: StateFlow<List<FastbootDevice>> = _fastbootDevices.asStateFlow()
@@ -404,26 +405,42 @@ class AppViewModel @Inject constructor(
     // ── Fastboot ──
 
     fun scanFastbootDevices() {
-        _fastbootDevices.value = fastbootRepository.scanDevices()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            _fastbootDevices.value = fastbootRepository.scanDevices()
+        }
     }
 
     fun connectFastboot(device: FastbootDevice) {
         viewModelScope.launch {
-            val success = fastbootRepository.connect(device)
-            if (success) {
-                loadFastbootInfo()
+            try {
+                val success = fastbootRepository.connect(device)
+                if (success) {
+                    loadFastbootInfo()
+                } else {
+                    _fastbootResult.emit("连接失败: 请检查手机是否弹出了USB权限对话框并点击允许。如果没有弹窗，试试拔掉USB线重新插入后再连接。查看Logcat(FastbootManager)可获取详细日志。")
+                }
+            } catch (e: Exception) {
+                _fastbootResult.emit("连接异常: ${e.message}")
             }
         }
     }
 
     fun disconnectFastboot() {
-        fastbootRepository.disconnect()
-        _fastbootInfo.value = emptyMap()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                fastbootRepository.disconnect()
+            } catch (_: Exception) {}
+            _fastbootInfo.value = emptyMap()
+        }
     }
 
     private fun loadFastbootInfo() {
         viewModelScope.launch {
-            _fastbootInfo.value = fastbootRepository.getDeviceInfo()
+            try {
+                _fastbootInfo.value = fastbootRepository.getDeviceInfo()
+            } catch (e: Exception) {
+                _fastbootResult.emit("获取设备信息失败: ${e.message}")
+            }
         }
     }
 

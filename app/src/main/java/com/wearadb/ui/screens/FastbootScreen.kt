@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -42,6 +43,7 @@ fun FastbootScreen(
     val fastbootDevices by viewModel.fastbootDevices.collectAsState()
     val fastbootInfo by viewModel.fastbootInfo.collectAsState()
     val flashProgress by viewModel.fastbootFlashProgress.collectAsState()
+    val connectLog by viewModel.fastbootConnectLog.collectAsState()
 
     var oemCommand by remember { mutableStateOf("") }
     var showOemDialog by remember { mutableStateOf(false) }
@@ -50,11 +52,17 @@ fun FastbootScreen(
     var showBootDialog by remember { mutableStateOf(false) }
     var showStageDialog by remember { mutableStateOf(false) }
     var resultMessage by remember { mutableStateOf<String?>(null) }
+    var showRebootDialog by remember { mutableStateOf(false) }
+    var lastFlashPartition by remember { mutableStateOf("") }
 
     // 监听 fastboot 结果
     LaunchedEffect(Unit) {
         viewModel.fastbootResult.collect { msg ->
             resultMessage = msg
+            // 刷入成功后弹出重启确认
+            if (msg.contains("成功") && msg.contains("刷入")) {
+                showRebootDialog = true
+            }
         }
     }
 
@@ -116,6 +124,14 @@ fun FastbootScreen(
                     cornerRadius = cornerRadius,
                     onConnect = { viewModel.connectFastboot(it) },
                     onRefresh = { viewModel.scanFastbootDevices() }
+                )
+            }
+
+            // ── 连接日志（连接中或失败时显示）──
+            if (connectLog.isNotEmpty() && connectionState != FastbootConnectionState.CONNECTED) {
+                ConnectLogCard(
+                    log = connectLog,
+                    cornerRadius = cornerRadius
                 )
             }
 
@@ -258,7 +274,7 @@ fun FastbootScreen(
                 ) {
                     ActionButton(
                         label = "获取所有变量 (getvar all)",
-                        icon = Icons.Default.ListAlt,
+                        icon = Icons.Default.Notes,
                         colors = colors,
                         cornerRadius = cornerRadius,
                         onClick = { viewModel.loadFastbootVarAll() }
@@ -305,6 +321,7 @@ fun FastbootScreen(
     if (showFlashDialog) {
         FlashPartitionDialog(
             onConfirm = { partition, data ->
+                lastFlashPartition = partition
                 viewModel.fastbootFlash(partition, data)
                 showFlashDialog = false
             },
@@ -345,6 +362,38 @@ fun FastbootScreen(
             cornerRadius = cornerRadius
         )
     }
+
+    // ── 刷入成功后重启确认 ──
+    if (showRebootDialog) {
+        val colors = WearAdbTheme.colors
+        AlertDialog(
+            onDismissRequest = { showRebootDialog = false },
+            containerColor = colors.surface,
+            titleContentColor = colors.onSurface,
+            textContentColor = colors.onSurfaceDim,
+            title = { Text("刷入成功") },
+            text = {
+                Text(
+                    "$lastFlashPartition 分区已刷入完成。是否重启到 Recovery 模式？",
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showRebootDialog = false
+                    viewModel.fastbootRebootRecovery()
+                }) {
+                    Text("重启到 Recovery", color = colors.accent)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRebootDialog = false }) {
+                    Text("留在 Fastboot", color = colors.onSurfaceDim)
+                }
+            },
+            shape = RoundedCornerShape(cornerRadius)
+        )
+    }
 }
 
 // ── 组件 ──
@@ -374,29 +423,37 @@ private fun ConnectionStatusCard(
         shape = RoundedCornerShape(cornerRadius),
         colors = CardDefaults.cardColors(containerColor = colors.surface)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .clip(RoundedCornerShape(5.dp))
-                    .background(statusColor)
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = statusText,
-                color = colors.onSurface,
-                fontSize = 14.sp,
-                modifier = Modifier.weight(1f)
-            )
-            if (connectionState == FastbootConnectionState.CONNECTED) {
-                TextButton(onClick = onDisconnect) {
-                    Text("断开", color = colors.error)
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(statusColor)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = statusText,
+                    color = colors.onSurface,
+                    fontSize = 14.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                if (connectionState == FastbootConnectionState.CONNECTED) {
+                    TextButton(onClick = onDisconnect) {
+                        Text("断开", color = colors.error)
+                    }
                 }
+            }
+            if (connectionState == FastbootConnectionState.CONNECTING) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "如果手机弹出了USB权限对话框，请点击允许",
+                    color = colors.onSurfaceDim,
+                    fontSize = 12.sp
+                )
             }
         }
     }
@@ -526,7 +583,7 @@ private fun DeviceInfoCard(
                         key,
                         color = colors.onSurfaceDim,
                         fontSize = 13.sp,
-                        modifier = Modifier.width(120.dp)
+                        modifier = Modifier.width(140.dp)
                     )
                     Text(
                         value,
@@ -638,6 +695,47 @@ private fun FlashProgressCard(
 }
 
 @Composable
+private fun ConnectLogCard(
+    log: String,
+    cornerRadius: androidx.compose.ui.unit.Dp
+) {
+    val colors = WearAdbTheme.colors
+    val hasError = log.contains("[错误]") || log.contains("失败")
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(cornerRadius),
+        colors = CardDefaults.cardColors(containerColor = colors.surface)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (hasError) Icons.Default.Error else Icons.Default.Notes,
+                    null,
+                    tint = if (hasError) colors.error else colors.accent,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "连接日志",
+                    color = colors.onSurface,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 14.sp
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                log,
+                color = if (hasError) colors.error else colors.onSurfaceDim,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                lineHeight = 16.sp
+            )
+        }
+    }
+}
+
+@Composable
 private fun ResultCard(
     message: String,
     cornerRadius: androidx.compose.ui.unit.Dp,
@@ -730,6 +828,7 @@ private fun OemCommandDialog(
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ErasePartitionDialog(
     onConfirm: (String) -> Unit,
@@ -738,6 +837,8 @@ private fun ErasePartitionDialog(
 ) {
     val colors = WearAdbTheme.colors
     var partition by remember { mutableStateOf("") }
+
+    val erasePartitions = listOf("userdata", "cache", "dalvik_cache", "metadata", "misc")
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -753,11 +854,40 @@ private fun ErasePartitionDialog(
                     fontSize = 13.sp
                 )
                 Spacer(modifier = Modifier.height(12.dp))
+                Text("选择分区", color = colors.onSurfaceDim, fontSize = 12.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    erasePartitions.forEach { name ->
+                        val selected = partition == name
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(cornerRadius / 2))
+                                .background(if (selected) colors.error.copy(alpha = 0.15f) else colors.surfaceAlt)
+                                .border(
+                                    1.dp,
+                                    if (selected) colors.error else colors.border,
+                                    RoundedCornerShape(cornerRadius / 2)
+                                )
+                                .clickable { partition = name }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                name,
+                                color = if (selected) colors.error else colors.onSurface,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
                 OutlinedTextField(
                     value = partition,
                     onValueChange = { partition = it },
                     label = { Text("分区名", color = colors.label) },
-                    placeholder = { Text("例如: userdata, cache, system", color = colors.onSurfaceDim) },
+                    placeholder = { Text("或手动输入", color = colors.onSurfaceDim) },
                     singleLine = true,
                     shape = RoundedCornerShape(cornerRadius / 2),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -787,6 +917,7 @@ private fun ErasePartitionDialog(
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun FlashPartitionDialog(
     onConfirm: (String, ByteArray) -> Unit,
@@ -813,6 +944,8 @@ private fun FlashPartitionDialog(
         }
     }
 
+    val presetPartitions = listOf("recovery", "boot", "vendor_boot", "dtbo", "vbmeta", "system", "super", "modem", "persist")
+
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = colors.surface,
@@ -821,11 +954,40 @@ private fun FlashPartitionDialog(
         title = { Text("刷入分区") },
         text = {
             Column {
+                Text("选择分区", color = colors.onSurfaceDim, fontSize = 12.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    presetPartitions.forEach { name ->
+                        val selected = partition == name
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(cornerRadius / 2))
+                                .background(if (selected) colors.accent else colors.surfaceAlt)
+                                .border(
+                                    1.dp,
+                                    if (selected) colors.accent else colors.border,
+                                    RoundedCornerShape(cornerRadius / 2)
+                                )
+                                .clickable { partition = name }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                name,
+                                color = if (selected) colors.buttonPrimaryText else colors.onSurface,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
                 OutlinedTextField(
                     value = partition,
                     onValueChange = { partition = it },
                     label = { Text("分区名", color = colors.label) },
-                    placeholder = { Text("例如: boot, recovery, system", color = colors.onSurfaceDim) },
+                    placeholder = { Text("或手动输入", color = colors.onSurfaceDim) },
                     singleLine = true,
                     shape = RoundedCornerShape(cornerRadius / 2),
                     colors = OutlinedTextFieldDefaults.colors(

@@ -126,15 +126,22 @@ fun AppsScreen(
                         try { tmpApks.delete() } catch (_: Exception) {}
                     }
                 } else {
-                    // ── 普通 APK: 读入内存 ──
-                    val allBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                    if (allBytes == null || allBytes.isEmpty()) {
-                        launch(Dispatchers.Main) { snackbarMessage = "读取 APK 失败" }
-                        return@launch
-                    }
-                    android.util.Log.d("AppsScreen", "readFromUri: ${allBytes.size} bytes")
-                    viewModel.installApk(allBytes) { result ->
-                        snackbarMessage = result
+                    // ── 普通 APK: 拷贝到临时文件后流式推送（避免 OOM）──
+                    val tmpApk = File(context.cacheDir, "wearadb_install.apk")
+                    try {
+                        val copied = context.contentResolver.openInputStream(uri)?.use { input ->
+                            tmpApk.outputStream().use { output -> input.copyTo(output) }
+                        } ?: -1L
+                        if (copied <= 0) {
+                            launch(Dispatchers.Main) { snackbarMessage = "读取 APK 失败" }
+                            return@launch
+                        }
+                        android.util.Log.d("AppsScreen", "apk copyTo: $copied bytes")
+                        viewModel.installApkFile(tmpApk) { result ->
+                            snackbarMessage = result
+                        }
+                    } finally {
+                        try { tmpApk.delete() } catch (_: Exception) {}
                     }
                 }
             } catch (e: Exception) {
