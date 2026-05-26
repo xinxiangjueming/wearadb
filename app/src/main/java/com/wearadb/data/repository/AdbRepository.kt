@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
+import java.io.File
 import java.io.IOException
 import java.io.InputStreamReader
 import java.io.OutputStream
@@ -280,45 +281,54 @@ class AdbRepository @Inject constructor(
         return commands.map { runSingleCommand(it, timeoutMs) }
     }
 
-    // ── 核心：执行命令 ──
+    // ── 核心：执行命令（带重试）──
     private suspend fun runSingleCommand(command: String, timeoutMs: Long = 15000): String =
         withContext(Dispatchers.IO) {
-            try {
-                android.util.Log.d("AdbRepo", "runSingleCommand: cmd=${command.take(80)}")
-                val endMarker = "__CMD_END_${System.nanoTime()}__"
+            val maxRetries = 3
+            var lastException: Exception? = null
+            for (attempt in 1..maxRetries) {
+                try {
+                    android.util.Log.d("AdbRepo", "runSingleCommand: cmd=${command.take(80)}")
+                    val endMarker = "__CMD_END_${System.nanoTime()}__"
 
-                // 尝试 EXEC 模式（合并 stderr 到 stdout）
-                var output = readUntilMarker(
-                    openStream = { manager.openStream("exec:$command 2>&1") },
-                    endMarker = "",  // exec 模式不用标记，读到 EOF 即结束
-                    writeCommand = false,
-                    timeoutMs = timeoutMs
-                )
-
-                // EXEC 失败或无输出 → fallback SHELL 模式
-                if (output.isEmpty()) {
-                    android.util.Log.d("AdbRepo", "runSingleCommand: exec empty, fallback to shell")
-                    output = readUntilMarker(
-                        openStream = { manager.openStream(LocalServices.SHELL) },
-                        endMarker = endMarker,
-                        writeCommand = true,
-                        command = "$command; echo $endMarker",
+                    var output = readUntilMarker(
+                        openStream = { manager.openStream("exec:$command 2>&1") },
+                        endMarker = "",
+                        writeCommand = false,
                         timeoutMs = timeoutMs
                     )
-                    // 去掉末尾的标记行和可能的 prompt
-                    output = output.lineSequence()
-                        .filter { !it.contains(endMarker) }
-                        .toList()
-                        .dropLastWhile { it.trim().let { l -> l.endsWith("$") || l.endsWith("#") } }
-                        .joinToString("\n")
-                }
 
-                android.util.Log.d("AdbRepo", "runSingleCommand: done, chars=${output.length}")
-                output.trim()
-            } catch (e: Exception) {
-                android.util.Log.e("AdbRepo", "runSingleCommand exception: ${e.message}", e)
-                ""
+                    if (output.isEmpty()) {
+                        android.util.Log.d("AdbRepo", "runSingleCommand: exec empty, fallback to shell")
+                        output = readUntilMarker(
+                            openStream = { manager.openStream(LocalServices.SHELL) },
+                            endMarker = endMarker,
+                            writeCommand = true,
+                            command = "$command; echo $endMarker",
+                            timeoutMs = timeoutMs
+                        )
+                        output = output.lineSequence()
+                            .filter { !it.contains(endMarker) }
+                            .toList()
+                            .dropLastWhile { it.trim().let { l -> l.endsWith("$") || l.endsWith("#") } }
+                            .joinToString("\n")
+                    }
+
+                    android.util.Log.d("AdbRepo", "runSingleCommand: done, chars=${output.length}")
+                    return@withContext output.trim()
+                } catch (e: java.net.ConnectException) {
+                    lastException = e
+                    android.util.Log.w("AdbRepo", "runSingleCommand: attempt $attempt/$maxRetries failed: ${e.message}")
+                    if (attempt < maxRetries) {
+                        kotlinx.coroutines.delay(500L * attempt) // 递增等待
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("AdbRepo", "runSingleCommand exception: ${e.message}", e)
+                    return@withContext ""
+                }
             }
+            android.util.Log.e("AdbRepo", "runSingleCommand: all $maxRetries attempts failed", lastException)
+            ""
         }
 
     /**
@@ -491,16 +501,18 @@ class AdbRepository @Inject constructor(
             runSingleCommand("mkdir -p $tmpDir", 5000)
             // 2. 推送所有 split APK 到设备
             for ((name, data) in apkFiles) {
-                val remotePath = "$tmpDir/$name"
+                // 用安全文件名，避免特殊字符导致 shell 解析异常
+                val safeName = name.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                val remotePath = "$tmpDir/$safeName"
                 val pushResult = pushFile(data, remotePath)
                 if (!pushResult.contains("成功")) {
                     runSingleCommand("rm -rf $tmpDir", 5000)
                     return@withContext "推送失败 ($name): $pushResult"
                 }
             }
-            // 3. 创建安装会话
-            val totalSize = apkFiles.sumOf { it.second.size }
-            val createResult = runSingleCommand("pm install-create -S $totalSize", 30000)
+            // 3. 创建安装会话（不使用 -S 参数，兼容更多设备）
+            val createResult = runSingleCommand("pm install-create", 30000)
+            android.util.Log.d("AdbRepo", "installSplitApk: createResult='$createResult'")
             val sessionId = Regex("sessionId\\s*[=:]?\\s*(\\d+)", RegexOption.IGNORE_CASE)
                 .find(createResult)?.groupValues?.get(1)
                 ?: Regex("(\\d+)").find(createResult.trim())?.groupValues?.get(1)
@@ -508,10 +520,12 @@ class AdbRepository @Inject constructor(
                 runSingleCommand("rm -rf $tmpDir", 5000)
                 return@withContext "创建会话失败: ${createResult.trim()}"
             }
-            // 4. 写入每个 split APK
+            // 4. 写入每个 split APK（用安全文件名）
             for ((name, _) in apkFiles) {
-                val remotePath = "$tmpDir/$name"
-                val writeResult = runSingleCommand("pm install-write $sessionId \"$name\" $remotePath", 60000)
+                val safeName = name.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                val remotePath = "$tmpDir/$safeName"
+                val writeResult = runSingleCommand("pm install-write $sessionId $safeName $remotePath", 60000)
+                android.util.Log.d("AdbRepo", "installSplitApk: write $safeName result='$writeResult'")
                 if (!writeResult.contains("Success") && writeResult.trim().isNotEmpty() &&
                     !writeResult.contains("success", ignoreCase = true)) {
                     runSingleCommand("pm install-abandon $sessionId", 5000)
@@ -521,6 +535,7 @@ class AdbRepository @Inject constructor(
             }
             // 5. 提交安装
             val commitResult = runSingleCommand("pm install-commit $sessionId", 60000)
+            android.util.Log.d("AdbRepo", "installSplitApk: commitResult='$commitResult'")
             // 6. 清理临时文件
             runSingleCommand("rm -rf $tmpDir", 5000)
             // 7. 返回结果
@@ -535,6 +550,233 @@ class AdbRepository @Inject constructor(
             "安装异常: ${e.message}"
         }
     }
+    // ── 安装 APK（File 版，避免 OOM）──
+    suspend fun installApk(apkFile: File): String = withContext(Dispatchers.IO) {
+        try {
+            val tmpPath = "/data/local/tmp/_wearadb_install_${System.currentTimeMillis()}.apk"
+            val pushResult = pushFile(apkFile, tmpPath)
+            if (!pushResult.contains("成功")) return@withContext "推送失败: $pushResult"
+            val installResult = runSingleCommand("pm install -r $tmpPath", 60000)
+            runSingleCommand("rm -f $tmpPath", 5000)
+            val clean = installResult.trim()
+            when {
+                clean.contains("Success") -> "安装成功"
+                clean.isEmpty() -> "安装失败: 无响应"
+                else -> "安装失败: $clean"
+            }
+        } catch (e: Exception) {
+            "安装异常: ${e.message}"
+        }
+    }
+
+    // ── 安装 Split APK（File 版，避免 OOM）──
+    suspend fun installSplitApkFiles(apkFiles: List<Pair<String, File>>): String = withContext(Dispatchers.IO) {
+        val tmpDir = "/data/local/tmp/_wearadb_split_${System.currentTimeMillis()}"
+        android.util.Log.d("AdbRepo", "installSplitApkFiles: ${apkFiles.size} files, tmpDir=$tmpDir")
+        try {
+            runSingleCommand("mkdir -p $tmpDir", 5000)
+            for ((name, file) in apkFiles) {
+                val safeName = name.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                val remotePath = "$tmpDir/$safeName"
+                android.util.Log.d("AdbRepo", "installSplitApkFiles: pushing $safeName (${file.length()} bytes)")
+                val pushResult = pushFile(file, remotePath)
+                android.util.Log.d("AdbRepo", "installSplitApkFiles: push result: $pushResult")
+                if (!pushResult.contains("成功")) {
+                    runSingleCommand("rm -rf $tmpDir", 5000)
+                    return@withContext "推送失败 ($name): $pushResult"
+                }
+            }
+            // 不使用 -S 参数，兼容更多设备
+            val createResult = runSingleCommand("pm install-create", 30000)
+            android.util.Log.d("AdbRepo", "installSplitApkFiles: createResult='$createResult'")
+            val sessionId = Regex("sessionId\\s*[=:]?\\s*(\\d+)", RegexOption.IGNORE_CASE)
+                .find(createResult)?.groupValues?.get(1)
+                ?: Regex("(\\d+)").find(createResult.trim())?.groupValues?.get(1)
+            if (sessionId == null) {
+                runSingleCommand("rm -rf $tmpDir", 5000)
+                return@withContext "创建会话失败: ${createResult.trim()}"
+            }
+            for ((name, _) in apkFiles) {
+                val safeName = name.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                val remotePath = "$tmpDir/$safeName"
+                val writeResult = runSingleCommand("pm install-write $sessionId $safeName $remotePath", 60000)
+                android.util.Log.d("AdbRepo", "installSplitApkFiles: write $safeName result='$writeResult'")
+                if (!writeResult.contains("Success") && writeResult.trim().isNotEmpty() &&
+                    !writeResult.contains("success", ignoreCase = true)) {
+                    runSingleCommand("pm install-abandon $sessionId", 5000)
+                    runSingleCommand("rm -rf $tmpDir", 5000)
+                    return@withContext "写入失败 ($name): ${writeResult.trim()}"
+                }
+            }
+            val commitResult = runSingleCommand("pm install-commit $sessionId", 60000)
+            android.util.Log.d("AdbRepo", "installSplitApkFiles: commitResult='$commitResult'")
+            runSingleCommand("rm -rf $tmpDir", 5000)
+            val clean = commitResult.trim()
+            when {
+                clean.contains("Success") -> "Split APK 安装成功 (${apkFiles.size} 个文件)"
+                clean.isEmpty() -> "安装失败: 无响应"
+                else -> "安装失败: $clean"
+            }
+        } catch (e: Exception) {
+            runSingleCommand("rm -rf $tmpDir", 5000)
+            "安装异常: ${e.message}"
+        }
+    }
+
+    // ── .apks 流式安装（逐个解压+推送，避免 OOM）──
+    suspend fun installSplitApkFromApksFile(apksFile: File): String = withContext(Dispatchers.IO) {
+        val tmpDir = "/data/local/tmp/_wearadb_split_${System.currentTimeMillis()}"
+        try {
+            // 1. 创建临时目录
+            runSingleCommand("mkdir -p $tmpDir", 5000)
+
+            // 2. 创建安装会话
+            val createResult = runSingleCommand("pm install-create", 30000)
+            android.util.Log.d("AdbRepo", "installApks: createResult='$createResult'")
+            val sessionId = Regex("sessionId\\s*[=:]?\\s*(\\d+)", RegexOption.IGNORE_CASE)
+                .find(createResult)?.groupValues?.get(1)
+                ?: Regex("(\\d+)").find(createResult.trim())?.groupValues?.get(1)
+            if (sessionId == null) {
+                runSingleCommand("rm -rf $tmpDir", 5000)
+                return@withContext "创建安装会话失败: ${createResult.trim()}"
+            }
+
+            // 3. 逐个解压 APK → 推送 → 写入安装会话（不同时加载全部到内存）
+            var count = 0
+            var totalSize = 0L
+            java.util.zip.ZipInputStream(apksFile.inputStream()).use { zip ->
+                var entry = zip.nextEntry
+                while (entry != null) {
+                    if (!entry.isDirectory && entry.name.endsWith(".apk", ignoreCase = true)) {
+                        val safeName = entry.name.substringAfterLast('/')
+                            .replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                        val tmpApk = File(apksFile.parentFile, "wearadb_tmp_$safeName")
+                        try {
+                            // 解压到临时文件
+                            tmpApk.outputStream().use { out -> zip.copyTo(out) }
+                            val size = tmpApk.length()
+                            if (size <= 0) {
+                                android.util.Log.w("AdbRepo", "installApks: skipping empty $safeName")
+                                entry = zip.nextEntry
+                                continue
+                            }
+                            android.util.Log.d("AdbRepo", "installApks: extracted $safeName ($size bytes)")
+
+                            // 推送到设备
+                            val remotePath = "$tmpDir/$safeName"
+                            val pushResult = pushFile(tmpApk, remotePath)
+                            if (!pushResult.contains("成功")) {
+                                android.util.Log.e("AdbRepo", "installApks: push failed for $safeName: $pushResult")
+                                runSingleCommand("pm install-abandon $sessionId", 5000)
+                                runSingleCommand("rm -rf $tmpDir", 5000)
+                                return@withContext "推送失败 ($safeName): $pushResult"
+                            }
+
+                            // 写入安装会话
+                            val writeResult = runSingleCommand("pm install-write $sessionId $safeName $remotePath", 60000)
+                            android.util.Log.d("AdbRepo", "installApks: write $safeName result='$writeResult'")
+                            if (!writeResult.contains("Success") && writeResult.trim().isNotEmpty() &&
+                                !writeResult.contains("success", ignoreCase = true)) {
+                                runSingleCommand("pm install-abandon $sessionId", 5000)
+                                runSingleCommand("rm -rf $tmpDir", 5000)
+                                return@withContext "写入失败 ($safeName): ${writeResult.trim()}"
+                            }
+
+                            count++
+                            totalSize += size
+                        } finally {
+                            try { tmpApk.delete() } catch (_: Exception) {}
+                        }
+                    }
+                    entry = zip.nextEntry
+                }
+            }
+
+            if (count == 0) {
+                runSingleCommand("pm install-abandon $sessionId", 5000)
+                runSingleCommand("rm -rf $tmpDir", 5000)
+                return@withContext ".apks 中未找到有效 APK 文件"
+            }
+
+            // 4. 提交安装
+            android.util.Log.d("AdbRepo", "installApks: committing $count APKs, totalSize=$totalSize")
+            val commitResult = runSingleCommand("pm install-commit $sessionId", 120000)
+            android.util.Log.d("AdbRepo", "installApks: commitResult='$commitResult'")
+
+            // 5. 清理
+            runSingleCommand("rm -rf $tmpDir", 5000)
+
+            val clean = commitResult.trim()
+            when {
+                clean.contains("Success") -> "Split APK 安装成功 ($count 个文件, ${totalSize / 1024 / 1024}MB)"
+                clean.isEmpty() -> "安装失败: 无响应"
+                else -> "安装失败: $clean"
+            }
+        } catch (e: Exception) {
+            runSingleCommand("rm -rf $tmpDir", 5000)
+            "安装异常: ${e.message}"
+        }
+    }
+
+    // ── 推送文件（File 版，流式传输，避免 OOM，带重试）──
+    suspend fun pushFile(localFile: File, remotePath: String): String = withContext(Dispatchers.IO) {
+        android.util.Log.d("AdbRepo", "pushFile(File): ${localFile.name} -> $remotePath, size=${localFile.length()}")
+        val maxRetries = 3
+        var lastException: Exception? = null
+        for (attempt in 1..maxRetries) {
+            try {
+                android.util.Log.d("AdbRepo", "pushFile(File): attempt $attempt, opening SYNC stream")
+                val stream = manager.openStream(LocalServices.SYNC)
+                android.util.Log.d("AdbRepo", "pushFile(File): SYNC stream opened")
+                val os = stream.openOutputStream()
+                val inputStream = stream.openInputStream()
+
+                val pathBytes = "$remotePath,0644".toByteArray()
+                os.write(intToLittleEndian(0x444e4553)) // SEND
+                os.write(intToLittleEndian(pathBytes.size))
+                os.write(pathBytes)
+
+                val chunkSize = 64 * 1024
+                val buf = ByteArray(chunkSize)
+                localFile.inputStream().use { fis ->
+                    var bytesRead: Int
+                    while (fis.read(buf).also { bytesRead = it } != -1) {
+                        os.write(intToLittleEndian(0x41544144)) // DATA
+                        os.write(intToLittleEndian(bytesRead))
+                        os.write(buf, 0, bytesRead)
+                    }
+                }
+
+                os.write(intToLittleEndian(0x454e4f44)) // DONE
+                os.write(intToLittleEndian((System.currentTimeMillis() / 1000).toInt()))
+                os.flush()
+
+                val resp = ByteArray(8)
+                inputStream.read(resp)
+                val respCmd = littleEndianToInt(resp, 0)
+
+                try { stream.close() } catch (_: Exception) {}
+
+                val result = when (respCmd) {
+                    0x59414b4f -> "推送成功: $remotePath"
+                    0x4c494146 -> "推送失败"
+                    else -> "推送完成"
+                }
+                android.util.Log.d("AdbRepo", "pushFile(File): $result")
+                return@withContext result
+            } catch (e: java.net.ConnectException) {
+                lastException = e
+                android.util.Log.w("AdbRepo", "pushFile(File): attempt $attempt/$maxRetries ConnectException: ${e.message}")
+                if (attempt < maxRetries) kotlinx.coroutines.delay(500L * attempt)
+            } catch (e: Exception) {
+                android.util.Log.e("AdbRepo", "pushFile(File): exception: ${e.javaClass.simpleName}: ${e.message}", e)
+                return@withContext "推送异常: ${e.message}"
+            }
+        }
+        android.util.Log.e("AdbRepo", "pushFile(File): all $maxRetries attempts failed", lastException)
+        "推送异常: ${lastException?.message}"
+    }
+
     suspend fun listFiles(path: String): List<FileEntry> = withContext(Dispatchers.IO) {
         val output = runSingleCommand("ls -Lla $path 2>&1")
         android.util.Log.d("AdbRepo", "listFiles($path) output length=${output.length}, first300=${output.take(300)}")

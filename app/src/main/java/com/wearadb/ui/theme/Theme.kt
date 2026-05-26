@@ -1,7 +1,6 @@
 package com.wearadb.ui.theme
 
 import android.app.Activity
-import android.content.res.Configuration
 import android.os.Build
 import android.view.WindowManager
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -269,7 +268,6 @@ fun WearAdbTheme(
 
     val view = LocalView.current
     if (!view.isInEditMode) {
-        val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
         SideEffect {
             val window = (view.context as Activity).window
 
@@ -288,16 +286,9 @@ fun WearAdbTheme(
             insetsController.isAppearanceLightStatusBars = !darkTheme
             insetsController.isAppearanceLightNavigationBars = !darkTheme
 
-            // 横屏沉浸：隐藏小白条，滑动恢复
-            if (isLandscape) {
-                @Suppress("DEPRECATION")
-                insetsController.hide(android.view.WindowInsets.Type.navigationBars())
-                insetsController.systemBarsBehavior =
-                    androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            } else {
-                @Suppress("DEPRECATION")
-                insetsController.show(android.view.WindowInsets.Type.navigationBars())
-            }
+            // 横屏：小白条沉浸（透明叠在内容上，不占空间，滑动唤出）
+            insetsController.systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
     }
 

@@ -253,6 +253,40 @@ class AppViewModel @Inject constructor(
         }
     }
 
+    // File 版安装（避免 OOM）
+    fun installApkFile(apkFile: java.io.File, onResult: (String) -> Unit) {
+        viewModelScope.launch {
+            onResult("正在安装...")
+            val result = repository.installApk(apkFile)
+            onResult(result)
+            loadApps(force = true)
+        }
+    }
+
+    fun installSplitApkFiles(apkFiles: List<Pair<String, java.io.File>>, onResult: (String) -> Unit) {
+        viewModelScope.launch {
+            onResult("正在安装 Split APK (${apkFiles.size} 个文件)...")
+            val result = repository.installSplitApkFiles(apkFiles)
+            onResult(result)
+            loadApps(force = true)
+        }
+    }
+
+    // .apks 流式安装（避免 OOM：逐个解压+推送，不同时加载全部到内存）
+    suspend fun installSplitApkFromApks(apksFile: java.io.File, onStatus: (String) -> Unit): String? {
+        return try {
+            onStatus("正在解析 .apks...")
+            val result = repository.installSplitApkFromApksFile(apksFile)
+            onStatus(result)
+            loadApps(force = true)
+            result
+        } catch (e: Exception) {
+            val msg = "安装异常: ${e.message}"
+            onStatus(msg)
+            msg
+        }
+    }
+
     // ── Files ──
     fun loadFiles(path: String = _currentPath.value, force: Boolean = false) {
         viewModelScope.launch {

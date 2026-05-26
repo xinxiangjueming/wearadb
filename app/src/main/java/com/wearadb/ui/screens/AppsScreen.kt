@@ -25,7 +25,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.io.File
 import java.util.zip.ZipInputStream
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.data.model.AppEntry
 import com.wearadb.ui.AppFilter
@@ -73,42 +76,71 @@ fun AppsScreen(
 
     // APK 安装：拉起系统文件选择器（支持 .apk 和 .apks）
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pickerActive by remember { mutableStateOf(false) }
+
+    // 超时保护：如果 15 秒内回调未触发（MIUI 系统 NPE 导致），自动复位
+    LaunchedEffect(pickerActive) {
+        if (pickerActive) {
+            kotlinx.coroutines.delay(15000)
+            if (pickerActive) {
+                pickerActive = false
+                snackbarMessage = "文件选择超时，请重试"
+            }
+        }
+    }
+
     val apkPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        uri ?: return@rememberLauncherForActivityResult
-        try {
-            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-            if (bytes != null) {
+        pickerActive = false
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch(Dispatchers.IO) {
+            try {
                 val fileName = uri.lastPathSegment ?: ""
                 if (fileName.endsWith(".apks", ignoreCase = true) ||
                     fileName.endsWith(".xapk", ignoreCase = true) ||
                     fileName.endsWith(".apkm", ignoreCase = true)
                 ) {
-                    // Split APK: 解压并逐个提取
-                    val apkFiles = mutableListOf<Pair<String, ByteArray>>()
-                    ZipInputStream(bytes.inputStream()).use { zip ->
-                        var entry = zip.nextEntry
-                        while (entry != null) {
-                            if (!entry.isDirectory && entry.name.endsWith(".apk", ignoreCase = true)) {
-                                val name = entry.name.substringAfterLast('/')
-                                apkFiles.add(name to zip.readBytes())
-                            }
-                            entry = zip.nextEntry
+                    // ── Split APK: 流式解压 + 逐个推送（避免 OOM）──
+                    // 写入临时文件，保持 FD 打开防止 MIUI 清理
+                    val tmpApks = File(context.cacheDir, "wearadb_split.apks")
+                    val tmpFd = java.io.FileOutputStream(tmpApks)
+                    try {
+                        // 1. 从 URI 拷贝到临时文件
+                        val copied = context.contentResolver.openInputStream(uri)?.use { input ->
+                            tmpFd.use { output -> input.copyTo(output) }
+                        } ?: -1L
+                        android.util.Log.d("AppsScreen", "apks copyTo: $copied bytes")
+                        if (copied <= 0) {
+                            launch(Dispatchers.Main) { snackbarMessage = "读取 .apks 失败" }
+                            return@launch
                         }
-                    }
-                    if (apkFiles.isNotEmpty()) {
-                        viewModel.installSplitApk(apkFiles) { result -> snackbarMessage = result }
-                    } else {
-                        snackbarMessage = "未找到 APK 文件"
+
+                        // 2. 流式解压并推送每个 APK（不把全部 APK 同时加载到内存）
+                        val result = viewModel.installSplitApkFromApks(tmpApks) { msg ->
+                            snackbarMessage = msg
+                        }
+                        if (result != null) {
+                            snackbarMessage = result
+                        }
+                    } finally {
+                        try { tmpApks.delete() } catch (_: Exception) {}
                     }
                 } else {
-                    // 普通 APK
-                    viewModel.installApk(bytes) { result -> snackbarMessage = result }
+                    // ── 普通 APK: 读入内存 ──
+                    val allBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    if (allBytes == null || allBytes.isEmpty()) {
+                        launch(Dispatchers.Main) { snackbarMessage = "读取 APK 失败" }
+                        return@launch
+                    }
+                    android.util.Log.d("AppsScreen", "readFromUri: ${allBytes.size} bytes")
+                    viewModel.installApk(allBytes) { result ->
+                        snackbarMessage = result
+                    }
                 }
-            } else {
-                snackbarMessage = "读取 APK 失败"
+            } catch (e: Exception) {
+                android.util.Log.e("AppsScreen", "install error: ${e.message}", e)
+                launch(Dispatchers.Main) { snackbarMessage = "安装异常: ${e.message}" }
             }
-        } catch (e: Exception) {
-            snackbarMessage = "读取异常: ${e.message}"
         }
     }
 
@@ -130,7 +162,7 @@ fun AppsScreen(
                     Spacer(Modifier.weight(1f))
                     Text("${filteredApps.size}", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
                     Spacer(Modifier.width(8.dp))
-                    IconButton(onClick = { apkPicker.launch("*/*") }) {
+                    IconButton(onClick = { pickerActive = true; apkPicker.launch("*/*") }) {
                         Icon(Icons.Outlined.InstallMobile, "安装 APK/APKS", tint = c.accent, modifier = Modifier.size(20.dp))
                     }
                     IconButton(onClick = { viewModel.loadApps(force = true) }) {

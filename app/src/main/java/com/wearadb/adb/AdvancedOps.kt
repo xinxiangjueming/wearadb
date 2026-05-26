@@ -1,6 +1,7 @@
 package com.wearadb.adb
 
 import io.github.muntashirakon.adb.AbsAdbConnectionManager
+import io.github.muntashirakon.adb.AdbStream
 import io.github.muntashirakon.adb.LocalServices
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -54,33 +55,278 @@ object AdvancedOps {
         runCommand(manager, "reboot -p")
 
     // ── Screenshot ──
+
+    /**
+     * 截图入口。
+     * 首选方案：exec 通道直接读 PNG（通道关闭自动 EOF，无需等待）
+     * 兜底方案：marker 检测的文件方案（screencap 写文件 → echo marker → cat）
+     */
     suspend fun screenshot(manager: AbsAdbConnectionManager): ByteArray? {
         return try {
-            val stream = manager.openStream(LocalServices.SHELL)
-            val os = stream.openOutputStream()
-            os.write("screencap -p\n".toByteArray())
-            os.flush()
+            // 方案 A（首选）: exec 通道直接输出 PNG → 读到 EOF
+            android.util.Log.d("Screenshot", "Trying exec stdout method...")
+            val result = screenshotViaExec(manager)
+            if (result != null) return result
 
-            val buffer = java.io.ByteArrayOutputStream()
-            val `is` = stream.openInputStream()
-            val buf = ByteArray(8192)
-            val startTime = System.currentTimeMillis()
-            while (System.currentTimeMillis() - startTime < 10000) {
-                if (`is`.available() > 0) {
-                    val n = `is`.read(buf)
-                    if (n < 0) break
-                    buffer.write(buf, 0, n)
-                } else {
-                    Thread.sleep(50)
-                }
-            }
-
-            try { stream.close() } catch (_: Exception) {}
-            val bytes = buffer.toByteArray()
-            if (bytes.size > 8) bytes else null
+            // 方案 B（兜底）: 文件 + marker 方案
+            android.util.Log.d("Screenshot", "Exec method failed, trying file+marker method...")
+            screenshotViaFile(manager)
         } catch (e: Exception) {
+            android.util.Log.e("Screenshot", "Exception: ${e.message}", e)
             null
         }
+    }
+
+    /**
+     * 方案 A（首选）: 通过 exec 通道直接输出 PNG 到 stdout。
+     * exec: 通道执行完毕后自动关闭，流会收到 EOF，不需要 marker 也不需要固定等待。
+     * 如果 exec 不可用，fallback 到 shell + exit。
+     */
+    private suspend fun screenshotViaExec(manager: AbsAdbConnectionManager): ByteArray? {
+        // 尝试 exec 通道（命令执行完后通道自动关闭 → EOF）
+        try {
+            val stream = manager.openStream("exec:screencap -p")
+            val result = readPngFromExecStream(stream, "exec")
+            try { stream.close() } catch (_: Exception) {}
+            if (result != null) return result
+        } catch (e: Exception) {
+            android.util.Log.d("Screenshot", "exec: channel failed: ${e.message}")
+        }
+
+        // fallback: shell + exit（发送 exit 让 shell 关闭 → EOF）
+        try {
+            val stream = manager.openStream(LocalServices.SHELL)
+            val os = stream.openOutputStream()
+            os.write("screencap -p; exit\n".toByteArray())
+            os.flush()
+            val result = readPngFromExecStream(stream, "shell+exit")
+            try { stream.close() } catch (_: Exception) {}
+            if (result != null) return result
+        } catch (e: Exception) {
+            android.util.Log.d("Screenshot", "shell+exit failed: ${e.message}")
+        }
+
+        return null
+    }
+
+    /**
+     * 从 exec 类型的流中读取 PNG 数据（等待 EOF，不依赖 marker）。
+     * 适用于 exec: 通道（自动 EOF）或 shell + exit（exit 触发 EOF）。
+     */
+    private fun readPngFromExecStream(stream: AdbStream, tag: String): ByteArray? {
+        val buffer = java.io.ByteArrayOutputStream()
+        val inputStream = stream.openInputStream()
+        val buf = ByteArray(65536)
+        val startTime = System.currentTimeMillis()
+        var lastDataTime = startTime
+
+        android.util.Log.d("Screenshot", "$tag: reading stream (waiting for EOF)...")
+        while (System.currentTimeMillis() - startTime < 15000) {
+            if (inputStream.available() > 0) {
+                val n = inputStream.read(buf)
+                if (n < 0) {
+                    android.util.Log.d("Screenshot", "$tag: EOF, total=${buffer.size()}")
+                    break
+                }
+                buffer.write(buf, 0, n)
+                lastDataTime = System.currentTimeMillis()
+            } else {
+                // 有数据后 3 秒无新数据，提前退出（不等满超时）
+                if (buffer.size() > 0 && System.currentTimeMillis() - lastDataTime > 3000) {
+                    android.util.Log.d("Screenshot", "$tag: 3s idle after data, total=${buffer.size()}")
+                    break
+                }
+                Thread.sleep(30)
+            }
+        }
+
+        val bytes = buffer.toByteArray()
+        android.util.Log.d("Screenshot", "$tag: total ${bytes.size} bytes")
+
+        // 找到 PNG 签名，跳过 shell 回显前缀
+        val pngStart = findPngSignature(bytes)
+        if (pngStart < 0) {
+            android.util.Log.e("Screenshot", "$tag: no PNG signature found")
+            return null
+        }
+        if (pngStart > 0) {
+            android.util.Log.d("Screenshot", "$tag: skipping $pngStart bytes prefix")
+        }
+
+        val pngData = bytes.copyOfRange(pngStart, bytes.size)
+
+        // 截取到 IEND（避免尾部的 shell prompt 等杂数据）
+        val trimmed = trimToIend(pngData)
+        if (trimmed != null && trimmed.size > 64) {
+            android.util.Log.d("Screenshot", "$tag: success! PNG ${trimmed.size} bytes")
+            logPngDimensions(trimmed, tag)
+            return trimmed
+        }
+
+        // 如果 IEND 检测失败但数据以 PNG 签名开头且足够大，直接返回
+        if (pngData.size > 64) {
+            android.util.Log.w("Screenshot", "$tag: IEND not found, returning raw PNG ${pngData.size} bytes")
+            logPngDimensions(pngData, tag)
+            return pngData
+        }
+
+        android.util.Log.e("Screenshot", "$tag: PNG too small (${pngData.size} bytes)")
+        return null
+    }
+
+    /**
+     * 从 PNG 数据中截取到 IEND 标记（含 4 字节 CRC）。
+     * 去掉尾部可能存在的 shell prompt 等非 PNG 数据。
+     */
+    private fun trimToIend(data: ByteArray): ByteArray? {
+        if (data.size < 12) return null
+        // 从尾部往前搜索 IEND（尾部杂数据通常很少）
+        for (i in data.size - 12 downTo maxOf(0, data.size - 256)) {
+            if (data[i] == 0x49.toByte() &&
+                data[i + 1] == 0x45.toByte() &&
+                data[i + 2] == 0x4E.toByte() &&
+                data[i + 3] == 0x44.toByte()) {
+                return data.copyOf(i + 12)
+            }
+        }
+        return null
+    }
+
+    /**
+     * 方案 B（兜底）: marker 检测的文件方案。
+     * screencap 写文件 → echo marker → 等 marker 出现 → cat 文件。
+     * marker 只在 screencap 成功完成后才会出现（通过 && 连接）。
+     */
+    private suspend fun screenshotViaFile(manager: AbsAdbConnectionManager): ByteArray? {
+        val paths = listOf(
+            "/sdcard/_wearadb_ss.png",
+            "/data/local/tmp/_wearadb_ss.png"
+        )
+        for (tmpPath in paths) {
+            val result = screenshotToPathViaMarker(manager, tmpPath)
+            if (result != null) return result
+        }
+        return null
+    }
+
+    /**
+     * 文件方案：screencap && echo MARKER → 等 marker → cat 文件 → 清理。
+     * 通过 && 连接，marker 只在 screencap 成功后才出现，不会被 PNG 二进制数据干扰。
+     */
+    private suspend fun screenshotToPathViaMarker(manager: AbsAdbConnectionManager, tmpPath: String): ByteArray? {
+        val marker = "__SS_DONE_${System.nanoTime()}__"
+
+        // 1. screencap 写文件，成功后输出 marker
+        android.util.Log.d("Screenshot", "file: screencap -> $tmpPath")
+        val stream = manager.openStream(LocalServices.SHELL)
+        val os = stream.openOutputStream()
+        os.write("screencap -p $tmpPath && echo $marker\n".toByteArray())
+        os.flush()
+
+        // 2. 读到 marker 表示 screencap 完成
+        val reader = BufferedReader(InputStreamReader(stream.openInputStream()))
+        val waitStart = System.currentTimeMillis()
+        var markerFound = false
+        while (System.currentTimeMillis() - waitStart < 10000) {
+            if (stream.openInputStream().available() > 0) {
+                val line = reader.readLine() ?: break
+                if (line.trim() == marker) {
+                    markerFound = true
+                    break
+                }
+            } else {
+                Thread.sleep(50)
+            }
+        }
+        try { stream.close() } catch (_: Exception) {}
+        android.util.Log.d("Screenshot", "file: markerFound=$markerFound (${System.currentTimeMillis() - waitStart}ms)")
+
+        if (!markerFound) {
+            android.util.Log.e("Screenshot", "file: marker not found for $tmpPath")
+            cleanupTmpFile(manager, tmpPath)
+            return null
+        }
+
+        // 3. cat 读取文件
+        android.util.Log.d("Screenshot", "file: cat $tmpPath")
+        val result = catPngFile(manager, tmpPath)
+        if (result != null) {
+            logPngDimensions(result, "file")
+        } else {
+            cleanupTmpFile(manager, tmpPath)
+        }
+        return result
+    }
+
+    private suspend fun cleanupTmpFile(manager: AbsAdbConnectionManager, tmpPath: String) {
+        try {
+            val s = manager.openStream(LocalServices.SHELL)
+            val o = s.openOutputStream()
+            o.write("rm -f $tmpPath\n".toByteArray())
+            o.flush()
+            Thread.sleep(100)
+            try { s.close() } catch (_: Exception) {}
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * 从 PNG IHDR 读取宽高并记录日志
+     */
+    private fun logPngDimensions(data: ByteArray, tag: String) {
+        try {
+            if (data.size >= 24 && data[0] == 0x89.toByte() && data[1] == 0x50.toByte()) {
+                val ihdrBytes = data.slice(0..23).joinToString(" ") { "%02X".format(it) }
+                android.util.Log.d("Screenshot", "$tag: IHDR raw bytes: $ihdrBytes")
+
+                val w = ((data[16].toInt() and 0xFF) shl 24) or
+                        ((data[17].toInt() and 0xFF) shl 16) or
+                        ((data[18].toInt() and 0xFF) shl 8) or
+                        (data[19].toInt() and 0xFF)
+                val h = ((data[20].toInt() and 0xFF) shl 24) or
+                        ((data[21].toInt() and 0xFF) shl 16) or
+                        ((data[22].toInt() and 0xFF) shl 8) or
+                        (data[23].toInt() and 0xFF)
+                android.util.Log.d("Screenshot", "$tag: PNG dimensions=${w}x${h}, size=${data.size}")
+
+                if (w > 10000 || h > 10000 || w <= 0 || h <= 0) {
+                    android.util.Log.e("Screenshot", "$tag: INVALID dimensions! PNG data may be corrupted")
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * cat 文件并读取 PNG 数据（用于文件方案的第二步）
+     */
+    private suspend fun catPngFile(manager: AbsAdbConnectionManager, tmpPath: String): ByteArray? {
+        val stream = manager.openStream(LocalServices.SHELL)
+        val os = stream.openOutputStream()
+        os.write("cat $tmpPath; exit\n".toByteArray())
+        os.flush()
+
+        val result = readPngFromExecStream(stream, "cat")
+        try { stream.close() } catch (_: Exception) {}
+
+        // 清理临时文件
+        cleanupTmpFile(manager, tmpPath)
+
+        return result
+    }
+
+    /**
+     * 在字节数组中查找 PNG 签名 (89 50 4E 47) 的位置
+     */
+    private fun findPngSignature(data: ByteArray): Int {
+        if (data.size < 8) return -1
+        for (i in 0..minOf(data.size - 8, 512)) {
+            if (data[i] == 0x89.toByte() &&
+                data[i + 1] == 0x50.toByte() &&
+                data[i + 2] == 0x4E.toByte() &&
+                data[i + 3] == 0x47.toByte()) {
+                return i
+            }
+        }
+        return -1
     }
 
     // ── Input Events ──

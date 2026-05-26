@@ -156,6 +156,7 @@ fun AdvancedOpsScreen(
 
     // ── Screenshot Dialog ──
     if (showScreenshot) {
+        LaunchedEffect(Unit) { viewModel.takeScreenshot() }
         AlertDialog(
             onDismissRequest = { showScreenshot = false; viewModel.clearScreenshot() },
             containerColor = c.surface,
