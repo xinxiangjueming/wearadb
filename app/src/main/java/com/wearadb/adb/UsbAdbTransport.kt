@@ -93,6 +93,7 @@ class UsbAdbTransport(
                     continue
                 }
 
+                // UsbRequest updates buf.position() with actual bytes read after requestWait().
                 val bytesRead = buf.position()
                 if (bytesRead > 0) {
                     buf.rewind()
@@ -121,20 +122,17 @@ class UsbAdbTransport(
     fun writeBuffer(buffer: ByteArray) {
         if (closed) throw IOException("Transport closed")
         var offset = 0
-        var transferred: Int
-        val tmp = buffer.copyOf()
 
-        while (true) {
-            transferred = conn.bulkTransfer(
-                outEp, tmp, buffer.size - offset, WRITE_TIMEOUT
-            )
-            if (transferred >= 0) {
-                offset += transferred
-                if (offset >= buffer.size) break
-                System.arraycopy(buffer, offset, tmp, 0, buffer.size - offset)
-            } else {
+        while (offset < buffer.size) {
+            val remaining = buffer.size - offset
+            // bulkTransfer needs a contiguous array starting at index 0
+            val chunk = if (offset == 0 && remaining == buffer.size) buffer
+                        else buffer.copyOfRange(offset, offset + remaining)
+            val transferred = conn.bulkTransfer(outEp, chunk, remaining, WRITE_TIMEOUT)
+            if (transferred < 0) {
                 throw IOException("USB bulk write failed (transferred=$transferred)")
             }
+            offset += transferred
         }
     }
 

@@ -21,7 +21,7 @@ import com.wearadb.data.repository.ConnectionState
 import com.wearadb.data.model.SavedDevice
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
-import com.wearadb.ui.AppViewModel
+import com.wearadb.ui.ConnectionViewModel
 import com.wearadb.ui.utils.*
 
 @Composable
@@ -35,7 +35,7 @@ fun HomeScreen(
     onNavigateToAdvanced: () -> Unit,
     onNavigateToFastboot: () -> Unit,
     onNavigateToUsbAdb: () -> Unit = {},
-    viewModel: AppViewModel = hiltViewModel()
+    viewModel: ConnectionViewModel = hiltViewModel()
 ) {
     val c = WearAdbTheme.colors
     val connectionState by viewModel.connectionState.collectAsState()
@@ -63,7 +63,7 @@ fun HomeScreen(
 
     Scaffold(containerColor = c.background, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
         if (expanded) {
-            // ── 大屏：左右分栏 ──
+            // ── 横屏：左栏无线 ADB + 右栏 USB 调试 ──
             Row(
                 modifier = Modifier
                     .fillMaxSize()
@@ -72,7 +72,7 @@ fun HomeScreen(
                     .padding(horizontal = hPadding)
                     .padding(top = statusBarPad + 16.dp)
             ) {
-                // 左栏：连接控制
+                // ── 左栏：无线 ADB ──
                 LazyColumn(
                     modifier = Modifier.weight(1f).padding(end = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -84,81 +84,25 @@ fun HomeScreen(
                             Text("无线调试工具", style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant)
                         }
                     }
-                    item {
-                        WearCard {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                                StatusDot(active = isConnected)
-                                Spacer(Modifier.width(10.dp))
-                                Text(
-                                    text = when (connectionState) {
-                                        ConnectionState.DISCONNECTED -> "未连接"
-                                        ConnectionState.CONNECTING -> "连接中..."
-                                        ConnectionState.AUTHENTICATING -> "等待授权..."
-                                        ConnectionState.CONNECTED -> "已连接"
-                                        ConnectionState.ERROR -> "连接失败"
-                                    },
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = c.onSurface
-                                )
-                            }
-                            if (isConnected && deviceBanner.isNotEmpty()) {
-                                Spacer(Modifier.height(8.dp))
-                                Text(deviceBanner, style = MaterialTheme.typography.labelMedium, color = c.onSurfaceVariant)
-                            }
-                            Spacer(Modifier.height(16.dp))
-                            WearInput(
-                                value = hostInput,
-                                onValueChange = { hostInput = it },
-                                label = "IP",
-                                placeholder = "192.168.1.100",
-                                modifier = Modifier.fillMaxWidth(),
-                                imeAction = androidx.compose.ui.text.input.ImeAction.Next
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            WearInput(
-                                value = portInput,
-                                onValueChange = { portInput = it.filter { ch -> ch.isDigit() } },
-                                label = "端口",
-                                placeholder = "5555",
-                                modifier = Modifier.fillMaxWidth(0.6f)
-                            )
-                            Spacer(Modifier.height(16.dp))
-                            if (isConnected) {
-                                WearButton(text = "断开", onClick = { viewModel.disconnect() }, variant = ButtonVariant.Danger)
-                            } else {
-                                WearButton(
-                                    text = if (isConnecting) "连接中..." else "连接",
-                                    onClick = { viewModel.connect(hostInput.trim(), portInput.toIntOrNull() ?: 5555) },
-                                    enabled = hostInput.isNotBlank() && !isConnecting
-                                )
-                                Spacer(Modifier.height(10.dp))
-                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    WearButton(
-                                        text = "发现设备",
-                                        onClick = onNavigateToDiscovery,
-                                        variant = ButtonVariant.Secondary
-                                    )
-                                    WearButton(
-                                        text = "配对",
-                                        onClick = onNavigateToPairing,
-                                        variant = ButtonVariant.Secondary
-                                    )
-                                    WearButton(
-                                        text = "Fastboot (USB)",
-                                        onClick = onNavigateToFastboot,
-                                        variant = ButtonVariant.Secondary
-                                    )
-                                }
-                            }
-                            AnimatedVisibility(visible = connectionState == ConnectionState.ERROR) {
-                                Column {
-                                    Spacer(Modifier.height(8.dp))
-                                    Text("无法连接到设备，请检查 IP 和端口", style = MaterialTheme.typography.bodySmall, color = c.error)
-                                }
+                    item { WirelessConnectionCard(connectionState, isConnecting, isConnected, deviceBanner, hostInput, portInput, lastHost, lastPort, onHostChange = { hostInput = it }, onPortChange = { portInput = it }, onConnect = { viewModel.connect(hostInput.trim(), portInput.toIntOrNull() ?: 5555) }, onDisconnect = { viewModel.disconnect() }, onNavigateToDiscovery, onNavigateToPairing) }
+                    if (isConnected) {
+                        item { SectionHeader("工具") }
+                        item {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                FeatureCard(Icons.Outlined.Terminal, "Shell", "交互终端", Modifier.weight(1f), onNavigateToShell)
+                                FeatureCard(Icons.Outlined.PhoneAndroid, "设备", "信息概览", Modifier.weight(1f), onNavigateToDeviceInfo)
                             }
                         }
+                        item {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                FeatureCard(Icons.Outlined.Apps, "应用", "管理应用", Modifier.weight(1f), onNavigateToApps)
+                                FeatureCard(Icons.Outlined.Folder, "文件", "浏览文件", Modifier.weight(1f), onNavigateToFiles)
+                            }
+                        }
+                        item {
+                            FeatureCard(Icons.Outlined.Build, "高级操作", "重启/截屏/音量/导航键", Modifier.fillMaxWidth(), onNavigateToAdvanced)
+                        }
                     }
-                    // 历史设备
                     if (devices.isNotEmpty()) {
                         item { SectionHeader("历史设备") }
                         items(items = devices, key = { it.address }) { device ->
@@ -174,47 +118,33 @@ fun HomeScreen(
                             )
                         }
                     }
-                    // 有线ADB 始终可见
-                    item {
-                        Spacer(Modifier.height(8.dp))
-                        Row(modifier = Modifier.fillMaxWidth()) {
-                            FeatureCard(Icons.Outlined.Usb, "有线ADB", "USB连接设备", Modifier.weight(1f), onNavigateToUsbAdb)
-                        }
-                    }
                 }
 
-                // 右栏：工具区（仅连接后显示）
-                if (isConnected) {
-                    Spacer(Modifier.width(1.dp).fillMaxHeight().background(c.outlineVariant))
-                    LazyColumn(
-                        modifier = Modifier.weight(1f).padding(start = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        contentPadding = PaddingValues(bottom = navBarPad + 16.dp)
-                    ) {
-                        item { SectionHeader("工具") }
-                        item {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                FeatureCard(Icons.Outlined.Terminal, "Shell", "交互终端", Modifier.weight(1f), onNavigateToShell)
-                                FeatureCard(Icons.Outlined.PhoneAndroid, "设备", "信息概览", Modifier.weight(1f), onNavigateToDeviceInfo)
-                            }
-                        }
-                        item {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                FeatureCard(Icons.Outlined.Apps, "应用", "管理应用", Modifier.weight(1f), onNavigateToApps)
-                                FeatureCard(Icons.Outlined.Folder, "文件", "浏览文件", Modifier.weight(1f), onNavigateToFiles)
-                            }
-                        }
-                        item {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                FeatureCard(Icons.Outlined.Build, "高级", "重启/截屏/音量", Modifier.weight(1f), onNavigateToAdvanced)
-                                FeatureCard(Icons.Outlined.DeveloperBoard, "Fastboot", "刷机/线刷", Modifier.weight(1f), onNavigateToFastboot)
+                // ── 右栏：USB 调试（Fastboot + 有线 ADB）──
+                Spacer(Modifier.width(1.dp).fillMaxHeight().background(c.outlineVariant))
+                LazyColumn(
+                    modifier = Modifier.weight(1f).padding(start = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(bottom = navBarPad + 16.dp)
+                ) {
+                    item { SectionHeader("USB 调试") }
+                    item {
+                        WearCard {
+                            Text("通过 USB 数据线直接连接设备，无需网络", style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant)
+                            Spacer(Modifier.height(16.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                FeatureCard(Icons.Outlined.DeveloperBoard, "Fastboot", "刷机/擦除/解锁", Modifier.weight(1f), onNavigateToFastboot)
+                                FeatureCard(Icons.Outlined.Usb, "有线ADB", "USB Shell/管理", Modifier.weight(1f), onNavigateToUsbAdb)
                             }
                         }
                     }
                 }
             }
         } else {
-            // ── 小屏：单栏布局 ──
+            // ── 竖屏：单栏布局 ──
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
@@ -233,84 +163,7 @@ fun HomeScreen(
                         Text("无线调试工具", style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant)
                     }
                 }
-                item {
-                    WearCard {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                            StatusDot(active = isConnected)
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                text = when (connectionState) {
-                                    ConnectionState.DISCONNECTED -> "未连接"
-                                    ConnectionState.CONNECTING -> "连接中..."
-                                    ConnectionState.AUTHENTICATING -> "等待授权..."
-                                    ConnectionState.CONNECTED -> "已连接"
-                                    ConnectionState.ERROR -> "连接失败"
-                                },
-                                style = MaterialTheme.typography.titleMedium,
-                                color = c.onSurface
-                            )
-                        }
-                        if (isConnected && deviceBanner.isNotEmpty()) {
-                            Spacer(Modifier.height(8.dp))
-                            Text(deviceBanner, style = MaterialTheme.typography.labelMedium, color = c.onSurfaceVariant)
-                        }
-                        Spacer(Modifier.height(16.dp))
-                        WearInput(
-                            value = hostInput,
-                            onValueChange = { hostInput = it },
-                            label = "IP",
-                            placeholder = "192.168.1.100",
-                            modifier = Modifier.fillMaxWidth(),
-                            imeAction = androidx.compose.ui.text.input.ImeAction.Next
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        WearInput(
-                            value = portInput,
-                            onValueChange = { portInput = it.filter { ch -> ch.isDigit() } },
-                            label = "端口",
-                            placeholder = "5555",
-                            modifier = Modifier.fillMaxWidth(0.4f)
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        if (isConnected) {
-                            WearButton(text = "断开", onClick = { viewModel.disconnect() }, variant = ButtonVariant.Danger)
-                        } else {
-                            WearButton(
-                                text = if (isConnecting) "连接中..." else "连接",
-                                onClick = { viewModel.connect(hostInput.trim(), portInput.toIntOrNull() ?: 5555) },
-                                enabled = hostInput.isNotBlank() && !isConnecting
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    WearButton(
-                                        text = "发现设备",
-                                        onClick = onNavigateToDiscovery,
-                                        modifier = Modifier.weight(1f),
-                                        variant = ButtonVariant.Secondary
-                                    )
-                                    WearButton(
-                                        text = "配对",
-                                        onClick = onNavigateToPairing,
-                                        modifier = Modifier.weight(1f),
-                                        variant = ButtonVariant.Secondary
-                                    )
-                                }
-                                WearButton(
-                                    text = "Fastboot (USB)",
-                                    onClick = onNavigateToFastboot,
-                                    variant = ButtonVariant.Secondary
-                                )
-                            }
-                        }
-                        AnimatedVisibility(visible = connectionState == ConnectionState.ERROR) {
-                            Column {
-                                Spacer(Modifier.height(8.dp))
-                                Text("无法连接到设备，请检查 IP 和端口", style = MaterialTheme.typography.bodySmall, color = c.error)
-                            }
-                        }
-                    }
-                }
+                item { WirelessConnectionCard(connectionState, isConnecting, isConnected, deviceBanner, hostInput, portInput, lastHost, lastPort, onHostChange = { hostInput = it }, onPortChange = { portInput = it }, onConnect = { viewModel.connect(hostInput.trim(), portInput.toIntOrNull() ?: 5555) }, onDisconnect = { viewModel.disconnect() }, onNavigateToDiscovery, onNavigateToPairing) }
                 if (isConnected) {
                     item { SectionHeader("工具") }
                     item {
@@ -326,16 +179,21 @@ fun HomeScreen(
                         }
                     }
                     item {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            FeatureCard(Icons.Outlined.Build, "高级", "重启/截屏/音量", Modifier.weight(1f), onNavigateToAdvanced)
-                            FeatureCard(Icons.Outlined.DeveloperBoard, "Fastboot", "刷机/线刷", Modifier.weight(1f), onNavigateToFastboot)
-                        }
+                        FeatureCard(Icons.Outlined.Build, "高级操作", "重启/截屏/音量/导航键", Modifier.fillMaxWidth(), onNavigateToAdvanced)
                     }
                 }
-                // 有线ADB 始终可见（不需要无线连接）
+                // USB 调试卡片（Fastboot + 有线 ADB）
                 item {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        FeatureCard(Icons.Outlined.Usb, "有线ADB", "USB连接设备", Modifier.weight(1f), onNavigateToUsbAdb)
+                    WearCard {
+                        Text("通过 USB 数据线直接连接设备，无需网络", style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant)
+                        Spacer(Modifier.height(16.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            FeatureCard(Icons.Outlined.DeveloperBoard, "Fastboot", "刷机/擦除/解锁", Modifier.weight(1f), onNavigateToFastboot)
+                            FeatureCard(Icons.Outlined.Usb, "有线ADB", "USB Shell/管理", Modifier.weight(1f), onNavigateToUsbAdb)
+                        }
                     }
                 }
                 if (devices.isNotEmpty()) {
@@ -369,6 +227,96 @@ fun HomeScreen(
             confirmButton = { TextButton(onClick = { viewModel.confirmDisableBluetooth() }) { Text("关闭蓝牙", color = c.accent) } },
             dismissButton = { TextButton(onClick = { viewModel.dismissBluetoothDialog() }) { Text("保留", color = c.onSurfaceVariant) } }
         )
+    }
+}
+
+// ── 无线 ADB 连接卡片（提取复用）──
+@Composable
+private fun WirelessConnectionCard(
+    connectionState: ConnectionState,
+    isConnecting: Boolean,
+    isConnected: Boolean,
+    deviceBanner: String,
+    hostInput: String,
+    portInput: String,
+    lastHost: String,
+    lastPort: Int,
+    onHostChange: (String) -> Unit,
+    onPortChange: (String) -> Unit,
+    onConnect: () -> Unit,
+    onDisconnect: () -> Unit,
+    onNavigateToDiscovery: () -> Unit,
+    onNavigateToPairing: () -> Unit
+) {
+    val c = WearAdbTheme.colors
+    WearCard {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            StatusDot(active = isConnected)
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = when (connectionState) {
+                    ConnectionState.DISCONNECTED -> "未连接"
+                    ConnectionState.CONNECTING -> "连接中..."
+                    ConnectionState.AUTHENTICATING -> "等待授权..."
+                    ConnectionState.CONNECTED -> "已连接"
+                    ConnectionState.ERROR -> "连接失败"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                color = c.onSurface
+            )
+        }
+        if (isConnected && deviceBanner.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text(deviceBanner, style = MaterialTheme.typography.labelMedium, color = c.onSurfaceVariant)
+        }
+        Spacer(Modifier.height(16.dp))
+        WearInput(
+            value = hostInput,
+            onValueChange = onHostChange,
+            label = "IP",
+            placeholder = "192.168.1.100",
+            modifier = Modifier.fillMaxWidth(),
+            imeAction = androidx.compose.ui.text.input.ImeAction.Next
+        )
+        Spacer(Modifier.height(10.dp))
+        WearInput(
+            value = portInput,
+            onValueChange = { onPortChange(it.filter { ch -> ch.isDigit() }) },
+            label = "端口",
+            placeholder = "5555",
+            modifier = Modifier.fillMaxWidth(0.5f)
+        )
+        Spacer(Modifier.height(16.dp))
+        if (isConnected) {
+            WearButton(text = "断开", onClick = onDisconnect, variant = ButtonVariant.Danger)
+        } else {
+            WearButton(
+                text = if (isConnecting) "连接中..." else "连接",
+                onClick = onConnect,
+                enabled = hostInput.isNotBlank() && !isConnecting
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                WearButton(
+                    text = "发现设备",
+                    onClick = onNavigateToDiscovery,
+                    modifier = Modifier.weight(1f),
+                    variant = ButtonVariant.Secondary
+                )
+                WearButton(
+                    text = "配对",
+                    onClick = onNavigateToPairing,
+                    modifier = Modifier.weight(1f),
+                    variant = ButtonVariant.Secondary
+                )
+            }
+        }
+        AnimatedVisibility(visible = connectionState == ConnectionState.ERROR) {
+            Column {
+                Spacer(Modifier.height(8.dp))
+                Text("无法连接到设备，请检查 IP 和端口", style = MaterialTheme.typography.bodySmall, color = c.error)
+            }
+        }
     }
 }
 

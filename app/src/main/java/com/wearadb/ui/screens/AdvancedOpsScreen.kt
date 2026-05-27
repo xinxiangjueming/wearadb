@@ -24,7 +24,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.wearadb.ui.AppViewModel
+import com.wearadb.ui.ConnectionViewModel
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
@@ -36,7 +36,7 @@ fun AdvancedOpsScreen(
     onBack: () -> Unit,
     onNavigateToFiles: () -> Unit,
     onNavigateToFastboot: () -> Unit,
-    viewModel: AppViewModel = hiltViewModel()
+    viewModel: ConnectionViewModel = hiltViewModel()
 ) {
     val c = WearAdbTheme.colors
     var showRebootDialog by remember { mutableStateOf(false) }

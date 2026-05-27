@@ -166,6 +166,65 @@ class UsbAdbRepository @Inject constructor(
         }
     }
 
+    /**
+     * Take a screenshot over wired USB ADB.
+     * Runs `screencap -p` and reads the raw PNG bytes from the stream.
+     */
+    suspend fun screenshot(): ByteArray? = withContext(Dispatchers.IO) {
+        val conn = manager.getConnection() ?: return@withContext null
+        try {
+            android.util.Log.d(TAG, "screenshot: opening shell stream...")
+            val stream = conn.openShell("screencap -p")
+            val rawBytes = stream.readAllBytes(15000)
+            conn.closeStream(stream)
+            android.util.Log.d(TAG, "screenshot: read ${rawBytes.size} bytes")
+
+            // Find PNG signature (skip any shell echo prefix)
+            val pngStart = findPngSignature(rawBytes)
+            if (pngStart < 0) {
+                android.util.Log.e(TAG, "screenshot: no PNG signature found")
+                return@withContext null
+            }
+            val pngData = if (pngStart > 0) rawBytes.copyOfRange(pngStart, rawBytes.size) else rawBytes
+
+            // Trim to IEND marker (remove trailing shell prompt garbage)
+            val trimmed = trimToIend(pngData)
+            val result = trimmed ?: pngData
+            if (result.size > 64) {
+                android.util.Log.d(TAG, "screenshot: success, ${result.size} bytes")
+                result
+            } else {
+                android.util.Log.e(TAG, "screenshot: PNG too small (${result.size} bytes)")
+                null
+            }
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "screenshot failed: ${e.message}")
+            null
+        }
+    }
+
+    private fun findPngSignature(data: ByteArray): Int {
+        if (data.size < 8) return -1
+        for (i in 0..minOf(data.size - 8, 512)) {
+            if (data[i] == 0x89.toByte() && data[i + 1] == 0x50.toByte() &&
+                data[i + 2] == 0x4E.toByte() && data[i + 3] == 0x47.toByte()) return i
+        }
+        return -1
+    }
+
+    private fun trimToIend(data: ByteArray): ByteArray? {
+        if (data.size < 12) return null
+        val searchRange = minOf(data.size - 12, 4096)
+        for (i in data.size - 12 downTo data.size - 12 - searchRange) {
+            if (i < 0) break
+            if (data[i] == 0x49.toByte() && data[i + 1] == 0x45.toByte() &&
+                data[i + 2] == 0x4E.toByte() && data[i + 3] == 0x44.toByte()) {
+                return data.copyOf(i + 12)
+            }
+        }
+        return null
+    }
+
     fun destroy() {
         manager.destroy()
     }

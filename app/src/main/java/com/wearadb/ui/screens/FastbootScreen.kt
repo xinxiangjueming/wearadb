@@ -25,25 +25,25 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.fastboot.FastbootConnectionState
 import com.wearadb.fastboot.FastbootDevice
-import com.wearadb.ui.AppViewModel
+import com.wearadb.ui.FastbootViewModel
 import com.wearadb.ui.theme.WearAdbTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FastbootScreen(
     onBack: () -> Unit,
-    viewModel: AppViewModel = hiltViewModel()
+    viewModel: FastbootViewModel = hiltViewModel()
 ) {
     val colors = WearAdbTheme.colors
     val shape = WearAdbTheme.shape
     val cornerRadius = shape.cornerRadius
 
-    val connectionState by viewModel.fastbootConnectionState.collectAsState()
-    val connectedDevice by viewModel.fastbootConnectedDevice.collectAsState()
-    val fastbootDevices by viewModel.fastbootDevices.collectAsState()
-    val fastbootInfo by viewModel.fastbootInfo.collectAsState()
-    val flashProgress by viewModel.fastbootFlashProgress.collectAsState()
-    val connectLog by viewModel.fastbootConnectLog.collectAsState()
+    val connectionState by viewModel.connectionState.collectAsState()
+    val connectedDevice by viewModel.connectedDevice.collectAsState()
+    val fastbootDevices by viewModel.devices.collectAsState()
+    val fastbootInfo by viewModel.info.collectAsState()
+    val flashProgress by viewModel.flashProgress.collectAsState()
+    val connectLog by viewModel.connectLog.collectAsState()
 
     var oemCommand by remember { mutableStateOf("") }
     var showOemDialog by remember { mutableStateOf(false) }
@@ -57,7 +57,7 @@ fun FastbootScreen(
 
     // 监听 fastboot 结果
     LaunchedEffect(Unit) {
-        viewModel.fastbootResult.collect { msg ->
+        viewModel.result.collect { msg ->
             resultMessage = msg
             // 刷入成功后弹出重启确认
             if (msg.contains("成功") && msg.contains("刷入")) {
@@ -68,7 +68,7 @@ fun FastbootScreen(
 
     // 进入页面自动扫描
     LaunchedEffect(Unit) {
-        viewModel.scanFastbootDevices()
+        viewModel.scanDevices()
     }
 
     val navBarPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -79,14 +79,14 @@ fun FastbootScreen(
                 title = { Text("Fastboot 模式") },
                 navigationIcon = {
                     IconButton(onClick = {
-                        viewModel.disconnectFastboot()
+                        viewModel.disconnect()
                         onBack()
                     }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.scanFastbootDevices() }) {
+                    IconButton(onClick = { viewModel.scanDevices() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "扫描")
                     }
                 },
@@ -114,7 +114,7 @@ fun FastbootScreen(
                 connectionState = connectionState,
                 connectedDevice = connectedDevice,
                 cornerRadius = cornerRadius,
-                onDisconnect = { viewModel.disconnectFastboot() }
+                onDisconnect = { viewModel.disconnect() }
             )
 
             // ── 设备列表（未连接时显示）──
@@ -122,8 +122,8 @@ fun FastbootScreen(
                 DeviceListCard(
                     devices = fastbootDevices,
                     cornerRadius = cornerRadius,
-                    onConnect = { viewModel.connectFastboot(it) },
-                    onRefresh = { viewModel.scanFastbootDevices() }
+                    onConnect = { viewModel.connect(it) },
+                    onRefresh = { viewModel.scanDevices() }
                 )
             }
 
@@ -156,21 +156,21 @@ fun FastbootScreen(
                         icon = Icons.Default.RestartAlt,
                         colors = colors,
                         cornerRadius = cornerRadius,
-                        onClick = { viewModel.fastbootReboot() }
+                        onClick = { viewModel.reboot() }
                     )
                     ActionButton(
                         label = "重启到 Recovery",
                         icon = Icons.Default.Build,
                         colors = colors,
                         cornerRadius = cornerRadius,
-                        onClick = { viewModel.fastbootRebootRecovery() }
+                        onClick = { viewModel.rebootRecovery() }
                     )
                     ActionButton(
                         label = "重启到 Bootloader",
                         icon = Icons.Default.DeveloperBoard,
                         colors = colors,
                         cornerRadius = cornerRadius,
-                        onClick = { viewModel.fastbootRebootBootloader() }
+                        onClick = { viewModel.rebootBootloader() }
                     )
                 }
 
@@ -225,14 +225,14 @@ fun FastbootScreen(
                         colors = colors,
                         cornerRadius = cornerRadius,
                         danger = true,
-                        onClick = { viewModel.fastbootFlashingUnlock() }
+                        onClick = { viewModel.flashingUnlock() }
                     )
                     ActionButton(
                         label = "锁定 Bootloader",
                         icon = Icons.Default.Lock,
                         colors = colors,
                         cornerRadius = cornerRadius,
-                        onClick = { viewModel.fastbootFlashingLock() }
+                        onClick = { viewModel.flashingLock() }
                     )
                 }
 
@@ -262,7 +262,7 @@ fun FastbootScreen(
                         icon = Icons.Default.Download,
                         colors = colors,
                         cornerRadius = cornerRadius,
-                        onClick = { viewModel.fastbootFetch() }
+                        onClick = { viewModel.fetch() }
                     )
                 }
 
@@ -277,7 +277,7 @@ fun FastbootScreen(
                         icon = Icons.Default.Description,
                         colors = colors,
                         cornerRadius = cornerRadius,
-                        onClick = { viewModel.loadFastbootVarAll() }
+                        onClick = { viewModel.loadVarAll() }
                     )
                 }
 
@@ -309,7 +309,7 @@ fun FastbootScreen(
             command = oemCommand,
             onCommandChange = { oemCommand = it },
             onConfirm = {
-                viewModel.fastbootOem(oemCommand)
+                viewModel.oem(oemCommand)
                 oemCommand = ""
                 showOemDialog = false
             },
@@ -322,7 +322,7 @@ fun FastbootScreen(
         FlashPartitionDialog(
             onConfirm = { partition, data ->
                 lastFlashPartition = partition
-                viewModel.fastbootFlash(partition, data)
+                viewModel.flash(partition, data)
                 showFlashDialog = false
             },
             onDismiss = { showFlashDialog = false },
@@ -333,7 +333,7 @@ fun FastbootScreen(
     if (showEraseDialog) {
         ErasePartitionDialog(
             onConfirm = { partition ->
-                viewModel.fastbootErase(partition)
+                viewModel.erase(partition)
                 showEraseDialog = false
             },
             onDismiss = { showEraseDialog = false },
@@ -344,7 +344,7 @@ fun FastbootScreen(
     if (showBootDialog) {
         BootImageDialog(
             onConfirm = { data ->
-                viewModel.fastbootBoot(data)
+                viewModel.boot(data)
                 showBootDialog = false
             },
             onDismiss = { showBootDialog = false },
@@ -355,7 +355,7 @@ fun FastbootScreen(
     if (showStageDialog) {
         StageDataDialog(
             onConfirm = { data ->
-                viewModel.fastbootStage(data)
+                viewModel.stage(data)
                 showStageDialog = false
             },
             onDismiss = { showStageDialog = false },
@@ -381,7 +381,7 @@ fun FastbootScreen(
             confirmButton = {
                 TextButton(onClick = {
                     showRebootDialog = false
-                    viewModel.fastbootRebootRecovery()
+                    viewModel.rebootRecovery()
                 }) {
                     Text("重启到 Recovery", color = colors.accent)
                 }

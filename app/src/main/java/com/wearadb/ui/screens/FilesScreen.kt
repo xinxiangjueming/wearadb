@@ -28,7 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.data.model.FileEntry
-import com.wearadb.ui.AppViewModel
+import com.wearadb.ui.ConnectionViewModel
 import com.wearadb.ui.utils.formatBytes
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
@@ -38,7 +38,7 @@ import com.wearadb.ui.utils.adaptiveHorizontalPadding
 @Composable
 fun FilesScreen(
     onBack: () -> Unit,
-    viewModel: AppViewModel = hiltViewModel()
+    viewModel: ConnectionViewModel = hiltViewModel()
 ) {
     val c = WearAdbTheme.colors
     val context = LocalContext.current

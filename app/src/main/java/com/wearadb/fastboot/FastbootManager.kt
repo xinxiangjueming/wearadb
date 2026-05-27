@@ -698,73 +698,13 @@ class FastbootManager(
      * @param progressCallback 进度回调 (0-100)
      */
     fun flash(partition: String, data: ByteArray, progressCallback: ((Int) -> Unit)? = null): String {
-    synchronized(usbLock) {
-        if (closed) return "连接已断开"
-        val conn = connection ?: return "未连接"
-        val outEp = endpointOut ?: return "无 OUT endpoint"
-        val inEp = endpointIn ?: return "无 IN endpoint"
-
         log("刷入 $partition: ${data.size / 1024 / 1024}MB (${data.size} 字节)")
-
-        // 1. 发送 download 命令
         val sizeHex = String.format("%08x", data.size)
-        val downloadCmd = "download:$sizeHex"
-        val cmdBytes = downloadCmd.toByteArray()
-        val cmdSent = conn.bulkTransfer(outEp, cmdBytes, cmdBytes.size, TIMEOUT_MS)
-        log("download 命令: sent=$cmdSent")
-        if (cmdSent < 0) return "发送download命令失败"
-        Thread.sleep(50) // 等设备处理命令
-
-        // 2. 读取 DATA 响应
-        val resp = readResponse(conn, inEp)
-        log("DATA响应: $resp")
-        if (resp !is FastbootResponse.DataReady) {
-            return "下载请求被拒绝: ${(resp as? FastbootResponse.Error)?.message ?: "未知错误"}"
+        val result = downloadToDevice("download:$sizeHex", data, "刷入", progressCallback)
+        return when {
+            result.startsWith("OK:") -> "刷入 $partition 成功 (${data.size / 1024}KB)"
+            else -> result.replace("OK:", "刷入").replace("ERR:", "刷入失败:")
         }
-
-        // 等设备准备接收缓冲区
-        Thread.sleep(200)
-
-        // 3. 分块发送数据
-        log("开始传输数据...")
-        var offset = 0
-        var chunkCount = 0
-        while (offset < data.size) {
-            val len = minOf(FLASH_CHUNK_SIZE, data.size - offset)
-            var sent = conn.bulkTransfer(outEp, data, offset, len, TIMEOUT_MS * 3)
-            if (sent < 0 && len > 4096) {
-                // 大块失败时尝试小块
-                log("大块传输失败(len=$len), 尝试小块(4096)...")
-                sent = conn.bulkTransfer(outEp, data, offset, 4096, TIMEOUT_MS * 3)
-            }
-            if (sent < 0) {
-                logError("传输失败: offset=$offset/${data.size}, chunk=$chunkCount, len=$len, sent=$sent")
-                return "数据传输失败 (offset=$offset)"
-            }
-            offset += sent
-            chunkCount++
-            val progress = (offset.toLong() * 100 / data.size).toInt()
-            progressCallback?.invoke(progress)
-            if (chunkCount % 10 == 0 || offset >= data.size) {
-                log("传输进度: ${progress}% ($offset/${data.size})")
-            }
-        }
-        log("数据传输完成: $chunkCount 块, $offset 字节")
-
-        // 4. 读取最终 OKAY 响应
-        log("等待设备确认...")
-        val finalResp = readResponse(conn, inEp)
-        log("最终响应: $finalResp")
-        return when (finalResp) {
-            is FastbootResponse.Okay -> {
-                Log.d(TAG, "Flash $partition completed")
-                progressCallback?.invoke(100)
-                "刷入 $partition 成功 (${data.size / 1024}KB)"
-            }
-            is FastbootResponse.Error -> "刷入失败: ${finalResp.message}"
-            else -> "刷入完成"
-        }
-    }
     }
 
     /**
@@ -885,100 +825,92 @@ class FastbootManager(
     /**
      * 临时启动镜像（不刷入）。
      * fastboot boot <image>
-     * 协议: 发送 "boot" 命令 → DATA → 发送镜像数据 → 设备临时启动
      * @param progressCallback 进度回调 (0-100)
      */
     fun boot(data: ByteArray, progressCallback: ((Int) -> Unit)? = null): String {
-    synchronized(usbLock) {
-        if (closed) return "连接已断开"
-        val conn = connection ?: return "未连接"
-        val outEp = endpointOut ?: return "无 OUT endpoint"
-        val inEp = endpointIn ?: return "无 IN endpoint"
-
-        Log.d(TAG, "boot: ${data.size} bytes")
-
-        // 1. 发送 boot 命令（不带 size，由协议自动处理）
-        val cmdBytes = "boot".toByteArray()
-        conn.bulkTransfer(outEp, cmdBytes, cmdBytes.size, TIMEOUT_MS)
-        Thread.sleep(50)
-
-        // 2. 读取 DATA 响应
-        val resp = readResponse(conn, inEp)
-        if (resp !is FastbootResponse.DataReady) {
-            return "boot 请求被拒绝: ${(resp as? FastbootResponse.Error)?.message ?: "未知错误"}"
+        val result = downloadToDevice("boot", data, "boot", progressCallback)
+        return when {
+            result.startsWith("OK:") -> "临时启动成功，设备正在重启..."
+            else -> result
         }
-
-        // 3. 分块发送镜像数据
-        var offset = 0
-        while (offset < data.size) {
-            val len = minOf(FLASH_CHUNK_SIZE, data.size - offset)
-            val sent = conn.bulkTransfer(outEp, data, offset, len, TIMEOUT_MS * 3)
-            if (sent < 0) return "数据传输失败 (offset=$offset)"
-            offset += sent
-            progressCallback?.invoke((offset.toLong() * 100 / data.size).toInt())
-        }
-
-        // 4. 读取最终响应
-        val finalResp = readResponse(conn, inEp)
-        return when (finalResp) {
-            is FastbootResponse.Okay -> {
-                progressCallback?.invoke(100)
-                "临时启动成功，设备正在重启..."
-            }
-            is FastbootResponse.Error -> "boot 失败: ${finalResp.message}"
-            else -> "boot 命令已发送"
-        }
-    }
     }
 
     /**
      * 上传数据到设备（stage）。
-     * fastboot stage <size> → DATA → 发送数据
      * 数据暂存到设备内存，配合 oem 命令使用。
      * @param progressCallback 进度回调 (0-100)
      */
     fun stage(data: ByteArray, progressCallback: ((Int) -> Unit)? = null): String {
-    synchronized(usbLock) {
-        if (closed) return "连接已断开"
-        val conn = connection ?: return "未连接"
-        val outEp = endpointOut ?: return "无 OUT endpoint"
-        val inEp = endpointIn ?: return "无 IN endpoint"
-
-        Log.d(TAG, "stage: ${data.size} bytes")
-
-        // 1. 发送 stage 命令
         val sizeHex = String.format("%08x", data.size)
-        val cmdBytes = "stage:$sizeHex".toByteArray()
-        conn.bulkTransfer(outEp, cmdBytes, cmdBytes.size, TIMEOUT_MS)
+        val result = downloadToDevice("stage:$sizeHex", data, "stage", progressCallback)
+        return when {
+            result.startsWith("OK:") -> "数据已上传到设备 (${data.size / 1024}KB)"
+            else -> result
+        }
+    }
+
+    /**
+     * Common download flow shared by flash/boot/stage.
+     * 1. Send command → 2. Read DATA → 3. Send data chunks → 4. Read OKAY
+     * @return "OK:..." on success, "ERR:..." on failure
+     */
+    private fun downloadToDevice(
+        command: String,
+        data: ByteArray,
+        operationName: String,
+        progressCallback: ((Int) -> Unit)? = null
+    ): String = synchronized(usbLock) {
+        if (closed) return@synchronized "ERR: 连接已断开"
+        val conn = connection ?: return@synchronized "ERR: 未连接"
+        val outEp = endpointOut ?: return@synchronized "ERR: 无 OUT endpoint"
+        val inEp = endpointIn ?: return@synchronized "ERR: 无 IN endpoint"
+
+        // 1. Send command
+        val cmdBytes = command.toByteArray()
+        val cmdSent = conn.bulkTransfer(outEp, cmdBytes, cmdBytes.size, TIMEOUT_MS)
+        log("$operationName 命令: sent=$cmdSent")
+        if (cmdSent < 0) return@synchronized "ERR: 发送命令失败"
         Thread.sleep(50)
 
-        // 2. 读取 DATA 响应
+        // 2. Read DATA response
         val resp = readResponse(conn, inEp)
+        log("DATA响应: $resp")
         if (resp !is FastbootResponse.DataReady) {
-            return "stage 请求被拒绝: ${(resp as? FastbootResponse.Error)?.message ?: "未知错误"}"
+            return@synchronized "ERR: ${operationName}请求被拒绝: ${(resp as? FastbootResponse.Error)?.message ?: "未知错误"}"
         }
+        Thread.sleep(200) // Wait for device to prepare receive buffer
 
-        // 3. 分块发送数据
+        // 3. Send data in chunks
+        log("开始传输数据 (${data.size} 字节)...")
         var offset = 0
         while (offset < data.size) {
+            if (closed) return@synchronized "ERR: 传输中断"
             val len = minOf(FLASH_CHUNK_SIZE, data.size - offset)
-            val sent = conn.bulkTransfer(outEp, data, offset, len, TIMEOUT_MS * 3)
-            if (sent < 0) return "数据传输失败 (offset=$offset)"
+            var sent = conn.bulkTransfer(outEp, data, offset, len, TIMEOUT_MS * 3)
+            if (sent < 0 && len > 4096) {
+                log("大块传输失败(len=$len), 尝试小块(4096)...")
+                sent = conn.bulkTransfer(outEp, data, offset, 4096, TIMEOUT_MS * 3)
+            }
+            if (sent < 0) {
+                logError("传输失败: offset=$offset/${data.size}")
+                return@synchronized "ERR: 数据传输失败 (offset=$offset)"
+            }
             offset += sent
             progressCallback?.invoke((offset.toLong() * 100 / data.size).toInt())
         }
+        log("数据传输完成: $offset 字节")
 
-        // 4. 读取最终响应
+        // 4. Read final response
         val finalResp = readResponse(conn, inEp)
-        return when (finalResp) {
+        log("最终响应: $finalResp")
+        when (finalResp) {
             is FastbootResponse.Okay -> {
                 progressCallback?.invoke(100)
-                "数据已上传到设备 (${data.size / 1024}KB)"
+                "OK: ${finalResp.data}"
             }
-            is FastbootResponse.Error -> "stage 失败: ${finalResp.message}"
-            else -> "stage 完成"
+            is FastbootResponse.Error -> "ERR: ${finalResp.message}"
+            else -> "OK:"
         }
-    }
     }
 
     /**

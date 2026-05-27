@@ -333,8 +333,10 @@ class AdbRepository @Inject constructor(
 
     /**
      * 通用流读取：打开流 → 可选写命令 → 读到标记或 EOF → 关闭。
+     * Uses kotlinx.coroutines withTimeout for reliable timeout —
+     * closing the stream unblocks the blocking read, no thread leak.
      */
-    private fun readUntilMarker(
+    private suspend fun readUntilMarker(
         openStream: () -> AdbStream,
         endMarker: String,
         writeCommand: Boolean = false,
@@ -343,30 +345,29 @@ class AdbRepository @Inject constructor(
     ): String {
         val stream = openStream()
         try {
-            if (writeCommand) {
-                val os = stream.openOutputStream()
-                os.write("$command\n".toByteArray())
-                os.flush()
-            }
+            return kotlinx.coroutines.withTimeout(timeoutMs) {
+                if (writeCommand) {
+                    val os = stream.openOutputStream()
+                    os.write("$command\n".toByteArray())
+                    os.flush()
+                }
 
-            val sb = StringBuilder()
-            val reader = BufferedReader(InputStreamReader(stream.openInputStream()))
-            val readThread = Thread {
-                try {
-                    while (true) {
-                        val line = reader.readLine() ?: break
-                        sb.appendLine(line)
-                        // SHELL 模式：遇到标记就停止
-                        if (endMarker.isNotEmpty() && line.contains(endMarker)) break
-                    }
-                } catch (_: Exception) {}
+                val sb = StringBuilder()
+                val reader = BufferedReader(InputStreamReader(stream.openInputStream()))
+                kotlinx.coroutines.runInterruptible(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        while (true) {
+                            val line = reader.readLine() ?: break
+                            sb.appendLine(line)
+                            if (endMarker.isNotEmpty() && line.contains(endMarker)) break
+                        }
+                    } catch (_: Exception) {}
+                }
+                sb.toString()
             }
-            readThread.start()
-            readThread.join(timeoutMs)
-            if (readThread.isAlive) {
-                readThread.interrupt()
-            }
-            return sb.toString()
+        } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
+            // Timeout expired — stream.close() below will unblock any pending read
+            return ""
         } finally {
             try { stream.close() } catch (_: Exception) {}
         }

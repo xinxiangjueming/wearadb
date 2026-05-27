@@ -1,7 +1,9 @@
 package com.wearadb.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
@@ -10,14 +12,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.wearadb.ui.AppViewModel
+import com.wearadb.ui.ConnectionViewModel
 import com.wearadb.ui.PairingState
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
+import com.wearadb.ui.utils.useDualPane
 
 @Composable
 fun PairingScreen(
@@ -25,7 +27,7 @@ fun PairingScreen(
     onPaired: () -> Unit,
     initialHost: String = "",
     initialPort: Int = 0,
-    viewModel: AppViewModel = hiltViewModel()
+    viewModel: ConnectionViewModel = hiltViewModel()
 ) {
     val c = WearAdbTheme.colors
     val pairingState by viewModel.pairingState.collectAsState()
@@ -45,14 +47,10 @@ fun PairingScreen(
     val navBarPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     val hPadding = adaptiveHorizontalPadding()
-    val maxInputWidth = 500.dp
+    val expanded = useDualPane()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = hPadding)
-            .padding(top = statusBarPad + 8.dp, bottom = navBarPad + 16.dp)
-    ) {
+    // ── Top bar ──
+    val topBar: @Composable () -> Unit = {
         Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { viewModel.resetPairingState(); onBack() }) {
                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回", tint = c.onBackground)
@@ -60,9 +58,10 @@ fun PairingScreen(
             Spacer(Modifier.width(8.dp))
             Text("设备配对", style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
         }
+    }
 
-        Spacer(Modifier.height(8.dp))
-
+    // ── 配对说明卡片 ──
+    val instructionCard: @Composable () -> Unit = {
         WearCard {
             Text("Android 11+ 无线配对", style = MaterialTheme.typography.titleMedium, color = c.onSurface)
             Spacer(Modifier.height(8.dp))
@@ -70,16 +69,17 @@ fun PairingScreen(
             Text("2. 点击「使用配对码配对设备」", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
             Text("3. 输入弹窗中显示的「配对码」和「IP 地址及端口」", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
             Spacer(Modifier.height(6.dp))
-            Text("⚠️ 注意：端口是「配对用配对码」弹窗中的端口，不是「无线调试」页面的端口", style = MaterialTheme.typography.labelMedium, color = c.accent)
+            Text("注意：端口是「配对用配对码」弹窗中的端口，不是「无线调试」页面的端口", style = MaterialTheme.typography.labelMedium, color = c.accent)
         }
+    }
 
-        Spacer(Modifier.height(20.dp))
-
+    // ── 输入 + 按钮 + 状态 ──
+    val inputSection: @Composable () -> Unit = {
         WearInput(
             value = hostInput, onValueChange = { hostInput = it },
             label = "IP",
             placeholder = "192.168.1.100",
-            modifier = Modifier.fillMaxWidth().widthIn(max = maxInputWidth),
+            modifier = Modifier.fillMaxWidth(),
             imeAction = androidx.compose.ui.text.input.ImeAction.Next
         )
         Spacer(Modifier.height(10.dp))
@@ -87,7 +87,7 @@ fun PairingScreen(
             value = portInput, onValueChange = { portInput = it.filter { ch -> ch.isDigit() } },
             label = "端口",
             placeholder = "37123",
-            modifier = Modifier.fillMaxWidth(0.4f).widthIn(max = maxInputWidth),
+            modifier = Modifier.fillMaxWidth(0.5f),
             imeAction = androidx.compose.ui.text.input.ImeAction.Next
         )
         Spacer(Modifier.height(10.dp))
@@ -97,9 +97,8 @@ fun PairingScreen(
             label = "配对码",
             placeholder = "6位数字",
             keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
-            modifier = Modifier.fillMaxWidth(0.5f).widthIn(max = maxInputWidth)
+            modifier = Modifier.fillMaxWidth(0.6f)
         )
-
         Spacer(Modifier.height(20.dp))
 
         when (val state = pairingState) {
@@ -135,7 +134,7 @@ fun PairingScreen(
                 }
                 Spacer(Modifier.height(12.dp))
                 WearCard {
-                    Text("💡 提示", style = MaterialTheme.typography.titleMedium, color = c.onSurface)
+                    Text("提示", style = MaterialTheme.typography.titleMedium, color = c.onSurface)
                     Spacer(Modifier.height(6.dp))
                     Text("1. 确保手机和目标设备在同一 WiFi 下", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
                     Text("2. 确认输入的是「配对用配对码」端口，不是「无线调试」端口", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
@@ -145,6 +144,50 @@ fun PairingScreen(
                 Spacer(Modifier.height(12.dp))
                 WearButton(text = "重试", onClick = { viewModel.resetPairingState() }, variant = ButtonVariant.Secondary)
             }
+        }
+    }
+
+    if (expanded) {
+        // ── 横屏：左栏配对说明 + 右栏输入 ──
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = hPadding)
+                .padding(top = statusBarPad + 8.dp)
+        ) {
+            LazyColumn(
+                modifier = Modifier.weight(1f).padding(end = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                contentPadding = PaddingValues(bottom = navBarPad + 16.dp)
+            ) {
+                item { topBar() }
+                item { instructionCard() }
+            }
+
+            Spacer(Modifier.width(1.dp).fillMaxHeight().background(c.outlineVariant))
+
+            LazyColumn(
+                modifier = Modifier.weight(1f).padding(start = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
+                contentPadding = PaddingValues(top = 8.dp, bottom = navBarPad + 16.dp)
+            ) {
+                item { inputSection() }
+            }
+        }
+    } else {
+        // ── 竖屏：单栏 ──
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = hPadding),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
+            contentPadding = PaddingValues(top = statusBarPad + 8.dp, bottom = navBarPad + 16.dp)
+        ) {
+            item { topBar() }
+            item { Spacer(Modifier.height(8.dp)) }
+            item { instructionCard() }
+            item { Spacer(Modifier.height(20.dp)) }
+            item { inputSection() }
         }
     }
 }

@@ -126,6 +126,33 @@ class UsbAdbStream(
         return sb.toString()
     }
 
+    /**
+     * Read all available data as raw bytes (blocking until stream closes or timeout).
+     * Unlike readAll(), preserves binary data integrity (no String conversion).
+     */
+    fun readAllBytes(timeoutMs: Long = 30000): ByteArray {
+        val buffer = java.io.ByteArrayOutputStream()
+        val endTime = System.currentTimeMillis() + timeoutMs
+        try {
+            while (true) {
+                val data = readQueue.poll() ?: break
+                if (data.isEmpty()) return buffer.toByteArray() // sentinel = stream closed
+                buffer.write(data)
+            }
+            while (System.currentTimeMillis() < endTime) {
+                val data = readQueue.poll(500, java.util.concurrent.TimeUnit.MILLISECONDS)
+                when {
+                    data == null -> {
+                        if (isClosed) break
+                    }
+                    data.isEmpty() -> break
+                    else -> buffer.write(data)
+                }
+            }
+        } catch (_: InterruptedException) {}
+        return buffer.toByteArray()
+    }
+
     fun createWriteMessage(data: ByteArray): UsbAdbProtocol.AdbMessage {
         return UsbAdbProtocol.writeMessage(localId, remoteId, data)
     }

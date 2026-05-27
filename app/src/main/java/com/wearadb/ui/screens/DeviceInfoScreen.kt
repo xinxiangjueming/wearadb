@@ -16,7 +16,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.data.model.DeviceInfo
-import com.wearadb.ui.AppViewModel
+import com.wearadb.ui.ConnectionViewModel
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
@@ -26,7 +26,7 @@ import com.wearadb.ui.utils.isLandscape
 @Composable
 fun DeviceInfoScreen(
     onBack: () -> Unit,
-    viewModel: AppViewModel = hiltViewModel()
+    viewModel: ConnectionViewModel = hiltViewModel()
 ) {
     val c = WearAdbTheme.colors
     val info by viewModel.deviceInfo.collectAsState()

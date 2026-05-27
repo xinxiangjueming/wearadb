@@ -41,7 +41,7 @@ object UsbAdbProtocol {
             putIntLE(buf, 4, arg0)
             putIntLE(buf, 8, arg1)
             putIntLE(buf, 12, data.size)
-            putIntLE(buf, 16, 0)
+            putIntLE(buf, 16, dataChecksum())
             putIntLE(buf, 20, command xor -1)
             if (data.isNotEmpty()) {
                 data.copyInto(buf, HEADER_SIZE)
@@ -56,9 +56,16 @@ object UsbAdbProtocol {
             putIntLE(buf, 4, arg0)
             putIntLE(buf, 8, arg1)
             putIntLE(buf, 12, data.size)
-            putIntLE(buf, 16, 0)
+            putIntLE(buf, 16, dataChecksum())
             putIntLE(buf, 20, command xor -1)
             return buf
+        }
+
+        /** ADB checksum: sum of all payload bytes (unsigned). */
+        private fun dataChecksum(): Int {
+            var sum = 0
+            for (b in data) sum += (b.toInt() and 0xFF)
+            return sum
         }
 
         override fun equals(other: Any?): Boolean {

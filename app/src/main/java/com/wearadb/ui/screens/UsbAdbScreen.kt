@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.adb.UsbAdbConnectionState
 import com.wearadb.adb.UsbAdbDeviceInfo
-import com.wearadb.ui.AppViewModel
+import com.wearadb.ui.UsbAdbViewModel
 import com.wearadb.ui.theme.WearAdbTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -34,19 +34,19 @@ fun UsbAdbScreen(
     onNavigateToShell: () -> Unit = {},
     onNavigateToApps: () -> Unit = {},
     onNavigateToAdvanced: () -> Unit = {},
-    viewModel: AppViewModel = hiltViewModel()
+    viewModel: UsbAdbViewModel = hiltViewModel()
 ) {
     val colors = WearAdbTheme.colors
     val shape = WearAdbTheme.shape
     val cornerRadius = shape.cornerRadius
 
-    val connectionState by viewModel.usbAdbConnectionState.collectAsState()
-    val connectedDevice by viewModel.usbAdbConnectedDevice.collectAsState()
-    val usbAdbDevices by viewModel.usbAdbDevices.collectAsState()
-    val connectLog by viewModel.usbAdbConnectLog.collectAsState()
+    val connectionState by viewModel.connectionState.collectAsState()
+    val connectedDevice by viewModel.connectedDevice.collectAsState()
+    val usbAdbDevices by viewModel.devices.collectAsState()
+    val connectLog by viewModel.connectLog.collectAsState()
 
     LaunchedEffect(Unit) {
-        viewModel.scanUsbAdbDevices()
+        viewModel.scanDevices()
     }
 
     val navBarPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -57,14 +57,14 @@ fun UsbAdbScreen(
                 title = { Text("有线 ADB") },
                 navigationIcon = {
                     IconButton(onClick = {
-                        viewModel.disconnectUsbAdb()
+                        viewModel.disconnect()
                         onBack()
                     }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.scanUsbAdbDevices() }) {
+                    IconButton(onClick = { viewModel.scanDevices() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "扫描")
                     }
                 },
@@ -92,7 +92,7 @@ fun UsbAdbScreen(
                 connectionState = connectionState,
                 connectedDevice = connectedDevice,
                 cornerRadius = cornerRadius,
-                onDisconnect = { viewModel.disconnectUsbAdb() }
+                onDisconnect = { viewModel.disconnect() }
             )
 
             // 设备列表（未连接时）
@@ -100,8 +100,8 @@ fun UsbAdbScreen(
                 WiredAdbDeviceListCard(
                     devices = usbAdbDevices,
                     cornerRadius = cornerRadius,
-                    onConnect = { viewModel.connectUsbAdb(it) },
-                    onRefresh = { viewModel.scanUsbAdbDevices() }
+                    onConnect = { viewModel.connect(it) },
+                    onRefresh = { viewModel.scanDevices() }
                 )
             }
 

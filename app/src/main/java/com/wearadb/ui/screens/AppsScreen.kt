@@ -32,7 +32,7 @@ import kotlinx.coroutines.launch
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.data.model.AppEntry
 import com.wearadb.ui.AppFilter
-import com.wearadb.ui.AppViewModel
+import com.wearadb.ui.ConnectionViewModel
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
@@ -40,7 +40,7 @@ import com.wearadb.ui.utils.adaptiveHorizontalPadding
 @Composable
 fun AppsScreen(
     onBack: () -> Unit,
-    viewModel: AppViewModel = hiltViewModel()
+    viewModel: ConnectionViewModel = hiltViewModel()
 ) {
     val c = WearAdbTheme.colors
     val apps by viewModel.apps.collectAsState()
@@ -219,7 +219,7 @@ private fun AppListItem(
     app: AppEntry,
     expandedPkg: String?,
     onToggleExpand: (String?) -> Unit,
-    viewModel: AppViewModel,
+    viewModel: ConnectionViewModel,
     snackbarMessage: (String) -> Unit
 ) {
     val isExpanded = expandedPkg == app.packageName

@@ -27,7 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.ui.theme.WearAdbTheme
-import com.wearadb.ui.AppViewModel
+import com.wearadb.ui.ConnectionViewModel
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
 
 data class TerminalLine(val text: String, val isCommand: Boolean = false)
@@ -35,7 +35,7 @@ data class TerminalLine(val text: String, val isCommand: Boolean = false)
 @Composable
 fun ShellScreen(
     onBack: () -> Unit,
-    viewModel: AppViewModel = hiltViewModel()
+    viewModel: ConnectionViewModel = hiltViewModel()
 ) {
     val c = WearAdbTheme.colors
     val cr = WearAdbTheme.shape.cornerRadius
