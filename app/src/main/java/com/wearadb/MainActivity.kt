@@ -11,9 +11,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.rememberNavController
+import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.navigation.AppNavGraph
+import com.wearadb.ui.rememberStrings
 import com.wearadb.ui.theme.WearAdbTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -32,6 +35,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         handleUsbIntent(intent)
         setContent {
+            CompositionLocalProvider(LocalStrings provides rememberStrings()) {
             WearAdbTheme {
                 Box(
                     modifier = Modifier
@@ -41,6 +45,7 @@ class MainActivity : ComponentActivity() {
                     val navController = rememberNavController()
                     AppNavGraph(navController = navController)
                 }
+            }
             }
         }
     }

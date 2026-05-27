@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.data.repository.DiscoveredDevice
 import com.wearadb.ui.ConnectionViewModel
+import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
@@ -54,13 +55,14 @@ fun DiscoveryScreen(
 
     val hPadding = adaptiveHorizontalPadding()
     val expanded = useDualPane()
+    val s = LocalStrings.current
 
     // ── Top bar ──
     val topBar: @Composable () -> Unit = {
         Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回", tint = c.onBackground) }
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, s.btnBack, tint = c.onBackground) }
             Spacer(Modifier.width(8.dp))
-            Text("发现设备", style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
+            Text(s.discoveryTitle, style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
             Spacer(Modifier.weight(1f))
             if (isDiscovering) {
                 CircularProgressIndicator(color = c.accent, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
@@ -71,7 +73,7 @@ fun DiscoveryScreen(
             }) {
                 Icon(
                     if (isDiscovering) Icons.Outlined.Stop else Icons.Outlined.Refresh,
-                    if (isDiscovering) "停止" else "扫描",
+                    if (isDiscovering) s.btnStop else s.btnScan,
                     tint = c.onSurfaceVariant, modifier = Modifier.size(20.dp)
                 )
             }
@@ -99,13 +101,13 @@ fun DiscoveryScreen(
                             StatusDot(active = isDiscovering)
                             Spacer(Modifier.width(10.dp))
                             Text(
-                                if (isDiscovering) "正在扫描局域网设备..." else "扫描已停止",
+                                if (isDiscovering) s.discoveryScanning else s.discoveryStopped,
                                 style = MaterialTheme.typography.bodyMedium, color = c.onSurface
                             )
                         }
                     }
                 }
-                item { SectionHeader("手动连接") }
+                item { SectionHeader(s.manualConnectTitle) }
                 item { ManualConnectCard(lastHost, lastPort, onConnect = { host, port -> viewModel.connect(host, port) }) }
             }
 
@@ -117,17 +119,17 @@ fun DiscoveryScreen(
                 contentPadding = PaddingValues(bottom = navBarPad + 32.dp)
             ) {
                 if (connectDevices.isNotEmpty()) {
-                    item { SectionHeader("可连接设备 (${connectDevices.size})") }
+                    item { SectionHeader(s.discoveryConnectable(connectDevices.size)) }
                     items(connectDevices) { device ->
-                        DiscoveredDeviceCard(device = device, label = "连接") {
+                        DiscoveredDeviceCard(device = device, label = s.discoveryActionConnect) {
                             viewModel.connectFromDiscovered(device)
                         }
                     }
                 }
                 if (pairingDevices.isNotEmpty()) {
-                    item { SectionHeader("需要配对的设备 (${pairingDevices.size})") }
+                    item { SectionHeader(s.discoveryPairable(pairingDevices.size)) }
                     items(pairingDevices) { device ->
-                        DiscoveredDeviceCard(device = device, label = "配对") {
+                        DiscoveredDeviceCard(device = device, label = s.discoveryActionPair) {
                             onNavigateToPairing(device.host, device.port)
                         }
                     }
@@ -138,8 +140,8 @@ fun DiscoveryScreen(
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(Icons.Outlined.WifiFind, null, tint = c.onSurfaceVariant, modifier = Modifier.size(48.dp))
                                 Spacer(Modifier.height(16.dp))
-                                Text("未发现设备", style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant)
-                                Text("确保设备已开启无线调试", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
+                                Text(s.discoveryEmptyTitle, style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant)
+                                Text(s.discoveryEmptyHint, style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
                             }
                         }
                     }
@@ -161,29 +163,29 @@ fun DiscoveryScreen(
                         StatusDot(active = isDiscovering)
                         Spacer(Modifier.width(10.dp))
                         Text(
-                            if (isDiscovering) "正在扫描局域网设备..." else "扫描已停止",
+                            if (isDiscovering) s.discoveryScanning else s.discoveryStopped,
                             style = MaterialTheme.typography.bodyMedium, color = c.onSurface
                         )
                     }
                 }
             }
 
-            item { SectionHeader("手动连接") }
+            item { SectionHeader(s.manualConnectTitle) }
             item { ManualConnectCard(lastHost, lastPort, onConnect = { host, port -> viewModel.connect(host, port) }) }
 
             if (connectDevices.isNotEmpty()) {
-                item { SectionHeader("可连接设备 (${connectDevices.size})") }
+                item { SectionHeader(s.discoveryConnectable(connectDevices.size)) }
                 items(connectDevices) { device ->
-                    DiscoveredDeviceCard(device = device, label = "连接") {
+                    DiscoveredDeviceCard(device = device, label = s.discoveryActionConnect) {
                         viewModel.connectFromDiscovered(device)
                     }
                 }
             }
 
             if (pairingDevices.isNotEmpty()) {
-                item { SectionHeader("需要配对的设备 (${pairingDevices.size})") }
+                item { SectionHeader(s.discoveryPairable(pairingDevices.size)) }
                 items(pairingDevices) { device ->
-                    DiscoveredDeviceCard(device = device, label = "配对") {
+                    DiscoveredDeviceCard(device = device, label = s.discoveryActionPair) {
                         onNavigateToPairing(device.host, device.port)
                     }
                 }
@@ -195,8 +197,8 @@ fun DiscoveryScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Outlined.WifiFind, null, tint = c.onSurfaceVariant, modifier = Modifier.size(48.dp))
                             Spacer(Modifier.height(16.dp))
-                            Text("未发现设备", style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant)
-                            Text("确保设备已开启无线调试", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
+                            Text(s.discoveryEmptyTitle, style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant)
+                            Text(s.discoveryEmptyHint, style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
                         }
                     }
                 }
@@ -212,31 +214,36 @@ private fun ManualConnectCard(
     onConnect: (host: String, port: Int) -> Unit
 ) {
     val c = WearAdbTheme.colors
+    val s = LocalStrings.current
     var hostInput by remember(defaultHost) { mutableStateOf(defaultHost) }
     var portInput by remember(defaultPort) { mutableStateOf(defaultPort.toString()) }
 
     WearCard {
-        Text("手动输入 IP 和端口连接", style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant)
+        Text(s.manualConnectTitle, style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant)
         Spacer(Modifier.height(12.dp))
-        WearInput(
-            value = hostInput,
-            onValueChange = { hostInput = it },
-            label = "IP",
-            placeholder = "192.168.1.100",
-            modifier = Modifier.fillMaxWidth(),
-            imeAction = androidx.compose.ui.text.input.ImeAction.Next
-        )
-        Spacer(Modifier.height(8.dp))
-        WearInput(
-            value = portInput,
-            onValueChange = { portInput = it.filter { ch -> ch.isDigit() } },
-            label = "端口",
-            placeholder = "5555",
-            modifier = Modifier.fillMaxWidth(0.5f)
-        )
+        AlignedInputColumn(
+            labels = listOf(s.labelIp, s.labelPort),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            WearInput(
+                value = hostInput,
+                onValueChange = { hostInput = it },
+                label = s.labelIp,
+                placeholder = "192.168.1.100",
+                modifier = Modifier.fillMaxWidth(),
+                imeAction = androidx.compose.ui.text.input.ImeAction.Next
+            )
+            WearInput(
+                value = portInput,
+                onValueChange = { portInput = it.filter { ch -> ch.isDigit() } },
+                label = s.labelPort,
+                placeholder = "5555",
+                modifier = Modifier.fillMaxWidth(0.5f)
+            )
+        }
         Spacer(Modifier.height(12.dp))
         WearButton(
-            text = "连接",
+            text = s.btnConnect,
             onClick = { onConnect(hostInput.trim(), portInput.toIntOrNull() ?: 5555) },
             enabled = hostInput.isNotBlank()
         )

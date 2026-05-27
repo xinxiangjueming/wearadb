@@ -33,6 +33,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.data.model.AppEntry
 import com.wearadb.ui.AppFilter
 import com.wearadb.ui.ConnectionViewModel
+import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
@@ -43,6 +44,7 @@ fun AppsScreen(
     viewModel: ConnectionViewModel = hiltViewModel()
 ) {
     val c = WearAdbTheme.colors
+    val s = LocalStrings.current
     val apps by viewModel.apps.collectAsState()
     val loading by viewModel.appsLoading.collectAsState()
     val filter by viewModel.appsFilter.collectAsState()
@@ -85,7 +87,7 @@ fun AppsScreen(
             kotlinx.coroutines.delay(15000)
             if (pickerActive) {
                 pickerActive = false
-                snackbarMessage = "文件选择超时，请重试"
+                snackbarMessage = s.appsPickerTimeout
             }
         }
     }
@@ -163,26 +165,26 @@ fun AppsScreen(
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Row(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回", tint = c.onBackground) }
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, s.btnBack, tint = c.onBackground) }
                     Spacer(Modifier.width(8.dp))
-                    Text("应用管理", style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
+                    Text(s.appsTitle, style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
                     Spacer(Modifier.weight(1f))
                     Text("${filteredApps.size}", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
                     Spacer(Modifier.width(8.dp))
                     IconButton(onClick = { pickerActive = true; apkPicker.launch("*/*") }) {
-                        Icon(Icons.Outlined.InstallMobile, "安装 APK/APKS", tint = c.accent, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Outlined.InstallMobile, s.appsInstallApk, tint = c.accent, modifier = Modifier.size(20.dp))
                     }
                     IconButton(onClick = { viewModel.loadApps(force = true) }) {
-                        Icon(Icons.Outlined.Refresh, "刷新", tint = c.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Outlined.Refresh, s.btnRefresh, tint = c.onSurfaceVariant, modifier = Modifier.size(20.dp))
                     }
                 }
             }
-            item(span = { GridItemSpan(maxLineSpan) }) { WearInput(value = searchQuery, onValueChange = { searchQuery = it }, placeholder = "搜索包名...") }
+            item(span = { GridItemSpan(maxLineSpan) }) { WearInput(value = searchQuery, onValueChange = { searchQuery = it }, placeholder = s.appsSearchHint) }
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChipItem("全部", filter == AppFilter.ALL) { viewModel.setAppsFilter(AppFilter.ALL) }
-                    FilterChipItem("系统", filter == AppFilter.SYSTEM) { viewModel.setAppsFilter(AppFilter.SYSTEM) }
-                    FilterChipItem("第三方", filter == AppFilter.THIRD_PARTY) { viewModel.setAppsFilter(AppFilter.THIRD_PARTY) }
+                    FilterChipItem(s.appsFilterAll, filter == AppFilter.ALL) { viewModel.setAppsFilter(AppFilter.ALL) }
+                    FilterChipItem(s.appsFilterSystem, filter == AppFilter.SYSTEM) { viewModel.setAppsFilter(AppFilter.SYSTEM) }
+                    FilterChipItem(s.appsFilterThird, filter == AppFilter.THIRD_PARTY) { viewModel.setAppsFilter(AppFilter.THIRD_PARTY) }
                 }
             }
             if (loading) {
@@ -194,13 +196,13 @@ fun AppsScreen(
             }
             if (filter == AppFilter.ALL && searchQuery.isBlank()) {
                 if (systemApps.isNotEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("系统应用 (${systemApps.size})") }
+                    item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(s.appsSystemCount(systemApps.size)) }
                     items(systemApps, key = { it.packageName }) { app ->
                         AppListItem(app, expandedPkg, onToggleExpand = { expandedPkg = it }, viewModel = viewModel, snackbarMessage = { snackbarMessage = it })
                     }
                 }
                 if (thirdPartyApps.isNotEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("第三方应用 (${thirdPartyApps.size})") }
+                    item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(s.appsThirdCount(thirdPartyApps.size)) }
                     items(thirdPartyApps, key = { it.packageName }) { app ->
                         AppListItem(app, expandedPkg, onToggleExpand = { expandedPkg = it }, viewModel = viewModel, snackbarMessage = { snackbarMessage = it })
                     }
@@ -266,6 +268,7 @@ private fun AppCard(
     onUninstall: () -> Unit, onClearData: () -> Unit, onForceStop: () -> Unit, onToggleEnabled: () -> Unit
 ) {
     val c = WearAdbTheme.colors
+    val s = LocalStrings.current
     val cr = WearAdbTheme.shape.cornerRadius
     val shape = remember { RoundedCornerShape(cr) }
     Column(
@@ -281,7 +284,7 @@ private fun AppCard(
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row {
                     if (app.versionName.isNotEmpty()) Text("v${app.versionName}", style = MaterialTheme.typography.labelMedium, color = c.onSurfaceVariant)
-                    if (!app.isEnabled) { Spacer(Modifier.width(8.dp)); Text("已禁用", style = MaterialTheme.typography.labelSmall, color = c.disabledBadge) }
+                    if (!app.isEnabled) { Spacer(Modifier.width(8.dp)); Text(s.appsDisabled, style = MaterialTheme.typography.labelSmall, color = c.disabledBadge) }
                 }
             }
             Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null,
@@ -291,12 +294,12 @@ private fun AppCard(
             Column {
                 Spacer(Modifier.height(12.dp)); HorizontalDivider(color = c.outlineVariant); Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppActionButton("停止", c.buttonSecondary, c.buttonSecondaryText) { onForceStop() }
-                    AppActionButton("清除数据", c.info, c.onSurface) { onClearData() }
-                    AppActionButton(if (app.isEnabled) "禁用" else "启用", c.buttonSecondary, c.buttonSecondaryText) { onToggleEnabled() }
+                    AppActionButton(s.appsActionStop, c.buttonSecondary, c.buttonSecondaryText) { onForceStop() }
+                    AppActionButton(s.appsActionClear, c.info, c.onSurface) { onClearData() }
+                    AppActionButton(if (app.isEnabled) s.appsActionDisable else s.appsActionEnable, c.buttonSecondary, c.buttonSecondaryText) { onToggleEnabled() }
                 }
                 Spacer(Modifier.height(8.dp))
-                if (!app.isSystem) AppActionButton("卸载", c.buttonDanger, c.buttonDangerText) { onUninstall() }
+                if (!app.isSystem) AppActionButton(s.appsActionUninstall, c.buttonDanger, c.buttonDangerText) { onUninstall() }
             }
         }
     }

@@ -20,7 +20,10 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
 import com.wearadb.ui.theme.WearAdbTheme
 
@@ -43,6 +46,9 @@ fun WearCard(
     )
 }
 
+/** CompositionLocal that AlignedInputColumn provides to align all WearInput labels. */
+val LocalAlignedLabelWidth = compositionLocalOf { 0.dp }
+
 @Composable
 fun WearInput(
     value: String,
@@ -58,6 +64,7 @@ fun WearInput(
 ) {
     val c = WearAdbTheme.colors
     val shape = RoundedCornerShape(WearAdbTheme.shape.cornerRadius)
+    val alignedWidth = LocalAlignedLabelWidth.current
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         if (label.isNotEmpty()) {
             Text(
@@ -67,7 +74,9 @@ fun WearInput(
                     fontSize = 14.sp,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
                 ),
-                modifier = Modifier.padding(end = 10.dp)
+                modifier = Modifier
+                    .then(if (alignedWidth > 0.dp) Modifier.width(alignedWidth) else Modifier)
+                    .padding(end = 10.dp)
             )
         }
         BasicTextField(
@@ -168,4 +177,48 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier) {
         color = WearAdbTheme.colors.onSurfaceVariant,
         modifier = modifier.padding(start = 4.dp, bottom = 8.dp)
     )
+}
+
+/**
+ * A Column wrapper that automatically aligns all WearInput labels.
+ *
+ * Measures each label text with [TextMeasurer] to find the widest one,
+ * then provides the result via [LocalAlignedLabelWidth] so WearInput
+ * applies a uniform label width. Works with any language — no hardcoded dp.
+ *
+ * @param labels The label strings of the WearInput composables inside [content].
+ *               Must be in the same order as the WearInput calls.
+ * @param content The WearInput composables.
+ */
+@Composable
+fun AlignedInputColumn(
+    modifier: Modifier = Modifier,
+    verticalArrangement: Arrangement.Vertical = Arrangement.Top,
+    labels: List<String>,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val textMeasurer = rememberTextMeasurer()
+    val labelStyle = TextStyle(
+        color = WearAdbTheme.colors.label,
+        fontSize = 14.sp,
+        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+    )
+
+    // Measure all labels to find the widest, then add the right padding (10.dp)
+    val density = LocalDensity.current
+    val alignedWidth = remember(labels, labelStyle, density) {
+        val maxDp = labels.maxOfOrNull { label ->
+            if (label.isEmpty()) 0.dp
+            else with(density) { textMeasurer.measure(label, labelStyle).size.width.toDp() }
+        } ?: 0.dp
+        maxDp + 10.dp  // 10.dp = label's end padding in WearInput
+    }
+
+    CompositionLocalProvider(LocalAlignedLabelWidth provides alignedWidth) {
+        Column(
+            modifier = modifier,
+            verticalArrangement = verticalArrangement,
+            content = content
+        )
+    }
 }

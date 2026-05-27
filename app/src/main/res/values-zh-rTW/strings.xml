@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">掌調</string>
+
+    <!-- HomeScreen -->
+    <string name="home_subtitle">無線偵錯工具</string>
+    <string name="section_tools">工具</string>
+    <string name="section_history">歷史裝置</string>
+    <string name="section_usb_debug">USB 偵錯</string>
+    <string name="usb_debug_desc">透過 USB 傳輸線直接連接裝置，無需網路</string>
+
+    <!-- Feature cards -->
+    <string name="feature_shell">Shell</string>
+    <string name="feature_shell_desc">互動式終端機</string>
+    <string name="feature_device">裝置</string>
+    <string name="feature_device_desc">裝置資訊總覽</string>
+    <string name="feature_apps">應用程式</string>
+    <string name="feature_apps_desc">管理應用程式</string>
+    <string name="feature_files">檔案</string>
+    <string name="feature_files_desc">瀏覽檔案</string>
+    <string name="feature_advanced">進階操作</string>
+    <string name="feature_advanced_desc">重新啟動/螢幕截圖/音量/導航鍵</string>
+    <string name="feature_fastboot">Fastboot</string>
+    <string name="feature_fastboot_desc">刷機/清除/解鎖</string>
+    <string name="feature_usb_adb">有線 ADB</string>
+    <string name="feature_usb_adb_desc">USB Shell/管理</string>
+
+    <!-- Wireless connection card -->
+    <string name="status_disconnected">未連線</string>
+    <string name="status_connecting">連線中…</string>
+    <string name="status_auth">等待授權…</string>
+    <string name="status_connected">已連線</string>
+    <string name="status_error">連線失敗</string>
+    <string name="label_ip">IP</string>
+    <string name="label_port">連接埠</string>
+    <string name="btn_connect">連線</string>
+    <string name="btn_connecting">連線中…</string>
+    <string name="btn_disconnect">中斷連線</string>
+    <string name="btn_discover">搜尋裝置</string>
+    <string name="btn_pair">配對</string>
+    <string name="error_connect">無法連線至裝置，請確認 IP 與連接埠</string>
+
+    <!-- Bluetooth dialog -->
+    <string name="bt_title">連線成功</string>
+    <string name="bt_message">是否關閉裝置藍牙以節省電量？</string>
+    <string name="bt_confirm">關閉藍牙</string>
+    <string name="bt_dismiss">保留</string>
+
+    <!-- Device card -->
+    <string name="action_favorite">收藏</string>
+    <string name="action_delete">刪除</string>
+
+    <!-- Shared -->
+    <string name="btn_back">返回</string>
+    <string name="btn_close">關閉</string>
+    <string name="btn_cancel">取消</string>
+    <string name="btn_refresh">重新整理</string>
+    <string name="btn_send">傳送</string>
+
+    <!-- ShellScreen -->
+    <string name="shell_title">Shell</string>
+    <string name="shell_subtitle">互動式終端機</string>
+    <string name="shell_wifi_fix">WiFi 檢測修復</string>
+    <string name="shell_shizuku">Shizuku 啟用</string>
+    <string name="shell_scene">Scene 啟用</string>
+    <string name="shell_brevent">黑域啟用</string>
+    <string name="shell_hint">輸入指令開始互動…\n例如: ls -la, getprop ro.product.model</string>
+    <string name="shell_input_hint">輸入指令…</string>
+
+    <!-- DeviceInfoScreen -->
+    <string name="device_info_title">裝置資訊</string>
+    <string name="info_basic">基本資訊</string>
+    <string name="info_brand">品牌</string>
+    <string name="info_model">型號</string>
+    <string name="info_codename">裝置代號</string>
+    <string name="info_serial">序號</string>
+    <string name="info_system">系統</string>
+    <string name="info_fingerprint">指紋</string>
+    <string name="info_screen">螢幕</string>
+    <string name="info_resolution">解析度</string>
+    <string name="info_battery">電池</string>
+    <string name="info_design_capacity">設計容量</string>
+    <string name="info_current_capacity">目前容量</string>
+    <string name="info_battery_type">電池類型</string>
+    <string name="info_health">健康狀態</string>
+    <string name="info_battery_level">電量</string>
+    <string name="info_battery_status">狀態</string>
+    <string name="info_voltage">電壓</string>
+    <string name="info_temperature">溫度</string>
+    <string name="info_mem_storage">記憶體與儲存空間</string>
+    <string name="info_ram">主記憶體</string>
+    <string name="info_used">已使用</string>
+    <string name="info_available">可用</string>
+    <string name="info_total">總計</string>
+    <string name="info_no_data">暫無資料</string>
+    <string name="info_internal_storage">內部儲存空間</string>
+    <string name="info_no_data_refresh">暫無資料，請稍後重新整理</string>
+
+    <!-- AdvancedOpsScreen -->
+    <string name="advanced_title">進階操作</string>
+    <string name="ops_display">顯示</string>
+    <string name="ops_screenshot">螢幕截圖</string>
+    <string name="ops_screen_on">開啟螢幕</string>
+    <string name="ops_screen_off">關閉螢幕</string>
+    <string name="ops_volume">音量</string>
+    <string name="ops_vol_up">增大</string>
+    <string name="ops_vol_down">減小</string>
+    <string name="ops_vol_mute">靜音</string>
+    <string name="ops_connectivity">連線</string>
+    <string name="ops_wifi_on">開啟 WiFi</string>
+    <string name="ops_wifi_off">關閉 WiFi</string>
+    <string name="ops_bt_on">開啟藍牙</string>
+    <string name="ops_bt_off">關閉藍牙</string>
+    <string name="ops_navigation">導航</string>
+    <string name="ops_back">返回</string>
+    <string name="ops_power">電源</string>
+    <string name="ops_media">媒體</string>
+    <string name="ops_prev">上一首</string>
+    <string name="ops_play_pause">播放/暫停</string>
+    <string name="ops_next">下一首</string>
+    <string name="ops_reboot_device">重新啟動裝置</string>
+    <string name="ops_select_reboot">選擇重新啟動模式</string>
+    <string name="ops_reboot_normal">正常重新啟動</string>
+    <string name="ops_shutdown">關機</string>
+    <string name="ops_wired_debug">有線偵錯</string>
+    <string name="ops_fastboot_mode">Fastboot 模式</string>
+    <string name="screenshot_success">螢幕截圖成功 (%1$s)</string>
+    <string name="screenshot_failed">螢幕截圖失敗</string>
+    <string name="screenshot_save">儲存至手機</string>
+
+    <!-- PairingScreen -->
+    <string name="pair_title">裝置配對</string>
+    <string name="pair_wireless_title">Android 11+ 無線配對</string>
+    <string name="pair_step1">1. 在目標裝置上開啟「開發人員選項」→「無線偵錯」</string>
+    <string name="pair_step2">2. 點選「使用配對碼配對裝置」</string>
+    <string name="pair_step3">3. 輸入彈出視窗中顯示的「配對碼」和「IP 位址及連接埠」</string>
+    <string name="pair_port_note">注意：連接埠是「配對用配對碼」彈出視窗中的連接埠，不是「無線偵錯」頁面的連接埠</string>
+    <string name="label_pair_code">配對碼</string>
+    <string name="pair_code_placeholder">6 位數字</string>
+    <string name="btn_pairing">配對</string>
+    <string name="btn_pairing_progress">配對中…</string>
+    <string name="pair_failed">配對失敗</string>
+    <string name="pair_tips">提示</string>
+    <string name="pair_tip1">1. 確認手機與目標裝置連接相同 WiFi</string>
+    <string name="pair_tip2">2. 確認輸入的是「配對用配對碼」連接埠，不是「無線偵錯」連接埠</string>
+    <string name="pair_tip3">3. 配對碼每次開啟都會重新產生，請使用最新的</string>
+    <string name="pair_tip4">4. 若配對持續失敗，可先在電腦上執行 adb pair &lt;ip&gt;:&lt;port&gt; &lt;code&gt; 進行配對</string>
+    <string name="btn_retry">重試</string>
+    <string name="manual_connect_title">手動輸入 IP 與連接埠進行連線</string>
+
+    <!-- AppsScreen -->
+    <string name="apps_title">應用程式管理</string>
+    <string name="apps_install_apk">安裝 APK / APKS</string>
+    <string name="apps_search_hint">搜尋套件名稱…</string>
+    <string name="apps_filter_all">全部</string>
+    <string name="apps_filter_system">系統</string>
+    <string name="apps_filter_third">第三方</string>
+    <string name="apps_system_count">系統應用程式 (%1$d)</string>
+    <string name="apps_third_count">第三方應用程式 (%1$d)</string>
+    <string name="apps_disabled">已停用</string>
+    <string name="apps_action_stop">強制停止</string>
+    <string name="apps_action_clear">清除資料</string>
+    <string name="apps_action_disable">停用</string>
+    <string name="apps_action_enable">啟用</string>
+    <string name="apps_action_uninstall">解除安裝</string>
+    <string name="apps_picker_timeout">檔案選擇逾時，請重試</string>
+
+    <!-- FilesScreen -->
+    <string name="files_title">檔案管理</string>
+    <string name="files_push_hint">推送檔案至手錶</string>
+    <string name="files_parent">上層</string>
+    <string name="files_empty">空資料夾</string>
+    <string name="files_size">大小：%1$s</string>
+    <string name="files_permission">權限：%1$s</string>
+    <string name="files_modified">修改時間：%1$s</string>
+    <string name="files_action_view">檢視</string>
+    <string name="files_action_pull">拉取</string>
+    <string name="files_action_install">安裝</string>
+    <string name="files_action_delete">刪除</string>
+    <string name="files_content_title">檔案內容</string>
+    <string name="files_content_too_long">內容過長，僅顯示前 %1$d 個字元（共 %2$d 個字元）</string>
+
+    <!-- DiscoveryScreen -->
+    <string name="discovery_title">搜尋裝置</string>
+    <string name="discovery_scanning">正在掃描區域網路裝置…</string>
+    <string name="discovery_stopped">掃描已停止</string>
+    <string name="discovery_connectable">可連線裝置 (%1$d)</string>
+    <string name="discovery_pairable">需要配對的裝置 (%1$d)</string>
+    <string name="discovery_empty_title">未發現裝置</string>
+    <string name="discovery_empty_hint">請確認裝置已開啟無線偵錯</string>
+    <string name="discovery_no_pair">無需配對</string>
+    <string name="discovery_no_pair_hint">Android 11+ 裝置首次連線需要配對</string>
+    <string name="discovery_action_connect">連線</string>
+    <string name="discovery_action_pair">配對</string>
+    <string name="btn_stop">停止</string>
+    <string name="btn_scan">掃描</string>
+
+    <!-- FastbootScreen -->
+    <string name="fb_mode_title">Fastboot 模式</string>
+    <string name="fb_reboot">重新啟動</string>
+    <string name="fb_reboot_system">重新啟動至系統</string>
+    <string name="fb_reboot_recovery">重新啟動至 Recovery</string>
+    <string name="fb_reboot_bootloader">重新啟動至 Bootloader</string>
+    <string name="fb_partition_ops">分區操作</string>
+    <string name="fb_flash_partition">刷入分區…</string>
+    <string name="fb_erase_partition">清除分區…</string>
+    <string name="fb_oem_title">OEM 指令</string>
+    <string name="fb_oem_exec">執行 OEM 指令…</string>
+    <string name="fb_unlock">解鎖 Bootloader</string>
+    <string name="fb_lock">鎖定 Bootloader</string>
+    <string name="fb_advanced_transfer">進階傳輸</string>
+    <string name="fb_temp_boot">臨時啟動映像檔…</string>
+    <string name="fb_stage">上傳資料至裝置 (stage)…</string>
+    <string name="fb_fetch">從裝置下載資料 (fetch)</string>
+    <string name="fb_device_vars">裝置變數</string>
+    <string name="fb_getvar_all">取得所有變數 (getvar all)</string>
+    <string name="fb_flash_success_title">刷入成功</string>
+    <string name="fb_flash_success_msg">%1$s 分區已刷入完成。是否重新啟動至 Recovery 模式？</string>
+    <string name="fb_stay_fastboot">留在 Fastboot</string>
+    <string name="fb_usb_hint">請使用 USB 傳輸線連接處於 Fastboot 模式的裝置</string>
+    <string name="fb_usb_permission">若手機跳出 USB 權限對話框，請點選允許</string>
+    <string name="fb_devices_header">偵測到的 Fastboot 裝置</string>
+    <string name="fb_empty_hint">未偵測到 Fastboot 裝置。\n請確認裝置已進入 Bootloader / Fastboot 模式並使用 USB 傳輸線連接。</string>
+    <string name="fb_serial">序號：%1$s</string>
+    <string name="fb_flashing">刷入中…</string>
+    <string name="fb_connect_log">連線紀錄</string>
+    <string name="fb_oem_dialog_title">執行 OEM 指令</string>
+    <string name="fb_cmd_label">指令</string>
+    <string name="fb_cmd_placeholder">例如：unlock</string>
+    <string name="fb_execute">執行</string>
+    <string name="fb_erase_title">清除分區</string>
+    <string name="fb_erase_warning">此操作無法復原，請確認分區名稱正確。</string>
+    <string name="fb_select_partition">選擇分區</string>
+    <string name="fb_partition_name">分區名稱</string>
+    <string name="fb_manual_input">或手動輸入</string>
+    <string name="fb_erase_confirm">清除</string>
+    <string name="fb_flash_title">刷入分區</string>
+    <string name="fb_select_image">選擇映像檔…</string>
+    <string name="fb_flash_confirm">刷入</string>
+    <string name="fb_temp_boot_title">臨時啟動映像檔</string>
+    <string name="fb_temp_boot_warning">此操作會臨時啟動選取的映像檔，不會寫入分區。裝置重新啟動後將恢復原系統。</string>
+    <string name="fb_select_boot">選擇 boot 映像檔…</string>
+    <string name="fb_boot_confirm">啟動</string>
+    <string name="fb_stage_title">上傳資料至裝置</string>
+    <string name="fb_stage_desc">將檔案上傳至裝置記憶體（stage），可搭配 OEM 指令使用。</string>
+    <string name="fb_select_upload">選擇要上傳的檔案…</string>
+    <string name="fb_stage_confirm">上傳</string>
+
+    <!-- UsbAdbScreen extras -->
+    <string name="usb_connect_log">連線紀錄</string>
+    <string name="usb_desc_info">檢視型號、系統版本、儲存空間等</string>
+    <string name="usb_desc_shell">執行 Shell 指令</string>
+    <string name="usb_desc_apps">檢視、安裝、解除安裝應用程式</string>
+    <string name="usb_desc_advanced">重新啟動、螢幕截圖、音量、WiFi、藍牙等</string>
+    <string name="usb_connected_fmt">已連線：%1$s</string>
+    <string name="usb_not_connected">未連線 — 請使用 USB 傳輸線連接 Android 裝置</string>
+    <string name="usb_detected_devices">偵測到的裝置</string>
+    <string name="usb_no_device_hint">未偵測到有線 ADB 裝置。\n請確認裝置已透過 USB 傳輸線連接至手機，且裝置已開啟 USB 偵錯。</string>
+    <string name="usb_serial">序號：%1$s</string>
+    <string name="usb_reboot_fastboot">重新啟動至 Fastboot</string>
+    <string name="usb_reboot_fastboot_desc">裝置將中斷連線並進入 Bootloader</string>
+</resources>

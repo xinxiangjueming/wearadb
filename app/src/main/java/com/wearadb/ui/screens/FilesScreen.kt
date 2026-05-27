@@ -30,6 +30,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.data.model.FileEntry
 import com.wearadb.ui.ConnectionViewModel
 import com.wearadb.ui.utils.formatBytes
+import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
 import com.wearadb.ui.utils.useDualPane
@@ -41,6 +42,7 @@ fun FilesScreen(
     viewModel: ConnectionViewModel = hiltViewModel()
 ) {
     val c = WearAdbTheme.colors
+    val s = LocalStrings.current
     val context = LocalContext.current
     val files by viewModel.files.collectAsState()
     val currentPath by viewModel.currentPath.collectAsState()
@@ -111,16 +113,16 @@ fun FilesScreen(
                 IconButton(onClick = {
                     if (!isAtRoot) { viewModel.navigateUp(); selectedFile = null }
                     else onBack()
-                }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回", tint = c.onBackground) }
+                }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, s.btnBack, tint = c.onBackground) }
                 Spacer(Modifier.width(8.dp))
-                Text("文件管理", style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
+                Text(s.filesTitle, style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
                 Spacer(Modifier.weight(1f))
                 // 推送按钮
                 IconButton(onClick = { pushLauncher.launch("*/*") }) {
-                    Icon(Icons.Outlined.Upload, "推送文件到手表", tint = c.accent, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Outlined.Upload, s.filesPushHint, tint = c.accent, modifier = Modifier.size(20.dp))
                 }
                 IconButton(onClick = { viewModel.loadFiles(force = true) }) {
-                    Icon(Icons.Outlined.Refresh, "刷新", tint = c.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Outlined.Refresh, s.btnRefresh, tint = c.onSurfaceVariant, modifier = Modifier.size(20.dp))
                 }
             }
 
@@ -128,7 +130,7 @@ fun FilesScreen(
             WearCard(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { viewModel.navigateUp(); selectedFile = null }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Outlined.ArrowUpward, "上级", tint = c.accent, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Outlined.ArrowUpward, s.filesParent, tint = c.accent, modifier = Modifier.size(18.dp))
                     }
                     Spacer(Modifier.width(8.dp))
                     Text(currentPath, style = MaterialTheme.typography.labelMedium, color = c.onSurface,
@@ -151,7 +153,7 @@ fun FilesScreen(
                 }
             } else if (files.isEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                    Text("空目录", style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant)
+                    Text(s.filesEmpty, style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant)
                 }
             } else if (expanded) {
                 // ── 大屏：列表 + 详情分栏 ──
@@ -212,15 +214,15 @@ fun FilesScreen(
                         ) {
                             Text(selectedFile!!.name, style = MaterialTheme.typography.titleLarge, color = c.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Spacer(Modifier.height(8.dp))
-                            Text("大小: ${formatBytes(selectedFile!!.size)}", style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant)
-                            Text("权限: ${selectedFile!!.permissions}", style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant, fontFamily = FontFamily.Monospace)
-                            Text("修改: ${selectedFile!!.lastModified}", style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant)
+                            Text(s.filesSize(formatBytes(selectedFile!!.size)), style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant)
+                            Text(s.filesPermission(selectedFile!!.permissions), style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant, fontFamily = FontFamily.Monospace)
+                            Text(s.filesModified(selectedFile!!.lastModified), style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant)
                             Spacer(Modifier.height(16.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FileActionButton("查看", c.accent, c.onSurface) {
+                                FileActionButton(s.filesActionView, c.accent, c.onSurface) {
                                     viewModel.readFile(selectedFile!!.path) { content -> fileContent = content; showFileContent = true }
                                 }
-                                FileActionButton("拉取", c.info, c.onSurface) {
+                                FileActionButton(s.filesActionPull, c.info, c.onSurface) {
                                     viewModel.pullFile(selectedFile!!.path) { result ->
                                         if (result.success && result.data != null) {
                                             pendingPullData = selectedFile!!.name to result.data
@@ -231,7 +233,7 @@ fun FilesScreen(
                                     }
                                 }
                                 if (selectedFile!!.name.endsWith(".apk") || selectedFile!!.name.endsWith(".apks")) {
-                                    FileActionButton("安装", c.accent, c.onSurface) {
+                                    FileActionButton(s.filesActionInstall, c.accent, c.onSurface) {
                                         viewModel.pullFile(selectedFile!!.path) { result ->
                                             if (result.success && result.data != null) {
                                                 if (selectedFile!!.name.endsWith(".apks")) {
@@ -250,7 +252,7 @@ fun FilesScreen(
                                         }
                                     }
                                 }
-                                FileActionButton("删除", c.buttonDanger, c.buttonDangerText) {
+                                FileActionButton(s.filesActionDelete, c.buttonDanger, c.buttonDangerText) {
                                     viewModel.deleteFile(selectedFile!!.path) { snackbarMessage = it }
                                     selectedFile = null
                                 }
@@ -318,7 +320,7 @@ fun FilesScreen(
             onDismissRequest = { showFileContent = false },
             containerColor = c.surface,
             shape = RoundedCornerShape(cr),
-            title = { Text("文件内容", style = MaterialTheme.typography.titleMedium, color = c.onSurface) },
+            title = { Text(s.filesContentTitle, style = MaterialTheme.typography.titleMedium, color = c.onSurface) },
             text = {
                 LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)) {
                     item {
@@ -326,12 +328,12 @@ fun FilesScreen(
                         Text(displayContent, style = MaterialTheme.typography.labelMedium, color = c.onSurface, fontFamily = FontFamily.Monospace)
                         if (fileContent.length > 10000) {
                             Spacer(Modifier.height(8.dp))
-                            Text("⚠️ 内容过长，仅显示前 10000 字符（共 ${fileContent.length} 字符）", style = MaterialTheme.typography.labelSmall, color = c.error)
+                            Text(s.filesContentTooLong(10000, fileContent.length), style = MaterialTheme.typography.labelSmall, color = c.error)
                         }
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { showFileContent = false }) { Text("关闭", color = c.accent) } }
+            confirmButton = { TextButton(onClick = { showFileContent = false }) { Text(s.btnClose, color = c.accent) } }
         )
     }
 }
@@ -353,6 +355,7 @@ private fun FileCard(
     onClick: () -> Unit, onDelete: () -> Unit, onView: () -> Unit, onPull: () -> Unit, onInstall: () -> Unit
 ) {
     val c = WearAdbTheme.colors
+    val s = LocalStrings.current
     val shape = remember { RoundedCornerShape(20.dp) }
     Column(
         modifier = Modifier.fillMaxWidth().clip(shape)
@@ -378,12 +381,12 @@ private fun FileCard(
         }
         AnimatedVisibility(visible = isSelected) {
             Row(modifier = Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (!file.isDirectory) FileActionButton("查看", c.accent, c.onSurface) { onView() }
-                if (!file.isDirectory) FileActionButton("拉取", c.info, c.onSurface) { onPull() }
+                if (!file.isDirectory) FileActionButton(s.filesActionView, c.accent, c.onSurface) { onView() }
+                if (!file.isDirectory) FileActionButton(s.filesActionPull, c.info, c.onSurface) { onPull() }
                 if (!file.isDirectory && (file.name.endsWith(".apk") || file.name.endsWith(".apks"))) {
-                    FileActionButton("安装", c.accent, c.onSurface) { onInstall() }
+                    FileActionButton(s.filesActionInstall, c.accent, c.onSurface) { onInstall() }
                 }
-                FileActionButton("删除", c.buttonDanger, c.buttonDangerText) { onDelete() }
+                FileActionButton(s.filesActionDelete, c.buttonDanger, c.buttonDangerText) { onDelete() }
             }
         }
     }

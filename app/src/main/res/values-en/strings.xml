@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">wear-adb</string>
+
+    <!-- HomeScreen -->
+    <string name="home_subtitle">Wireless Debugging Tool</string>
+    <string name="section_tools">Tools</string>
+    <string name="section_history">History</string>
+    <string name="section_usb_debug">USB Debugging</string>
+    <string name="usb_debug_desc">Connect to devices directly via USB cable, no network required</string>
+
+    <!-- Feature cards -->
+    <string name="feature_shell">Shell</string>
+    <string name="feature_shell_desc">Interactive Terminal</string>
+    <string name="feature_device">Device</string>
+    <string name="feature_device_desc">Device Overview</string>
+    <string name="feature_apps">Apps</string>
+    <string name="feature_apps_desc">Manage Apps</string>
+    <string name="feature_files">Files</string>
+    <string name="feature_files_desc">Browse Files</string>
+    <string name="feature_advanced">Advanced</string>
+    <string name="feature_advanced_desc">Reboot / Screenshot / Volume / Nav Keys</string>
+    <string name="feature_fastboot">Fastboot</string>
+    <string name="feature_fastboot_desc">Flash / Erase / Unlock</string>
+    <string name="feature_usb_adb">Wired ADB</string>
+    <string name="feature_usb_adb_desc">USB Shell / Management</string>
+
+    <!-- Wireless connection card -->
+    <string name="status_disconnected">Disconnected</string>
+    <string name="status_connecting">Connecting…</string>
+    <string name="status_auth">Waiting for authorization…</string>
+    <string name="status_connected">Connected</string>
+    <string name="status_error">Connection failed</string>
+    <string name="label_ip">IP</string>
+    <string name="label_port">Port</string>
+    <string name="btn_connect">Connect</string>
+    <string name="btn_connecting">Connecting…</string>
+    <string name="btn_disconnect">Disconnect</string>
+    <string name="btn_discover">Discover</string>
+    <string name="btn_pair">Pair</string>
+    <string name="error_connect">Cannot connect to device. Check IP and port.</string>
+
+    <!-- Bluetooth dialog -->
+    <string name="bt_title">Connected</string>
+    <string name="bt_message">Turn off device Bluetooth to save battery?</string>
+    <string name="bt_confirm">Turn off</string>
+    <string name="bt_dismiss">Keep</string>
+
+    <!-- Device card -->
+    <string name="action_favorite">Favorite</string>
+    <string name="action_delete">Delete</string>
+
+    <!-- Shared -->
+    <string name="btn_back">Back</string>
+    <string name="btn_close">Close</string>
+    <string name="btn_cancel">Cancel</string>
+    <string name="btn_refresh">Refresh</string>
+    <string name="btn_send">Send</string>
+
+    <!-- ShellScreen -->
+    <string name="shell_title">Shell</string>
+    <string name="shell_subtitle">Interactive Terminal</string>
+    <string name="shell_wifi_fix">WiFi Fix</string>
+    <string name="shell_shizuku">Activate Shizuku</string>
+    <string name="shell_scene">Activate Scene</string>
+    <string name="shell_brevent">Activate Brevent</string>
+    <string name="shell_hint">Type a command to start…\nExample: ls -la, getprop ro.product.model</string>
+    <string name="shell_input_hint">Enter command…</string>
+
+    <!-- DeviceInfoScreen -->
+    <string name="device_info_title">Device Info</string>
+    <string name="info_basic">Basic Info</string>
+    <string name="info_brand">Brand</string>
+    <string name="info_model">Model</string>
+    <string name="info_codename">Codename</string>
+    <string name="info_serial">Serial</string>
+    <string name="info_system">System</string>
+    <string name="info_fingerprint">Fingerprint</string>
+    <string name="info_screen">Display</string>
+    <string name="info_resolution">Resolution</string>
+    <string name="info_battery">Battery</string>
+    <string name="info_design_capacity">Design Capacity</string>
+    <string name="info_current_capacity">Current Capacity</string>
+    <string name="info_battery_type">Battery Type</string>
+    <string name="info_health">Health</string>
+    <string name="info_battery_level">Level</string>
+    <string name="info_battery_status">Status</string>
+    <string name="info_voltage">Voltage</string>
+    <string name="info_temperature">Temperature</string>
+    <string name="info_mem_storage">Memory &amp; Storage</string>
+    <string name="info_ram">RAM</string>
+    <string name="info_used">Used</string>
+    <string name="info_available">Available</string>
+    <string name="info_total">Total</string>
+    <string name="info_no_data">No data</string>
+    <string name="info_internal_storage">Internal Storage</string>
+    <string name="info_no_data_refresh">No data. Pull to refresh.</string>
+
+    <!-- AdvancedOpsScreen -->
+    <string name="advanced_title">Advanced</string>
+    <string name="ops_display">Display</string>
+    <string name="ops_screenshot">Screenshot</string>
+    <string name="ops_screen_on">Screen On</string>
+    <string name="ops_screen_off">Screen Off</string>
+    <string name="ops_volume">Volume</string>
+    <string name="ops_vol_up">Up</string>
+    <string name="ops_vol_down">Down</string>
+    <string name="ops_vol_mute">Mute</string>
+    <string name="ops_connectivity">Connectivity</string>
+    <string name="ops_wifi_on">WiFi On</string>
+    <string name="ops_wifi_off">WiFi Off</string>
+    <string name="ops_bt_on">BT On</string>
+    <string name="ops_bt_off">BT Off</string>
+    <string name="ops_navigation">Navigation</string>
+    <string name="ops_back">Back</string>
+    <string name="ops_power">Power</string>
+    <string name="ops_media">Media</string>
+    <string name="ops_prev">Previous</string>
+    <string name="ops_play_pause">Play / Pause</string>
+    <string name="ops_next">Next</string>
+    <string name="ops_reboot_device">Reboot Device</string>
+    <string name="ops_select_reboot">Select reboot mode</string>
+    <string name="ops_reboot_normal">Normal Reboot</string>
+    <string name="ops_shutdown">Shutdown</string>
+    <string name="ops_wired_debug">Wired Debugging</string>
+    <string name="ops_fastboot_mode">Fastboot Mode</string>
+    <string name="screenshot_success">Screenshot saved (%1$s)</string>
+    <string name="screenshot_failed">Screenshot failed</string>
+    <string name="screenshot_save">Save to device</string>
+
+    <!-- PairingScreen -->
+    <string name="pair_title">Pair Device</string>
+    <string name="pair_wireless_title">Android 11+ Wireless Pairing</string>
+    <string name="pair_step1">1. On the target device, open Developer Options → Wireless Debugging</string>
+    <string name="pair_step2">2. Tap \"Pair device with pairing code\"</string>
+    <string name="pair_step3">3. Enter the pairing code and IP address with port shown in the dialog</string>
+    <string name="pair_port_note">Note: The port is from the pairing code dialog, not the Wireless Debugging page</string>
+    <string name="label_pair_code">Code</string>
+    <string name="pair_code_placeholder">6-digit code</string>
+    <string name="btn_pairing">Pair</string>
+    <string name="btn_pairing_progress">Pairing…</string>
+    <string name="pair_failed">Pairing failed</string>
+    <string name="pair_tips">Tips</string>
+    <string name="pair_tip1">1. Make sure phone and target device are on the same WiFi</string>
+    <string name="pair_tip2">2. Use the port from the pairing code dialog, not the Wireless Debugging port</string>
+    <string name="pair_tip3">3. Pairing code changes each time — use the latest one</string>
+    <string name="pair_tip4">4. If pairing keeps failing, try adb pair &lt;ip&gt;:&lt;port&gt; &lt;code&gt; from a computer first</string>
+    <string name="btn_retry">Retry</string>
+    <string name="manual_connect_title">Connect manually with IP and port</string>
+
+    <!-- AppsScreen -->
+    <string name="apps_title">App Manager</string>
+    <string name="apps_install_apk">Install APK / APKS</string>
+    <string name="apps_search_hint">Search packages…</string>
+    <string name="apps_filter_all">All</string>
+    <string name="apps_filter_system">System</string>
+    <string name="apps_filter_third">Third-party</string>
+    <string name="apps_system_count">System Apps (%1$d)</string>
+    <string name="apps_third_count">Third-party Apps (%1$d)</string>
+    <string name="apps_disabled">Disabled</string>
+    <string name="apps_action_stop">Force Stop</string>
+    <string name="apps_action_clear">Clear Data</string>
+    <string name="apps_action_disable">Disable</string>
+    <string name="apps_action_enable">Enable</string>
+    <string name="apps_action_uninstall">Uninstall</string>
+    <string name="apps_picker_timeout">File picker timed out. Please retry.</string>
+
+    <!-- FilesScreen -->
+    <string name="files_title">File Manager</string>
+    <string name="files_push_hint">Push file to watch</string>
+    <string name="files_parent">Up</string>
+    <string name="files_empty">Empty directory</string>
+    <string name="files_size">Size: %1$s</string>
+    <string name="files_permission">Perms: %1$s</string>
+    <string name="files_modified">Modified: %1$s</string>
+    <string name="files_action_view">View</string>
+    <string name="files_action_pull">Pull</string>
+    <string name="files_action_install">Install</string>
+    <string name="files_action_delete">Delete</string>
+    <string name="files_content_title">File Content</string>
+    <string name="files_content_too_long">Content too long. Showing first %1$d of %2$d characters.</string>
+
+    <!-- DiscoveryScreen -->
+    <string name="discovery_title">Discover Devices</string>
+    <string name="discovery_scanning">Scanning local network…</string>
+    <string name="discovery_stopped">Scan stopped</string>
+    <string name="discovery_connectable">Connectable (%1$d)</string>
+    <string name="discovery_pairable">Needs Pairing (%1$d)</string>
+    <string name="discovery_empty_title">No devices found</string>
+    <string name="discovery_empty_hint">Make sure the device has Wireless Debugging enabled</string>
+    <string name="discovery_no_pair">No pairing needed</string>
+    <string name="discovery_no_pair_hint">Android 11+ devices require pairing on first connection</string>
+    <string name="discovery_action_connect">Connect</string>
+    <string name="discovery_action_pair">Pair</string>
+    <string name="btn_stop">Stop</string>
+    <string name="btn_scan">Scan</string>
+
+    <!-- FastbootScreen -->
+    <string name="fb_mode_title">Fastboot Mode</string>
+    <string name="fb_reboot">Reboot</string>
+    <string name="fb_reboot_system">Reboot to System</string>
+    <string name="fb_reboot_recovery">Reboot to Recovery</string>
+    <string name="fb_reboot_bootloader">Reboot to Bootloader</string>
+    <string name="fb_partition_ops">Partition</string>
+    <string name="fb_flash_partition">Flash partition…</string>
+    <string name="fb_erase_partition">Erase partition…</string>
+    <string name="fb_oem_title">OEM Commands</string>
+    <string name="fb_oem_exec">Run OEM command…</string>
+    <string name="fb_unlock">Unlock Bootloader</string>
+    <string name="fb_lock">Lock Bootloader</string>
+    <string name="fb_advanced_transfer">Advanced Transfer</string>
+    <string name="fb_temp_boot">Temp boot image…</string>
+    <string name="fb_stage">Upload data (stage)…</string>
+    <string name="fb_fetch">Download data (fetch)</string>
+    <string name="fb_device_vars">Device Variables</string>
+    <string name="fb_getvar_all">Get all variables (getvar all)</string>
+    <string name="fb_flash_success_title">Flash Complete</string>
+    <string name="fb_flash_success_msg">Partition %1$s has been flashed. Reboot to Recovery?</string>
+    <string name="fb_stay_fastboot">Stay in Fastboot</string>
+    <string name="fb_usb_hint">Connect a device in Fastboot mode via USB cable</string>
+    <string name="fb_usb_permission">If a USB permission dialog appears, tap Allow</string>
+    <string name="fb_devices_header">Detected Fastboot Devices</string>
+    <string name="fb_empty_hint">No Fastboot device detected.\nMake sure the device is in Bootloader/Fastboot mode and connected via USB.</string>
+    <string name="fb_serial">Serial: %1$s</string>
+    <string name="fb_flashing">Flashing…</string>
+    <string name="fb_connect_log">Connection Log</string>
+    <string name="fb_oem_dialog_title">Run OEM Command</string>
+    <string name="fb_cmd_label">Command</string>
+    <string name="fb_cmd_placeholder">e.g. unlock</string>
+    <string name="fb_execute">Execute</string>
+    <string name="fb_erase_title">Erase Partition</string>
+    <string name="fb_erase_warning">This action is irreversible. Make sure the partition name is correct.</string>
+    <string name="fb_select_partition">Select partition</string>
+    <string name="fb_partition_name">Partition</string>
+    <string name="fb_manual_input">or type manually</string>
+    <string name="fb_erase_confirm">Erase</string>
+    <string name="fb_flash_title">Flash Partition</string>
+    <string name="fb_select_image">Select image file…</string>
+    <string name="fb_flash_confirm">Flash</string>
+    <string name="fb_temp_boot_title">Temp Boot Image</string>
+    <string name="fb_temp_boot_warning">This will temporarily boot the selected image without writing to any partition. The device will restore the original system after reboot.</string>
+    <string name="fb_select_boot">Select boot image…</string>
+    <string name="fb_boot_confirm">Boot</string>
+    <string name="fb_stage_title">Upload Data</string>
+    <string name="fb_stage_desc">Upload a file to device memory (stage). Can be used with OEM commands.</string>
+    <string name="fb_select_upload">Select file to upload…</string>
+    <string name="fb_stage_confirm">Upload</string>
+
+    <!-- UsbAdbScreen extras -->
+    <string name="usb_connect_log">Connection Log</string>
+    <string name="usb_desc_info">Model, OS version, storage, etc.</string>
+    <string name="usb_desc_shell">Run shell commands</string>
+    <string name="usb_desc_apps">View, install, uninstall apps</string>
+    <string name="usb_desc_advanced">Reboot, screenshot, volume, WiFi, BT, etc.</string>
+    <string name="usb_connected_fmt">Connected: %1$s</string>
+    <string name="usb_not_connected">Not connected — connect an Android device via USB cable</string>
+    <string name="usb_detected_devices">Detected Devices</string>
+    <string name="usb_no_device_hint">No wired ADB device detected.\nMake sure the device is connected via USB and has USB debugging enabled.</string>
+    <string name="usb_serial">Serial: %1$s</string>
+    <string name="usb_reboot_fastboot">Reboot to Fastboot</string>
+    <string name="usb_reboot_fastboot_desc">Device will disconnect and enter Bootloader</string>
+</resources>

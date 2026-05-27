@@ -26,6 +26,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.fastboot.FastbootConnectionState
 import com.wearadb.fastboot.FastbootDevice
 import com.wearadb.ui.FastbootViewModel
+import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.theme.WearAdbTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,6 +56,8 @@ fun FastbootScreen(
     var showRebootDialog by remember { mutableStateOf(false) }
     var lastFlashPartition by remember { mutableStateOf("") }
 
+    val s = LocalStrings.current
+
     // 监听 fastboot 结果
     LaunchedEffect(Unit) {
         viewModel.result.collect { msg ->
@@ -76,18 +79,18 @@ fun FastbootScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Fastboot 模式") },
+                title = { Text(s.fbModeTitle) },
                 navigationIcon = {
                     IconButton(onClick = {
                         viewModel.disconnect()
                         onBack()
                     }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = s.btnBack)
                     }
                 },
                 actions = {
                     IconButton(onClick = { viewModel.scanDevices() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "扫描")
+                        Icon(Icons.Default.Refresh, contentDescription = s.btnScan)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -98,7 +101,8 @@ fun FastbootScreen(
                 )
             )
         },
-        containerColor = colors.background
+        containerColor = colors.background,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { padding ->
         Column(
             modifier = Modifier
@@ -147,26 +151,26 @@ fun FastbootScreen(
             if (connectionState == FastbootConnectionState.CONNECTED) {
                 // 重启操作
                 ActionGroupCard(
-                    title = "重启",
+                    title = s.fbReboot,
                     icon = Icons.Default.PowerSettingsNew,
                     cornerRadius = cornerRadius
                 ) {
                     ActionButton(
-                        label = "重启到系统",
+                        label = s.fbRebootSystem,
                         icon = Icons.Default.RestartAlt,
                         colors = colors,
                         cornerRadius = cornerRadius,
                         onClick = { viewModel.reboot() }
                     )
                     ActionButton(
-                        label = "重启到 Recovery",
+                        label = s.fbRebootRecovery,
                         icon = Icons.Default.Build,
                         colors = colors,
                         cornerRadius = cornerRadius,
                         onClick = { viewModel.rebootRecovery() }
                     )
                     ActionButton(
-                        label = "重启到 Bootloader",
+                        label = s.fbRebootBootloader,
                         icon = Icons.Default.DeveloperBoard,
                         colors = colors,
                         cornerRadius = cornerRadius,
@@ -176,12 +180,12 @@ fun FastbootScreen(
 
                 // 分区操作
                 ActionGroupCard(
-                    title = "分区操作",
+                    title = s.fbPartitionOps,
                     icon = Icons.Default.Storage,
                     cornerRadius = cornerRadius
                 ) {
                     ActionButton(
-                        label = "刷入分区...",
+                        label = s.fbFlashPartition,
                         icon = Icons.Default.FlashOn,
                         colors = colors,
                         cornerRadius = cornerRadius,
@@ -189,7 +193,7 @@ fun FastbootScreen(
                         onClick = { showFlashDialog = true }
                     )
                     ActionButton(
-                        label = "擦除分区...",
+                        label = s.fbErasePartition,
                         icon = Icons.Default.DeleteForever,
                         colors = colors,
                         cornerRadius = cornerRadius,
@@ -200,12 +204,12 @@ fun FastbootScreen(
 
                 // OEM 命令
                 ActionGroupCard(
-                    title = "OEM 命令",
+                    title = s.fbOemTitle,
                     icon = Icons.Default.Terminal,
                     cornerRadius = cornerRadius
                 ) {
                     ActionButton(
-                        label = "执行 OEM 命令...",
+                        label = s.fbOemExec,
                         icon = Icons.Default.Code,
                         colors = colors,
                         cornerRadius = cornerRadius,
@@ -220,7 +224,7 @@ fun FastbootScreen(
                     cornerRadius = cornerRadius
                 ) {
                     ActionButton(
-                        label = "解锁 Bootloader",
+                        label = s.fbUnlock,
                         icon = Icons.Default.LockOpen,
                         colors = colors,
                         cornerRadius = cornerRadius,
@@ -228,7 +232,7 @@ fun FastbootScreen(
                         onClick = { viewModel.flashingUnlock() }
                     )
                     ActionButton(
-                        label = "锁定 Bootloader",
+                        label = s.fbLock,
                         icon = Icons.Default.Lock,
                         colors = colors,
                         cornerRadius = cornerRadius,
@@ -238,12 +242,12 @@ fun FastbootScreen(
 
                 // 高级传输
                 ActionGroupCard(
-                    title = "高级传输",
+                    title = s.fbAdvancedTransfer,
                     icon = Icons.Default.SwapHoriz,
                     cornerRadius = cornerRadius
                 ) {
                     ActionButton(
-                        label = "临时启动镜像...",
+                        label = s.fbTempBoot,
                         icon = Icons.Default.PlayArrow,
                         colors = colors,
                         cornerRadius = cornerRadius,
@@ -251,14 +255,14 @@ fun FastbootScreen(
                         onClick = { showBootDialog = true }
                     )
                     ActionButton(
-                        label = "上传数据到设备 (stage)...",
+                        label = s.fbStage,
                         icon = Icons.Default.Upload,
                         colors = colors,
                         cornerRadius = cornerRadius,
                         onClick = { showStageDialog = true }
                     )
                     ActionButton(
-                        label = "从设备下载数据 (fetch)",
+                        label = s.fbFetch,
                         icon = Icons.Default.Download,
                         colors = colors,
                         cornerRadius = cornerRadius,
@@ -268,12 +272,12 @@ fun FastbootScreen(
 
                 // 获取所有变量
                 ActionGroupCard(
-                    title = "设备变量",
+                    title = s.fbDeviceVars,
                     icon = Icons.Default.Info,
                     cornerRadius = cornerRadius
                 ) {
                     ActionButton(
-                        label = "获取所有变量 (getvar all)",
+                        label = s.fbGetvarAll,
                         icon = Icons.Default.Description,
                         colors = colors,
                         cornerRadius = cornerRadius,
@@ -371,10 +375,10 @@ fun FastbootScreen(
             containerColor = colors.surface,
             titleContentColor = colors.onSurface,
             textContentColor = colors.onSurfaceDim,
-            title = { Text("刷入成功") },
+            title = { Text(s.fbFlashSuccessTitle) },
             text = {
                 Text(
-                    "$lastFlashPartition 分区已刷入完成。是否重启到 Recovery 模式？",
+                    s.fbFlashSuccessMsg(lastFlashPartition),
                     fontSize = 14.sp
                 )
             },
@@ -383,12 +387,12 @@ fun FastbootScreen(
                     showRebootDialog = false
                     viewModel.rebootRecovery()
                 }) {
-                    Text("重启到 Recovery", color = colors.accent)
+                    Text(s.fbRebootRecovery, color = colors.accent)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showRebootDialog = false }) {
-                    Text("留在 Fastboot", color = colors.onSurfaceDim)
+                    Text(s.fbStayFastboot, color = colors.onSurfaceDim)
                 }
             },
             shape = RoundedCornerShape(cornerRadius)
@@ -406,6 +410,7 @@ private fun ConnectionStatusCard(
     onDisconnect: () -> Unit
 ) {
     val colors = WearAdbTheme.colors
+    val s = LocalStrings.current
     val statusColor = when (connectionState) {
         FastbootConnectionState.CONNECTED -> colors.statusDotActive
         FastbootConnectionState.CONNECTING -> colors.warning
@@ -413,10 +418,10 @@ private fun ConnectionStatusCard(
         FastbootConnectionState.DISCONNECTED -> colors.statusDotInactive
     }
     val statusText = when (connectionState) {
-        FastbootConnectionState.CONNECTED -> "已连接: ${connectedDevice?.displayName ?: ""}"
-        FastbootConnectionState.CONNECTING -> "连接中..."
-        FastbootConnectionState.ERROR -> "连接失败"
-        FastbootConnectionState.DISCONNECTED -> "未连接 — 请用 USB 线连接处于 Fastboot 模式的设备"
+        FastbootConnectionState.CONNECTED -> "${s.statusConnected}: ${connectedDevice?.displayName ?: ""}"
+        FastbootConnectionState.CONNECTING -> s.statusConnecting
+        FastbootConnectionState.ERROR -> s.statusError
+        FastbootConnectionState.DISCONNECTED -> "${s.statusDisconnected} — ${s.fbUsbHint}"
     }
 
     Card(
@@ -443,14 +448,14 @@ private fun ConnectionStatusCard(
                 )
                 if (connectionState == FastbootConnectionState.CONNECTED) {
                     TextButton(onClick = onDisconnect) {
-                        Text("断开", color = colors.error)
+                        Text(s.btnDisconnect, color = colors.error)
                     }
                 }
             }
             if (connectionState == FastbootConnectionState.CONNECTING) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    "如果手机弹出了USB权限对话框，请点击允许",
+                    s.fbUsbPermission,
                     color = colors.onSurfaceDim,
                     fontSize = 12.sp
                 )
@@ -467,6 +472,7 @@ private fun DeviceListCard(
     onRefresh: () -> Unit
 ) {
     val colors = WearAdbTheme.colors
+    val s = LocalStrings.current
 
     Card(
         shape = RoundedCornerShape(cornerRadius),
@@ -479,13 +485,13 @@ private fun DeviceListCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "检测到的 Fastboot 设备",
+                    s.fbDevicesHeader,
                     color = colors.onSurface,
                     fontWeight = FontWeight.Medium,
                     fontSize = 15.sp
                 )
                 IconButton(onClick = onRefresh, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Refresh, "刷新", tint = colors.iconTint, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Refresh, s.btnRefresh, tint = colors.iconTint, modifier = Modifier.size(18.dp))
                 }
             }
 
@@ -493,7 +499,7 @@ private fun DeviceListCard(
 
             if (devices.isEmpty()) {
                 Text(
-                    "未检测到 Fastboot 设备。\n请确认设备已进入 Bootloader/Fastboot 模式并用 USB 线连接。",
+                    s.fbEmptyHint,
                     color = colors.onSurfaceDim,
                     fontSize = 13.sp,
                     lineHeight = 18.sp
@@ -518,6 +524,7 @@ private fun FastbootDeviceItem(
     onClick: () -> Unit
 ) {
     val colors = WearAdbTheme.colors
+    val s = LocalStrings.current
 
     Row(
         modifier = Modifier
@@ -544,13 +551,13 @@ private fun FastbootDeviceItem(
             )
             if (device.productName.isNotEmpty()) {
                 Text(
-                    "序列号: ${device.serialNumber}",
+                    s.fbSerial(device.serialNumber),
                     color = colors.onSurfaceDim,
                     fontSize = 12.sp
                 )
             }
         }
-        Icon(Icons.Default.ChevronRight, "连接", tint = colors.iconTint)
+        Icon(Icons.Default.ChevronRight, s.btnConnect, tint = colors.iconTint)
     }
 }
 
@@ -560,6 +567,7 @@ private fun DeviceInfoCard(
     cornerRadius: androidx.compose.ui.unit.Dp
 ) {
     val colors = WearAdbTheme.colors
+    val s = LocalStrings.current
 
     Card(
         shape = RoundedCornerShape(cornerRadius),
@@ -567,7 +575,7 @@ private fun DeviceInfoCard(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                "设备信息",
+                s.deviceInfoTitle,
                 color = colors.onSurface,
                 fontWeight = FontWeight.Medium,
                 fontSize = 15.sp
@@ -667,6 +675,7 @@ private fun FlashProgressCard(
     cornerRadius: androidx.compose.ui.unit.Dp
 ) {
     val colors = WearAdbTheme.colors
+    val s = LocalStrings.current
 
     Card(
         shape = RoundedCornerShape(cornerRadius),
@@ -677,7 +686,7 @@ private fun FlashProgressCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("刷入中...", color = colors.onSurface, fontWeight = FontWeight.Medium, fontSize = 15.sp)
+                Text(s.fbFlashing, color = colors.onSurface, fontWeight = FontWeight.Medium, fontSize = 15.sp)
                 Text("$progress%", color = colors.accent, fontWeight = FontWeight.Bold, fontSize = 15.sp)
             }
             Spacer(modifier = Modifier.height(8.dp))
@@ -700,6 +709,7 @@ private fun ConnectLogCard(
     cornerRadius: androidx.compose.ui.unit.Dp
 ) {
     val colors = WearAdbTheme.colors
+    val s = LocalStrings.current
     val hasError = log.contains("[错误]") || log.contains("失败")
 
     Card(
@@ -717,7 +727,7 @@ private fun ConnectLogCard(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    "连接日志",
+                    s.fbConnectLog,
                     color = colors.onSurface,
                     fontWeight = FontWeight.Medium,
                     fontSize = 14.sp
@@ -742,6 +752,7 @@ private fun ResultCard(
     onDismiss: () -> Unit
 ) {
     val colors = WearAdbTheme.colors
+    val s = LocalStrings.current
     val isError = message.contains("失败") || message.contains("错误") || message.contains("Error")
     val bgColor = if (isError) colors.error.copy(alpha = 0.1f) else colors.accent.copy(alpha = 0.1f)
     val borderColor = if (isError) colors.error.copy(alpha = 0.3f) else colors.accent.copy(alpha = 0.3f)
@@ -770,7 +781,7 @@ private fun ResultCard(
                 modifier = Modifier.weight(1f)
             )
             IconButton(onClick = onDismiss, modifier = Modifier.size(20.dp)) {
-                Icon(Icons.Default.Close, "关闭", tint = colors.iconTint, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.Close, s.btnClose, tint = colors.iconTint, modifier = Modifier.size(16.dp))
             }
         }
     }
@@ -787,19 +798,20 @@ private fun OemCommandDialog(
     cornerRadius: androidx.compose.ui.unit.Dp
 ) {
     val colors = WearAdbTheme.colors
+    val s = LocalStrings.current
 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = colors.surface,
         titleContentColor = colors.onSurface,
         textContentColor = colors.onSurfaceDim,
-        title = { Text("执行 OEM 命令") },
+        title = { Text(s.fbOemDialogTitle) },
         text = {
             OutlinedTextField(
                 value = command,
                 onValueChange = onCommandChange,
-                label = { Text("命令", color = colors.label) },
-                placeholder = { Text("例如: unlock", color = colors.onSurfaceDim) },
+                label = { Text(s.fbCmdLabel, color = colors.label) },
+                placeholder = { Text(s.fbCmdPlaceholder, color = colors.onSurfaceDim) },
                 singleLine = true,
                 shape = RoundedCornerShape(cornerRadius / 2),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -817,12 +829,12 @@ private fun OemCommandDialog(
                 onClick = onConfirm,
                 enabled = command.isNotBlank()
             ) {
-                Text("执行", color = if (command.isNotBlank()) colors.accent else colors.onSurfaceDim)
+                Text(s.fbExecute, color = if (command.isNotBlank()) colors.accent else colors.onSurfaceDim)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消", color = colors.onSurfaceDim)
+                Text(s.btnCancel, color = colors.onSurfaceDim)
             }
         }
     )
@@ -836,6 +848,7 @@ private fun ErasePartitionDialog(
     cornerRadius: androidx.compose.ui.unit.Dp
 ) {
     val colors = WearAdbTheme.colors
+    val s = LocalStrings.current
     var partition by remember { mutableStateOf("") }
 
     val erasePartitions = listOf("userdata", "cache", "dalvik_cache", "metadata", "misc")
@@ -845,16 +858,16 @@ private fun ErasePartitionDialog(
         containerColor = colors.surface,
         titleContentColor = colors.onSurface,
         textContentColor = colors.onSurfaceDim,
-        title = { Text("擦除分区") },
+        title = { Text(s.fbEraseTitle) },
         text = {
             Column {
                 Text(
-                    "⚠️ 此操作不可逆，请确认分区名称正确。",
+                    s.fbEraseWarning,
                     color = colors.warning,
                     fontSize = 13.sp
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                Text("选择分区", color = colors.onSurfaceDim, fontSize = 12.sp)
+                Text(s.fbSelectPartition, color = colors.onSurfaceDim, fontSize = 12.sp)
                 Spacer(modifier = Modifier.height(8.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -886,8 +899,8 @@ private fun ErasePartitionDialog(
                 OutlinedTextField(
                     value = partition,
                     onValueChange = { partition = it },
-                    label = { Text("分区名", color = colors.label) },
-                    placeholder = { Text("或手动输入", color = colors.onSurfaceDim) },
+                    label = { Text(s.fbPartitionName, color = colors.label) },
+                    placeholder = { Text(s.fbManualInput, color = colors.onSurfaceDim) },
                     singleLine = true,
                     shape = RoundedCornerShape(cornerRadius / 2),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -906,12 +919,12 @@ private fun ErasePartitionDialog(
                 onClick = { onConfirm(partition) },
                 enabled = partition.isNotBlank()
             ) {
-                Text("擦除", color = if (partition.isNotBlank()) colors.error else colors.onSurfaceDim)
+                Text(s.fbEraseConfirm, color = if (partition.isNotBlank()) colors.error else colors.onSurfaceDim)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消", color = colors.onSurfaceDim)
+                Text(s.btnCancel, color = colors.onSurfaceDim)
             }
         }
     )
@@ -925,6 +938,7 @@ private fun FlashPartitionDialog(
     cornerRadius: androidx.compose.ui.unit.Dp
 ) {
     val colors = WearAdbTheme.colors
+    val s = LocalStrings.current
     val context = LocalContext.current
     var partition by remember { mutableStateOf("") }
     var selectedFile by remember { mutableStateOf<java.io.File?>(null) }
@@ -951,10 +965,10 @@ private fun FlashPartitionDialog(
         containerColor = colors.surface,
         titleContentColor = colors.onSurface,
         textContentColor = colors.onSurfaceDim,
-        title = { Text("刷入分区") },
+        title = { Text(s.fbFlashTitle) },
         text = {
             Column {
-                Text("选择分区", color = colors.onSurfaceDim, fontSize = 12.sp)
+                Text(s.fbSelectPartition, color = colors.onSurfaceDim, fontSize = 12.sp)
                 Spacer(modifier = Modifier.height(8.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -986,8 +1000,8 @@ private fun FlashPartitionDialog(
                 OutlinedTextField(
                     value = partition,
                     onValueChange = { partition = it },
-                    label = { Text("分区名", color = colors.label) },
-                    placeholder = { Text("或手动输入", color = colors.onSurfaceDim) },
+                    label = { Text(s.fbPartitionName, color = colors.label) },
+                    placeholder = { Text(s.fbManualInput, color = colors.onSurfaceDim) },
                     singleLine = true,
                     shape = RoundedCornerShape(cornerRadius / 2),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -1014,7 +1028,7 @@ private fun FlashPartitionDialog(
                     Icon(Icons.Default.FileOpen, null, tint = colors.accent, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = selectedFile?.let { "${it.name} (${it.length() / 1024}KB)" } ?: "选择镜像文件...",
+                        text = selectedFile?.let { "${it.name} (${it.length() / 1024}KB)" } ?: s.fbSelectImage,
                         color = if (selectedFile != null) colors.onSurface else colors.onSurfaceDim,
                         fontSize = 13.sp,
                         modifier = Modifier.weight(1f)
@@ -1032,12 +1046,12 @@ private fun FlashPartitionDialog(
                 },
                 enabled = canConfirm
             ) {
-                Text("刷入", color = if (canConfirm) colors.accent else colors.onSurfaceDim)
+                Text(s.fbFlashConfirm, color = if (canConfirm) colors.accent else colors.onSurfaceDim)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消", color = colors.onSurfaceDim)
+                Text(s.btnCancel, color = colors.onSurfaceDim)
             }
         }
     )
@@ -1050,6 +1064,7 @@ private fun BootImageDialog(
     cornerRadius: androidx.compose.ui.unit.Dp
 ) {
     val colors = WearAdbTheme.colors
+    val s = LocalStrings.current
     val context = LocalContext.current
     var selectedFile by remember { mutableStateOf<java.io.File?>(null) }
 
@@ -1071,11 +1086,11 @@ private fun BootImageDialog(
         containerColor = colors.surface,
         titleContentColor = colors.onSurface,
         textContentColor = colors.onSurfaceDim,
-        title = { Text("临时启动镜像") },
+        title = { Text(s.fbTempBootTitle) },
         text = {
             Column {
                 Text(
-                    "⚠️ 此操作会临时启动选中的镜像，不会写入分区。设备重启后恢复原系统。",
+                    s.fbTempBootWarning,
                     color = colors.warning,
                     fontSize = 13.sp
                 )
@@ -1092,7 +1107,7 @@ private fun BootImageDialog(
                     Icon(Icons.Default.FileOpen, null, tint = colors.accent, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = selectedFile?.let { "${it.name} (${it.length() / 1024}KB)" } ?: "选择 boot 镜像...",
+                        text = selectedFile?.let { "${it.name} (${it.length() / 1024}KB)" } ?: s.fbSelectBoot,
                         color = if (selectedFile != null) colors.onSurface else colors.onSurfaceDim,
                         fontSize = 13.sp,
                         modifier = Modifier.weight(1f)
@@ -1105,12 +1120,12 @@ private fun BootImageDialog(
                 onClick = { selectedFile?.let { onConfirm(it.readBytes()) } },
                 enabled = selectedFile != null
             ) {
-                Text("启动", color = if (selectedFile != null) colors.accent else colors.onSurfaceDim)
+                Text(s.fbBootConfirm, color = if (selectedFile != null) colors.accent else colors.onSurfaceDim)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消", color = colors.onSurfaceDim)
+                Text(s.btnCancel, color = colors.onSurfaceDim)
             }
         }
     )
@@ -1123,6 +1138,7 @@ private fun StageDataDialog(
     cornerRadius: androidx.compose.ui.unit.Dp
 ) {
     val colors = WearAdbTheme.colors
+    val s = LocalStrings.current
     val context = LocalContext.current
     var selectedFile by remember { mutableStateOf<java.io.File?>(null) }
 
@@ -1144,11 +1160,11 @@ private fun StageDataDialog(
         containerColor = colors.surface,
         titleContentColor = colors.onSurface,
         textContentColor = colors.onSurfaceDim,
-        title = { Text("上传数据到设备") },
+        title = { Text(s.fbStageTitle) },
         text = {
             Column {
                 Text(
-                    "将文件上传到设备内存（stage），可配合 OEM 命令使用。",
+                    s.fbStageDesc,
                     color = colors.onSurfaceDim,
                     fontSize = 13.sp
                 )
@@ -1165,7 +1181,7 @@ private fun StageDataDialog(
                     Icon(Icons.Default.FileOpen, null, tint = colors.accent, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = selectedFile?.let { "${it.name} (${it.length() / 1024}KB)" } ?: "选择要上传的文件...",
+                        text = selectedFile?.let { "${it.name} (${it.length() / 1024}KB)" } ?: s.fbSelectUpload,
                         color = if (selectedFile != null) colors.onSurface else colors.onSurfaceDim,
                         fontSize = 13.sp,
                         modifier = Modifier.weight(1f)
@@ -1178,12 +1194,12 @@ private fun StageDataDialog(
                 onClick = { selectedFile?.let { onConfirm(it.readBytes()) } },
                 enabled = selectedFile != null
             ) {
-                Text("上传", color = if (selectedFile != null) colors.accent else colors.onSurfaceDim)
+                Text(s.fbStageConfirm, color = if (selectedFile != null) colors.accent else colors.onSurfaceDim)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消", color = colors.onSurfaceDim)
+                Text(s.btnCancel, color = colors.onSurfaceDim)
             }
         }
     )

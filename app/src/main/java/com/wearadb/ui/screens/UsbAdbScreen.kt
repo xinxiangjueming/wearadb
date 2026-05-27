@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.adb.UsbAdbConnectionState
 import com.wearadb.adb.UsbAdbDeviceInfo
+import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.UsbAdbViewModel
 import com.wearadb.ui.theme.WearAdbTheme
 
@@ -39,6 +40,7 @@ fun UsbAdbScreen(
     val colors = WearAdbTheme.colors
     val shape = WearAdbTheme.shape
     val cornerRadius = shape.cornerRadius
+    val s = LocalStrings.current
 
     val connectionState by viewModel.connectionState.collectAsState()
     val connectedDevice by viewModel.connectedDevice.collectAsState()
@@ -54,18 +56,18 @@ fun UsbAdbScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("有线 ADB") },
+                title = { Text(s.featureUsbAdb) },
                 navigationIcon = {
                     IconButton(onClick = {
                         viewModel.disconnect()
                         onBack()
                     }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = s.btnBack)
                     }
                 },
                 actions = {
                     IconButton(onClick = { viewModel.scanDevices() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "扫描")
+                        Icon(Icons.Default.Refresh, contentDescription = s.btnRefresh)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -76,7 +78,8 @@ fun UsbAdbScreen(
                 )
             )
         },
-        containerColor = colors.background
+        containerColor = colors.background,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { padding ->
         Column(
             modifier = Modifier
@@ -92,7 +95,8 @@ fun UsbAdbScreen(
                 connectionState = connectionState,
                 connectedDevice = connectedDevice,
                 cornerRadius = cornerRadius,
-                onDisconnect = { viewModel.disconnect() }
+                onDisconnect = { viewModel.disconnect() },
+                s = s
             )
 
             // 设备列表（未连接时）
@@ -101,7 +105,8 @@ fun UsbAdbScreen(
                     devices = usbAdbDevices,
                     cornerRadius = cornerRadius,
                     onConnect = { viewModel.connect(it) },
-                    onRefresh = { viewModel.scanDevices() }
+                    onRefresh = { viewModel.scanDevices() },
+                    s = s
                 )
             }
 
@@ -113,7 +118,7 @@ fun UsbAdbScreen(
                     colors = CardDefaults.cardColors(containerColor = colors.surface)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("连接日志", color = colors.onSurface, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                        Text(s.usbConnectLog, color = colors.onSurface, fontWeight = FontWeight.Medium, fontSize = 14.sp)
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(connectLog, color = colors.onSurfaceDim, fontSize = 12.sp, fontFamily = FontFamily.Monospace, lineHeight = 16.sp)
                     }
@@ -122,14 +127,14 @@ fun UsbAdbScreen(
 
             // ── 已连接：功能导航卡片 ──
             if (connectionState == UsbAdbConnectionState.CONNECTED) {
-                Text("功能", color = colors.onSurface, fontWeight = FontWeight.Medium, fontSize = 15.sp,
+                Text(s.sectionTools, color = colors.onSurface, fontWeight = FontWeight.Medium, fontSize = 15.sp,
                     modifier = Modifier.padding(top = 4.dp))
 
                 // 设备信息
                 UsbAdbFeatureCard(
                     icon = Icons.Outlined.Info,
-                    title = "设备信息",
-                    subtitle = "查看型号、系统版本、存储等",
+                    title = s.deviceInfoTitle,
+                    subtitle = s.usbDescInfo,
                     cornerRadius = cornerRadius,
                     onClick = onNavigateToDeviceInfo
                 )
@@ -137,8 +142,8 @@ fun UsbAdbScreen(
                 // Shell 命令
                 UsbAdbFeatureCard(
                     icon = Icons.Outlined.Terminal,
-                    title = "Shell 命令",
-                    subtitle = "执行 shell 命令",
+                    title = s.featureShell,
+                    subtitle = s.usbDescShell,
                     cornerRadius = cornerRadius,
                     onClick = onNavigateToShell
                 )
@@ -146,8 +151,8 @@ fun UsbAdbScreen(
                 // 应用管理
                 UsbAdbFeatureCard(
                     icon = Icons.Outlined.Apps,
-                    title = "应用管理",
-                    subtitle = "查看、安装、卸载应用",
+                    title = s.appsTitle,
+                    subtitle = s.usbDescApps,
                     cornerRadius = cornerRadius,
                     onClick = onNavigateToApps
                 )
@@ -155,10 +160,19 @@ fun UsbAdbScreen(
                 // 高级功能
                 UsbAdbFeatureCard(
                     icon = Icons.Outlined.DeveloperBoard,
-                    title = "高级功能",
-                    subtitle = "重启、截屏、音量、WiFi、蓝牙等",
+                    title = s.featureAdvanced,
+                    subtitle = s.usbDescAdvanced,
                     cornerRadius = cornerRadius,
                     onClick = onNavigateToAdvanced
+                )
+
+                // 重启到 Fastboot
+                UsbAdbFeatureCard(
+                    icon = Icons.Outlined.RestartAlt,
+                    title = s.usbRebootFastboot,
+                    subtitle = s.usbRebootFastbootDesc,
+                    cornerRadius = cornerRadius,
+                    onClick = { viewModel.rebootToBootloader() }
                 )
             }
 
@@ -201,7 +215,8 @@ private fun WiredAdbConnectionStatusCard(
     connectionState: UsbAdbConnectionState,
     connectedDevice: UsbAdbDeviceInfo?,
     cornerRadius: androidx.compose.ui.unit.Dp,
-    onDisconnect: () -> Unit
+    onDisconnect: () -> Unit,
+    s: com.wearadb.ui.Strings
 ) {
     val colors = WearAdbTheme.colors
     val statusColor = when (connectionState) {
@@ -211,10 +226,10 @@ private fun WiredAdbConnectionStatusCard(
         UsbAdbConnectionState.DISCONNECTED -> colors.statusDotInactive
     }
     val statusText = when (connectionState) {
-        UsbAdbConnectionState.CONNECTED -> "已连接: ${connectedDevice?.displayName ?: ""}"
-        UsbAdbConnectionState.CONNECTING -> "连接中..."
-        UsbAdbConnectionState.ERROR -> "连接失败"
-        UsbAdbConnectionState.DISCONNECTED -> "未连接 — 用USB线连接Android设备"
+        UsbAdbConnectionState.CONNECTED -> s.usbConnectedFmt(connectedDevice?.displayName ?: "")
+        UsbAdbConnectionState.CONNECTING -> s.statusConnecting
+        UsbAdbConnectionState.ERROR -> s.statusError
+        UsbAdbConnectionState.DISCONNECTED -> s.usbNotConnected
     }
 
     Card(
@@ -230,7 +245,7 @@ private fun WiredAdbConnectionStatusCard(
             Text(statusText, color = colors.onSurface, fontSize = 14.sp, modifier = Modifier.weight(1f))
             if (connectionState == UsbAdbConnectionState.CONNECTED) {
                 TextButton(onClick = onDisconnect) {
-                    Text("断开", color = colors.error)
+                    Text(s.btnDisconnect, color = colors.error)
                 }
             }
         }
@@ -242,7 +257,8 @@ private fun WiredAdbDeviceListCard(
     devices: List<UsbAdbDeviceInfo>,
     cornerRadius: androidx.compose.ui.unit.Dp,
     onConnect: (UsbAdbDeviceInfo) -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    s: com.wearadb.ui.Strings
 ) {
     val colors = WearAdbTheme.colors
 
@@ -256,9 +272,9 @@ private fun WiredAdbDeviceListCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("检测到的设备", color = colors.onSurface, fontWeight = FontWeight.Medium, fontSize = 15.sp)
+                Text(s.usbDetectedDevices, color = colors.onSurface, fontWeight = FontWeight.Medium, fontSize = 15.sp)
                 IconButton(onClick = onRefresh, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Refresh, "刷新", tint = colors.iconTint, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Refresh, s.btnRefresh, tint = colors.iconTint, modifier = Modifier.size(18.dp))
                 }
             }
 
@@ -266,7 +282,7 @@ private fun WiredAdbDeviceListCard(
 
             if (devices.isEmpty()) {
                 Text(
-                    "未检测到有线ADB设备。\n请确认设备已通过USB线连接到手机，且设备已开启USB调试。",
+                    s.usbNoDeviceHint,
                     color = colors.onSurfaceDim, fontSize = 13.sp, lineHeight = 18.sp
                 )
             } else {
@@ -284,9 +300,9 @@ private fun WiredAdbDeviceListCard(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(device.displayName, color = colors.onSurface, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                            Text("序列号: ${device.serialNumber}", color = colors.onSurfaceDim, fontSize = 12.sp)
+                            Text(s.usbSerial(device.serialNumber), color = colors.onSurfaceDim, fontSize = 12.sp)
                         }
-                        Icon(Icons.Default.ChevronRight, "连接", tint = colors.iconTint)
+                        Icon(Icons.Default.ChevronRight, s.btnConnect, tint = colors.iconTint)
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                 }

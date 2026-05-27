@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.ui.theme.WearAdbTheme
 import com.wearadb.ui.ConnectionViewModel
+import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
 
 data class TerminalLine(val text: String, val isCommand: Boolean = false)
@@ -56,6 +57,7 @@ fun ShellScreen(
     val navBarPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     val hPadding = adaptiveHorizontalPadding()
+    val s = LocalStrings.current
 
     Column(
         modifier = Modifier.fillMaxSize().padding(horizontal = hPadding).imePadding()
@@ -66,12 +68,12 @@ fun ShellScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回", tint = c.onBackground)
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, s.btnBack, tint = c.onBackground)
             }
             Spacer(Modifier.width(8.dp))
             Text("Shell", style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
             Spacer(Modifier.weight(1f))
-            Text("交互式终端", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
+            Text(s.shellSubtitle, style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
         }
 
         // ── 快捷命令 ──
@@ -81,7 +83,7 @@ fun ShellScreen(
         ) {
             item {
                 QuickCommandChip(
-                    label = "WiFi检测修复",
+                    label = s.shellWifiFix,
                     onClick = {
                         val cmds = listOf(
                             "settings put global captive_portal_mode 0",
@@ -97,7 +99,7 @@ fun ShellScreen(
             }
             item {
                 QuickCommandChip(
-                    label = "Shizuku激活",
+                    label = s.shellShizuku,
                     onClick = {
                         val cmd = "sh /storage/emulated/0/Android/data/moe.shizuku.privileged.api/start.sh"
                         lines.add(TerminalLine(cmd, isCommand = true))
@@ -107,7 +109,7 @@ fun ShellScreen(
             }
             item {
                 QuickCommandChip(
-                    label = "Scene激活",
+                    label = s.shellScene,
                     onClick = {
                         val cmd = "sh /storage/emulated/0/Android/data/com.omarea.vtools/up.sh"
                         lines.add(TerminalLine(cmd, isCommand = true))
@@ -117,7 +119,7 @@ fun ShellScreen(
             }
             item {
                 QuickCommandChip(
-                    label = "黑阈激活",
+                    label = s.shellBrevent,
                     onClick = {
                         val cmd = "sh /data/data/me.piebridge.brevent/brevent.sh"
                         lines.add(TerminalLine(cmd, isCommand = true))
@@ -140,7 +142,7 @@ fun ShellScreen(
         ) {
             if (lines.isEmpty()) {
                 Text(
-                    text = "输入命令开始交互...\n例如: ls -la, getprop ro.product.model",
+                    text = s.shellHint,
                     style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = c.onSurfaceVariant, lineHeight = 20.sp)
                 )
             } else {
@@ -190,7 +192,7 @@ fun ShellScreen(
                 decorationBox = { inner ->
                     Box {
                         if (commandInput.isEmpty()) {
-                            Text("输入命令...", style = TextStyle(color = c.onSurfaceVariant, fontSize = 14.sp))
+                            Text(s.shellInputHint, style = TextStyle(color = c.onSurfaceVariant, fontSize = 14.sp))
                         }
                         inner()
                     }
@@ -211,7 +213,7 @@ fun ShellScreen(
                     .clip(sendShape)
                     .background(c.buttonPrimary, sendShape)
             ) {
-                Icon(Icons.AutoMirrored.Outlined.Send, "发送", tint = c.buttonPrimaryText, modifier = Modifier.size(22.dp))
+                Icon(Icons.AutoMirrored.Outlined.Send, s.btnSend, tint = c.buttonPrimaryText, modifier = Modifier.size(22.dp))
             }
         }
     }

@@ -54,4 +54,18 @@ class UsbAdbViewModel @Inject constructor(
             _shellOutput.value = usbAdbRepository.executeCommand(command)
         }
     }
+
+    fun rebootToBootloader() {
+        viewModelScope.launch {
+            usbAdbRepository.executeCommand("reboot bootloader")
+            disconnect()
+        }
+    }
+
+    fun reboot() {
+        viewModelScope.launch {
+            usbAdbRepository.executeCommand("reboot")
+            disconnect()
+        }
+    }
 }

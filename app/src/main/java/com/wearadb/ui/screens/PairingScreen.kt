@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.ui.ConnectionViewModel
+import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.PairingState
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
@@ -48,69 +49,73 @@ fun PairingScreen(
 
     val hPadding = adaptiveHorizontalPadding()
     val expanded = useDualPane()
+    val s = LocalStrings.current
 
     // ── Top bar ──
     val topBar: @Composable () -> Unit = {
         Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { viewModel.resetPairingState(); onBack() }) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回", tint = c.onBackground)
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, s.btnBack, tint = c.onBackground)
             }
             Spacer(Modifier.width(8.dp))
-            Text("设备配对", style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
+            Text(s.pairTitle, style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
         }
     }
 
     // ── 配对说明卡片 ──
     val instructionCard: @Composable () -> Unit = {
         WearCard {
-            Text("Android 11+ 无线配对", style = MaterialTheme.typography.titleMedium, color = c.onSurface)
+            Text(s.pairWirelessTitle, style = MaterialTheme.typography.titleMedium, color = c.onSurface)
             Spacer(Modifier.height(8.dp))
-            Text("1. 在目标设备上打开「开发者选项」→「无线调试」", style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant)
-            Text("2. 点击「使用配对码配对设备」", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
-            Text("3. 输入弹窗中显示的「配对码」和「IP 地址及端口」", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
+            Text(s.pairStep1, style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant)
+            Text(s.pairStep2, style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
+            Text(s.pairStep3, style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
             Spacer(Modifier.height(6.dp))
-            Text("注意：端口是「配对用配对码」弹窗中的端口，不是「无线调试」页面的端口", style = MaterialTheme.typography.labelMedium, color = c.accent)
+            Text(s.pairPortNote, style = MaterialTheme.typography.labelMedium, color = c.accent)
         }
     }
 
     // ── 输入 + 按钮 + 状态 ──
     val inputSection: @Composable () -> Unit = {
-        WearInput(
-            value = hostInput, onValueChange = { hostInput = it },
-            label = "IP",
-            placeholder = "192.168.1.100",
-            modifier = Modifier.fillMaxWidth(),
-            imeAction = androidx.compose.ui.text.input.ImeAction.Next
-        )
-        Spacer(Modifier.height(10.dp))
-        WearInput(
-            value = portInput, onValueChange = { portInput = it.filter { ch -> ch.isDigit() } },
-            label = "端口",
-            placeholder = "37123",
-            modifier = Modifier.fillMaxWidth(0.5f),
-            imeAction = androidx.compose.ui.text.input.ImeAction.Next
-        )
-        Spacer(Modifier.height(10.dp))
-        WearInput(
-            value = codeInput,
-            onValueChange = { codeInput = it.filter { ch -> ch.isDigit() } },
-            label = "配对码",
-            placeholder = "6位数字",
-            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
-            modifier = Modifier.fillMaxWidth(0.6f)
-        )
+        AlignedInputColumn(
+            labels = listOf(s.labelIp, s.labelPort, s.labelPairCode),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            WearInput(
+                value = hostInput, onValueChange = { hostInput = it },
+                label = s.labelIp,
+                placeholder = "192.168.1.100",
+                modifier = Modifier.fillMaxWidth(),
+                imeAction = androidx.compose.ui.text.input.ImeAction.Next
+            )
+            WearInput(
+                value = portInput, onValueChange = { portInput = it.filter { ch -> ch.isDigit() } },
+                label = s.labelPort,
+                placeholder = "37123",
+                modifier = Modifier.fillMaxWidth(0.5f),
+                imeAction = androidx.compose.ui.text.input.ImeAction.Next
+            )
+            WearInput(
+                value = codeInput,
+                onValueChange = { codeInput = it.filter { ch -> ch.isDigit() } },
+                label = s.labelPairCode,
+                placeholder = s.pairCodePlaceholder,
+                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
+                modifier = Modifier.fillMaxWidth(0.6f)
+            )
+        }
         Spacer(Modifier.height(20.dp))
 
         when (val state = pairingState) {
             is PairingState.Idle -> {
                 WearButton(
-                    text = "配对",
+                    text = s.btnPairing,
                     onClick = { viewModel.pair(hostInput.trim(), portInput.toIntOrNull() ?: 0, codeInput.trim()) },
                     enabled = hostInput.isNotBlank() && portInput.isNotBlank() && codeInput.length >= 6
                 )
             }
             is PairingState.Pairing -> {
-                WearButton(text = "配对中...", onClick = {}, enabled = false)
+                WearButton(text = s.btnPairingProgress, onClick = {}, enabled = false)
             }
             is PairingState.Success -> {
                 WearCard {
@@ -127,22 +132,22 @@ fun PairingScreen(
                         Icon(Icons.Outlined.Error, null, tint = c.error, modifier = Modifier.size(28.dp))
                         Spacer(Modifier.width(12.dp))
                         Column {
-                            Text("配对失败", style = MaterialTheme.typography.titleMedium, color = c.error)
+                            Text(s.pairFailed, style = MaterialTheme.typography.titleMedium, color = c.error)
                             Text(state.message, style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
                         }
                     }
                 }
                 Spacer(Modifier.height(12.dp))
                 WearCard {
-                    Text("提示", style = MaterialTheme.typography.titleMedium, color = c.onSurface)
+                    Text(s.pairTips, style = MaterialTheme.typography.titleMedium, color = c.onSurface)
                     Spacer(Modifier.height(6.dp))
-                    Text("1. 确保手机和目标设备在同一 WiFi 下", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
-                    Text("2. 确认输入的是「配对用配对码」端口，不是「无线调试」端口", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
-                    Text("3. 配对码每次打开都会变化，确保用最新的", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
-                    Text("4. 如果配对一直失败，可以用 adb pair <ip>:<port> <code> 先在电脑上配对", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
+                    Text(s.pairTip1, style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
+                    Text(s.pairTip2, style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
+                    Text(s.pairTip3, style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
+                    Text(s.pairTip4, style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
                 }
                 Spacer(Modifier.height(12.dp))
-                WearButton(text = "重试", onClick = { viewModel.resetPairingState() }, variant = ButtonVariant.Secondary)
+                WearButton(text = s.btnRetry, onClick = { viewModel.resetPairingState() }, variant = ButtonVariant.Secondary)
             }
         }
     }

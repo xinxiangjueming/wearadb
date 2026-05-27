@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.data.model.DeviceInfo
 import com.wearadb.ui.ConnectionViewModel
+import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
@@ -29,6 +30,7 @@ fun DeviceInfoScreen(
     viewModel: ConnectionViewModel = hiltViewModel()
 ) {
     val c = WearAdbTheme.colors
+    val s = LocalStrings.current
     val info by viewModel.deviceInfo.collectAsState()
     val loading by viewModel.deviceInfoLoading.collectAsState()
     val usbState by viewModel.usbAdbConnectionState.collectAsState()
@@ -56,13 +58,13 @@ fun DeviceInfoScreen(
         item(key = "topbar") {
             Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回", tint = c.onBackground)
+                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, s.btnBack, tint = c.onBackground)
                 }
                 Spacer(Modifier.width(8.dp))
-                Text("设备信息", style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
+                Text(s.deviceInfoTitle, style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = { viewModel.loadDeviceInfo(force = true) }) {
-                    Icon(Icons.Outlined.Refresh, "刷新", tint = c.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Outlined.Refresh, s.btnRefresh, tint = c.onSurfaceVariant, modifier = Modifier.size(20.dp))
                 }
             }
         }
@@ -83,17 +85,17 @@ fun DeviceInfoScreen(
             item(key = "row_basic_system") {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(modifier = Modifier.weight(1f)) {
-                        SectionHeader("基本信息")
+                        SectionHeader(s.infoBasic)
                         WearCard {
-                            InfoRow("品牌", d.brand); InfoRow("型号", d.model); InfoRow("设备代号", d.device)
-                            InfoRow("序列号", d.serialno); InfoRow("ABI", d.abi)
+                            InfoRow(s.infoBrand, d.brand); InfoRow(s.infoModel, d.model); InfoRow(s.infoCodename, d.device)
+                            InfoRow(s.infoSerial, d.serialno); InfoRow("ABI", d.abi)
                         }
                     }
                     Column(modifier = Modifier.weight(1f)) {
-                        SectionHeader("系统")
+                        SectionHeader(s.infoSystem)
                         WearCard {
                             InfoRow("Android 版本", d.androidVersion); InfoRow("SDK", d.sdkVersion)
-                            InfoRow("Build ID", d.buildId); InfoRow("指纹", d.fingerprint, mono = true)
+                            InfoRow("Build ID", d.buildId); InfoRow(s.infoFingerprint, d.fingerprint, mono = true)
                         }
                     }
                 }
@@ -104,19 +106,19 @@ fun DeviceInfoScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         if (d.screenWidth > 0) {
                             Column(modifier = Modifier.weight(1f)) {
-                                SectionHeader("屏幕")
+                                SectionHeader(s.infoScreen)
                                 WearCard {
-                                    InfoRow("分辨率", "${d.screenWidth} × ${d.screenHeight}"); InfoRow("DPI", d.density.toString())
+                                    InfoRow(s.infoResolution, "${d.screenWidth} × ${d.screenHeight}"); InfoRow("DPI", d.density.toString())
                                 }
                             }
                         }
                         if (d.batteryLevel >= 0) {
                             Column(modifier = Modifier.weight(1f)) {
-                                SectionHeader("电池")
+                                SectionHeader(s.infoBattery)
                                 WearCard {
-                                    if (d.batteryDesignCapacity > 0) InfoRow("设计容量", "${d.batteryDesignCapacity} mAh")
-                                    if (d.batteryTechnology.isNotEmpty()) InfoRow("电池类型", d.batteryTechnology)
-                                    if (d.batteryHealth.isNotEmpty()) InfoRow("健康状态", d.batteryHealth)
+                                    if (d.batteryDesignCapacity > 0) InfoRow(s.infoDesignCapacity, "${d.batteryDesignCapacity} mAh")
+                                    if (d.batteryTechnology.isNotEmpty()) InfoRow(s.infoBatteryType, d.batteryTechnology)
+                                    if (d.batteryHealth.isNotEmpty()) InfoRow(s.infoHealth, d.batteryHealth)
                                     Spacer(Modifier.height(8.dp))
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(
@@ -135,8 +137,8 @@ fun DeviceInfoScreen(
                                         )
                                         Spacer(Modifier.width(12.dp))
                                         Column(modifier = Modifier.weight(1f)) {
-                                            InfoRow("电量", "${d.batteryLevel}%")
-                                            InfoRow("状态", d.batteryStatus)
+                                            InfoRow(s.infoBatteryLevel, "${d.batteryLevel}%")
+                                            InfoRow(s.infoBatteryStatus, d.batteryStatus)
                                         }
                                     }
                                 }
@@ -147,39 +149,39 @@ fun DeviceInfoScreen(
             }
         } else {
             // ── 竖屏：逐行排列 ──
-            item(key = "hdr_basic") { SectionHeader("基本信息") }
+            item(key = "hdr_basic") { SectionHeader(s.infoBasic) }
             item(key = "card_basic") {
                 WearCard {
-                    InfoRow("品牌", d.brand); InfoRow("型号", d.model); InfoRow("设备代号", d.device)
-                    InfoRow("序列号", d.serialno); InfoRow("ABI", d.abi)
+                    InfoRow(s.infoBrand, d.brand); InfoRow(s.infoModel, d.model); InfoRow(s.infoCodename, d.device)
+                    InfoRow(s.infoSerial, d.serialno); InfoRow("ABI", d.abi)
                 }
             }
-            item(key = "hdr_system") { SectionHeader("系统") }
+            item(key = "hdr_system") { SectionHeader(s.infoSystem) }
             item(key = "card_system") {
                 WearCard {
                     InfoRow("Android 版本", d.androidVersion); InfoRow("SDK", d.sdkVersion)
-                    InfoRow("Build ID", d.buildId); InfoRow("指纹", d.fingerprint, mono = true)
+                    InfoRow("Build ID", d.buildId); InfoRow(s.infoFingerprint, d.fingerprint, mono = true)
                 }
             }
             if (d.screenWidth > 0) {
-                item(key = "hdr_screen") { SectionHeader("屏幕") }
-                item(key = "card_screen") { WearCard { InfoRow("分辨率", "${d.screenWidth} × ${d.screenHeight}"); InfoRow("DPI", d.density.toString()) } }
+                item(key = "hdr_screen") { SectionHeader(s.infoScreen) }
+                item(key = "card_screen") { WearCard { InfoRow(s.infoResolution, "${d.screenWidth} × ${d.screenHeight}"); InfoRow("DPI", d.density.toString()) } }
             }
             if (d.batteryLevel >= 0) {
-                item(key = "hdr_battery") { SectionHeader("电池") }
+                item(key = "hdr_battery") { SectionHeader(s.infoBattery) }
                 item(key = "card_battery") {
                     WearCard {
-                        if (d.batteryDesignCapacity > 0) InfoRow("设计容量", "${d.batteryDesignCapacity} mAh")
-                        if (d.batteryCurrentCapacity > 0) InfoRow("当前容量", "${d.batteryCurrentCapacity} mAh")
-                        if (d.batteryTechnology.isNotEmpty()) InfoRow("电池类型", d.batteryTechnology)
-                        if (d.batteryHealth.isNotEmpty()) InfoRow("健康状态", d.batteryHealth)
-                        if (d.batteryVoltage > 0) InfoRow("电压", "${"%.2f".format(d.batteryVoltage / 1000.0)} V")
-                        if (d.batteryTemperature > 0) InfoRow("温度", "${"%.1f".format(d.batteryTemperature / 10.0)}°C")
+                        if (d.batteryDesignCapacity > 0) InfoRow(s.infoDesignCapacity, "${d.batteryDesignCapacity} mAh")
+                        if (d.batteryCurrentCapacity > 0) InfoRow(s.infoCurrentCapacity, "${d.batteryCurrentCapacity} mAh")
+                        if (d.batteryTechnology.isNotEmpty()) InfoRow(s.infoBatteryType, d.batteryTechnology)
+                        if (d.batteryHealth.isNotEmpty()) InfoRow(s.infoHealth, d.batteryHealth)
+                        if (d.batteryVoltage > 0) InfoRow(s.infoVoltage, "${"%.2f".format(d.batteryVoltage / 1000.0)} V")
+                        if (d.batteryTemperature > 0) InfoRow(s.infoTemperature, "${"%.1f".format(d.batteryTemperature / 10.0)}°C")
                         Spacer(Modifier.height(8.dp))
                         HorizontalDivider(color = c.outlineVariant)
                         Spacer(Modifier.height(8.dp))
-                        InfoRow("电量", "${d.batteryLevel}%")
-                        InfoRow("状态", d.batteryStatus)
+                        InfoRow(s.infoBatteryLevel, "${d.batteryLevel}%")
+                        InfoRow(s.infoBatteryStatus, d.batteryStatus)
                         Spacer(Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
@@ -207,48 +209,48 @@ fun DeviceInfoScreen(
         }
 
         // ── 内存与存储（横竖屏共用，全宽） ──
-        item(key = "hdr_mem") { SectionHeader("内存与存储") }
+        item(key = "hdr_mem") { SectionHeader(s.infoMemStorage) }
         item(key = "card_mem") {
             val memTotalBytes = remember(d.memTotal) { parseMemBytes(d.memTotal) }
             val memAvailBytes = remember(d.memAvail) { parseMemBytes(d.memAvail) }
             WearCard {
-                Text("运行内存", style = MaterialTheme.typography.labelLarge, color = c.accent)
+                Text(s.infoRam, style = MaterialTheme.typography.labelLarge, color = c.accent)
                 Spacer(Modifier.height(4.dp))
                 if (memTotalBytes > 0) {
                     val memUsedBytes = memTotalBytes - memAvailBytes
                     val memFraction = remember(memTotalBytes, memAvailBytes) { memUsedBytes.toFloat() / memTotalBytes }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
-                            InfoRow("已用", formatBytes(memUsedBytes))
-                            InfoRow("可用", formatBytes(memAvailBytes))
-                            InfoRow("总量", formatBytes(memTotalBytes))
+                            InfoRow(s.infoUsed, formatBytes(memUsedBytes))
+                            InfoRow(s.infoAvailable, formatBytes(memAvailBytes))
+                            InfoRow(s.infoTotal, formatBytes(memTotalBytes))
                         }
                         Text("${(memFraction * 100).toInt()}%", style = MaterialTheme.typography.titleLarge, color = c.onSurface)
                     }
                     Spacer(Modifier.height(8.dp))
                     StorageProgressBar(fraction = memFraction)
                 } else {
-                    Text("暂无数据", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
+                    Text(s.infoNoData, style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
                 }
                 Spacer(Modifier.height(12.dp))
                 HorizontalDivider(color = c.outlineVariant)
                 Spacer(Modifier.height(12.dp))
-                Text("内部存储", style = MaterialTheme.typography.labelLarge, color = c.accent)
+                Text(s.infoInternalStorage, style = MaterialTheme.typography.labelLarge, color = c.accent)
                 Spacer(Modifier.height(4.dp))
                 if (d.storageTotal > 0) {
                     val fraction = remember(d.storageUsed, d.storageTotal) { d.storageUsed.toFloat() / d.storageTotal }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
-                            InfoRow("已用", formatBytes(d.storageUsed))
-                            InfoRow("可用", formatBytes(d.storageFree))
-                            InfoRow("总量", formatBytes(d.storageTotal))
+                            InfoRow(s.infoUsed, formatBytes(d.storageUsed))
+                            InfoRow(s.infoAvailable, formatBytes(d.storageFree))
+                            InfoRow(s.infoTotal, formatBytes(d.storageTotal))
                         }
                         Text("${(fraction * 100).toInt()}%", style = MaterialTheme.typography.titleLarge, color = c.onSurface)
                     }
                     Spacer(Modifier.height(8.dp))
                     StorageProgressBar(fraction = fraction)
                 } else {
-                    Text("暂无数据，请稍后刷新", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
+                    Text(s.infoNoDataRefresh, style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
                 }
             }
         }

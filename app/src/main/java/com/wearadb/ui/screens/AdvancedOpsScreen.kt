@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.ui.ConnectionViewModel
+import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
@@ -62,34 +63,35 @@ fun AdvancedOpsScreen(
     val navBarPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     val hPadding = adaptiveHorizontalPadding()
+    val s = LocalStrings.current
 
     val sections = remember {
         listOf(
-            "显示" to listOf(
-                OpsItem(Icons.Outlined.Camera, "截屏") { showScreenshot = true },
-                OpsItem(Icons.Outlined.LightMode, "亮屏") { viewModel.screenOn() },
-                OpsItem(Icons.Outlined.DarkMode, "息屏") { viewModel.screenOff() },
+            s.opsDisplay to listOf(
+                OpsItem(Icons.Outlined.Camera, s.opsScreenshot) { showScreenshot = true },
+                OpsItem(Icons.Outlined.LightMode, s.opsScreenOn) { viewModel.screenOn() },
+                OpsItem(Icons.Outlined.DarkMode, s.opsScreenOff) { viewModel.screenOff() },
             ),
-            "音量" to listOf(
-                OpsItem(Icons.AutoMirrored.Outlined.VolumeUp, "增大") { viewModel.volumeUp() },
-                OpsItem(Icons.AutoMirrored.Outlined.VolumeDown, "减小") { viewModel.volumeDown() },
-                OpsItem(Icons.AutoMirrored.Outlined.VolumeOff, "静音") { viewModel.volumeMute() },
+            s.opsVolume to listOf(
+                OpsItem(Icons.AutoMirrored.Outlined.VolumeUp, s.opsVolUp) { viewModel.volumeUp() },
+                OpsItem(Icons.AutoMirrored.Outlined.VolumeDown, s.opsVolDown) { viewModel.volumeDown() },
+                OpsItem(Icons.AutoMirrored.Outlined.VolumeOff, s.opsVolMute) { viewModel.volumeMute() },
             ),
-            "连接" to listOf(
-                OpsItem(Icons.Outlined.Wifi, "开WiFi") { viewModel.enableWifi() },
-                OpsItem(Icons.Outlined.WifiOff, "关WiFi") { viewModel.disableWifi() },
-                OpsItem(Icons.Outlined.Bluetooth, "开蓝牙") { viewModel.enableBluetooth() },
-                OpsItem(Icons.Outlined.BluetoothDisabled, "关蓝牙") { viewModel.disableBluetooth() },
+            s.opsConnectivity to listOf(
+                OpsItem(Icons.Outlined.Wifi, s.opsWifiOn) { viewModel.enableWifi() },
+                OpsItem(Icons.Outlined.WifiOff, s.opsWifiOff) { viewModel.disableWifi() },
+                OpsItem(Icons.Outlined.Bluetooth, s.opsBtOn) { viewModel.enableBluetooth() },
+                OpsItem(Icons.Outlined.BluetoothDisabled, s.opsBtOff) { viewModel.disableBluetooth() },
             ),
-            "导航" to listOf(
+            s.opsNavigation to listOf(
                 OpsItem(Icons.Outlined.Home, "Home") { viewModel.keyEvent(com.wearadb.adb.AdvancedOps.KeyCodes.HOME) },
-                OpsItem(Icons.AutoMirrored.Outlined.ArrowBack, "返回") { viewModel.keyEvent(com.wearadb.adb.AdvancedOps.KeyCodes.BACK) },
-                OpsItem(Icons.Outlined.PowerSettingsNew, "电源") { viewModel.keyEvent(com.wearadb.adb.AdvancedOps.KeyCodes.POWER) },
+                OpsItem(Icons.AutoMirrored.Outlined.ArrowBack, s.opsBack) { viewModel.keyEvent(com.wearadb.adb.AdvancedOps.KeyCodes.BACK) },
+                OpsItem(Icons.Outlined.PowerSettingsNew, s.opsPower) { viewModel.keyEvent(com.wearadb.adb.AdvancedOps.KeyCodes.POWER) },
             ),
-            "媒体" to listOf(
-                OpsItem(Icons.Outlined.SkipPrevious, "上一曲") { viewModel.keyEvent(com.wearadb.adb.AdvancedOps.KeyCodes.MEDIA_PREVIOUS) },
-                OpsItem(Icons.Outlined.PlayArrow, "播放/暂停") { viewModel.keyEvent(com.wearadb.adb.AdvancedOps.KeyCodes.MEDIA_PLAY_PAUSE) },
-                OpsItem(Icons.Outlined.SkipNext, "下一曲") { viewModel.keyEvent(com.wearadb.adb.AdvancedOps.KeyCodes.MEDIA_NEXT) },
+            s.opsMedia to listOf(
+                OpsItem(Icons.Outlined.SkipPrevious, s.opsPrev) { viewModel.keyEvent(com.wearadb.adb.AdvancedOps.KeyCodes.MEDIA_PREVIOUS) },
+                OpsItem(Icons.Outlined.PlayArrow, s.opsPlayPause) { viewModel.keyEvent(com.wearadb.adb.AdvancedOps.KeyCodes.MEDIA_PLAY_PAUSE) },
+                OpsItem(Icons.Outlined.SkipNext, s.opsNext) { viewModel.keyEvent(com.wearadb.adb.AdvancedOps.KeyCodes.MEDIA_NEXT) },
             ),
         )
     }
@@ -104,9 +106,9 @@ fun AdvancedOpsScreen(
         // ── 顶栏 ──
         item(span = { GridItemSpan(maxLineSpan) }) {
             Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回", tint = c.onBackground) }
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, s.btnBack, tint = c.onBackground) }
                 Spacer(Modifier.width(8.dp))
-                Text("高级操作", style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
+                Text(s.advancedTitle, style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
             }
         }
 
@@ -119,15 +121,15 @@ fun AdvancedOpsScreen(
         }
 
         // ── 电源（重启） ──
-        item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("电源") }
+        item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(s.opsPower) }
         item(span = { GridItemSpan(maxLineSpan) }) {
-            OpsButton(Icons.Outlined.RestartAlt, "重启设备") { showRebootDialog = true }
+            OpsButton(Icons.Outlined.RestartAlt, s.opsRebootDevice) { showRebootDialog = true }
         }
 
         // ── Fastboot ──
-        item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("有线调试") }
+        item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(s.opsWiredDebug) }
         item(span = { GridItemSpan(maxLineSpan) }) {
-            OpsButton(Icons.Outlined.DeveloperBoard, "Fastboot 模式") { onNavigateToFastboot() }
+            OpsButton(Icons.Outlined.DeveloperBoard, s.opsFastbootMode) { onNavigateToFastboot() }
         }
     }
 
@@ -137,12 +139,12 @@ fun AdvancedOpsScreen(
             onDismissRequest = { showRebootDialog = false },
             containerColor = c.surface,
             shape = RoundedCornerShape(WearAdbTheme.shape.cornerRadius),
-            title = { Text("重启设备", style = MaterialTheme.typography.titleMedium, color = c.onSurface) },
-            text = { Text("选择重启模式", style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant) },
+            title = { Text(s.opsRebootDevice, style = MaterialTheme.typography.titleMedium, color = c.onSurface) },
+            text = { Text(s.opsSelectReboot, style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant) },
             confirmButton = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(onClick = { viewModel.reboot(); showRebootDialog = false }) {
-                        Text("正常重启", color = c.accent)
+                        Text(s.opsRebootNormal, color = c.accent)
                     }
                     TextButton(onClick = { viewModel.reboot("recovery"); showRebootDialog = false }) {
                         Text("Recovery 模式", color = c.warning)
@@ -151,12 +153,12 @@ fun AdvancedOpsScreen(
                         Text("Bootloader 模式", color = c.warning)
                     }
                     TextButton(onClick = { viewModel.reboot("shutdown"); showRebootDialog = false }) {
-                        Text("关机", color = c.error)
+                        Text(s.opsShutdown, color = c.error)
                     }
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showRebootDialog = false }) { Text("取消", color = c.onSurfaceVariant) }
+                TextButton(onClick = { showRebootDialog = false }) { Text(s.btnCancel, color = c.onSurfaceVariant) }
             }
         )
     }
@@ -168,16 +170,16 @@ fun AdvancedOpsScreen(
             onDismissRequest = { showScreenshot = false; viewModel.clearScreenshot() },
             containerColor = c.surface,
             shape = RoundedCornerShape(WearAdbTheme.shape.cornerRadius),
-            title = { Text("截屏", style = MaterialTheme.typography.titleMedium, color = c.onSurface) },
+            title = { Text(s.opsScreenshot, style = MaterialTheme.typography.titleMedium, color = c.onSurface) },
             text = {
                 if (screenshotLoading) {
                     Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = c.accent, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
                     }
                 } else if (screenshotData != null) {
-                    Text("截屏成功 (${screenshotData!!.size / 1024}KB)", style = MaterialTheme.typography.bodyMedium, color = c.onSurface)
+                    Text(s.screenshotSuccess.format("${screenshotData!!.size / 1024}KB"), style = MaterialTheme.typography.bodyMedium, color = c.onSurface)
                 } else {
-                    Text("截屏失败", style = MaterialTheme.typography.bodyMedium, color = c.error)
+                    Text(s.screenshotFailed, style = MaterialTheme.typography.bodyMedium, color = c.error)
                 }
             },
             confirmButton = {
@@ -186,9 +188,9 @@ fun AdvancedOpsScreen(
                         TextButton(onClick = {
                             pendingScreenshotData = screenshotData
                             screenshotSaveLauncher.launch("screenshot_${System.currentTimeMillis()}.png")
-                        }) { Text("保存到手机", color = c.accent) }
+                        }) { Text(s.screenshotSave, color = c.accent) }
                     }
-                    TextButton(onClick = { showScreenshot = false; viewModel.clearScreenshot() }) { Text("关闭", color = c.onSurfaceVariant) }
+                    TextButton(onClick = { showScreenshot = false; viewModel.clearScreenshot() }) { Text(s.btnClose, color = c.onSurfaceVariant) }
                 }
             }
         )
