@@ -191,7 +191,8 @@ private fun UsbAdbFeatureCard(
 ) {
     val colors = WearAdbTheme.colors
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(cornerRadius),
         colors = CardDefaults.cardColors(containerColor = colors.surface)
     ) {
