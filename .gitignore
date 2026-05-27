@@ -19,6 +19,7 @@ local.properties
 *.ap_
 *.aab
 *.dex
+/app/release
 *.class
 
 # ====== 本地配置 & 敏感文件 ======
