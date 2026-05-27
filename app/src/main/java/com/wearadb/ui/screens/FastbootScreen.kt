@@ -274,7 +274,7 @@ fun FastbootScreen(
                 ) {
                     ActionButton(
                         label = "获取所有变量 (getvar all)",
-                        icon = Icons.Default.Notes,
+                        icon = Icons.Default.Description,
                         colors = colors,
                         cornerRadius = cornerRadius,
                         onClick = { viewModel.loadFastbootVarAll() }
@@ -710,7 +710,7 @@ private fun ConnectLogCard(
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    if (hasError) Icons.Default.Error else Icons.Default.Notes,
+                    if (hasError) Icons.Default.Error else Icons.Default.Description,
                     null,
                     tint = if (hasError) colors.error else colors.accent,
                     modifier = Modifier.size(18.dp)

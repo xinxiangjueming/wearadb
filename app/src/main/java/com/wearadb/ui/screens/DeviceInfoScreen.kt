@@ -31,8 +31,15 @@ fun DeviceInfoScreen(
     val c = WearAdbTheme.colors
     val info by viewModel.deviceInfo.collectAsState()
     val loading by viewModel.deviceInfoLoading.collectAsState()
+    val usbState by viewModel.usbAdbConnectionState.collectAsState()
+    val wirelessState by viewModel.connectionState.collectAsState()
 
-    LaunchedEffect(Unit) { viewModel.loadDeviceInfo() }
+    // Load on first entry, and re-load if data is null but connection is active
+    LaunchedEffect(Unit, usbState, wirelessState) {
+        if (info == null) {
+            viewModel.loadDeviceInfo(force = true)
+        }
+    }
 
     val statusBarPad = WindowInsets.statusBars.union(WindowInsets.displayCutout)
         .asPaddingValues().calculateTopPadding()

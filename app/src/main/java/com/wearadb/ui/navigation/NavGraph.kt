@@ -19,6 +19,7 @@ object Routes {
     const val PAIRING = "pairing"
     const val ADVANCED = "advanced"
     const val FASTBOOT = "fastboot"
+    const val USB_ADB = "usb_adb"
 
     // 生成带参数的配对路由
     fun pairing(host: String = "", port: Int = 0) =
@@ -40,7 +41,8 @@ fun AppNavGraph(navController: NavHostController) {
                 onNavigateToDiscovery = { navController.navigate(Routes.DISCOVERY) },
                 onNavigateToPairing = { navController.navigate(Routes.pairing()) },  // 手动配对无参数
                 onNavigateToAdvanced = { navController.navigate(Routes.ADVANCED) },
-                onNavigateToFastboot = { navController.navigate(Routes.FASTBOOT) }
+                onNavigateToFastboot = { navController.navigate(Routes.FASTBOOT) },
+                onNavigateToUsbAdb = { navController.navigate(Routes.USB_ADB) }
             )
         }
         composable(Routes.SHELL) {
@@ -89,6 +91,15 @@ fun AppNavGraph(navController: NavHostController) {
         composable(Routes.FASTBOOT) {
             FastbootScreen(
                 onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Routes.USB_ADB) {
+            UsbAdbScreen(
+                onBack = { navController.popBackStack() },
+                onNavigateToDeviceInfo = { navController.navigate(Routes.DEVICE_INFO) },
+                onNavigateToShell = { navController.navigate(Routes.SHELL) },
+                onNavigateToApps = { navController.navigate(Routes.APPS) },
+                onNavigateToAdvanced = { navController.navigate(Routes.ADVANCED) }
             )
         }
     }

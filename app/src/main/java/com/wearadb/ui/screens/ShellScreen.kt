@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -71,6 +72,59 @@ fun ShellScreen(
             Text("Shell", style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
             Spacer(Modifier.weight(1f))
             Text("交互式终端", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
+        }
+
+        // ── 快捷命令 ──
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+        ) {
+            item {
+                QuickCommandChip(
+                    label = "WiFi检测修复",
+                    onClick = {
+                        val cmds = listOf(
+                            "settings put global captive_portal_mode 0",
+                            "settings put global captive_portal_https_url https://connect.rom.miui.com/generate_204",
+                            "settings put global captive_portal_http_url http://connect.rom.miui.com/generate_204"
+                        )
+                        cmds.forEach { cmd ->
+                            lines.add(TerminalLine(cmd, isCommand = true))
+                        }
+                        viewModel.executeCommands(cmds)
+                    }
+                )
+            }
+            item {
+                QuickCommandChip(
+                    label = "Shizuku激活",
+                    onClick = {
+                        val cmd = "sh /storage/emulated/0/Android/data/moe.shizuku.privileged.api/start.sh"
+                        lines.add(TerminalLine(cmd, isCommand = true))
+                        viewModel.executeCommand(cmd)
+                    }
+                )
+            }
+            item {
+                QuickCommandChip(
+                    label = "Scene激活",
+                    onClick = {
+                        val cmd = "sh /storage/emulated/0/Android/data/com.omarea.vtools/up.sh"
+                        lines.add(TerminalLine(cmd, isCommand = true))
+                        viewModel.executeCommand(cmd)
+                    }
+                )
+            }
+            item {
+                QuickCommandChip(
+                    label = "黑阈激活",
+                    onClick = {
+                        val cmd = "sh /data/data/me.piebridge.brevent/brevent.sh"
+                        lines.add(TerminalLine(cmd, isCommand = true))
+                        viewModel.executeCommand(cmd)
+                    }
+                )
+            }
         }
 
         // ── Terminal Output ──
@@ -159,6 +213,22 @@ fun ShellScreen(
             ) {
                 Icon(Icons.AutoMirrored.Outlined.Send, "发送", tint = c.buttonPrimaryText, modifier = Modifier.size(22.dp))
             }
+        }
+    }
+}
+
+@Composable
+private fun QuickCommandChip(label: String, onClick: () -> Unit) {
+    val c = WearAdbTheme.colors
+    val cr = WearAdbTheme.shape.cornerRadius
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(cr),
+        color = c.accent.copy(alpha = 0.12f),
+        modifier = Modifier.height(36.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 14.dp)) {
+            Text(label, color = c.accent, fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
         }
     }
 }

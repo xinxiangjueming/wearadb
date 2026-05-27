@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ADB over USB interface (class=0xFF, subclass=0x42, protocol=0x01) -->
+    <usb-device class="255" subclass="66" protocol="1" />
+
+    <!-- Google fastboot devices -->
+    <usb-device vendor-id="6353" product-id="53261" />  <!-- 0x18D1:0xD00D -->
+    <usb-device vendor-id="6353" product-id="20199" />  <!-- 0x18D1:0x4EE7 -->
+    <!-- Xiaomi fastboot -->
+    <usb-device vendor-id="10016" />                     <!-- 0x2717 (any product) -->
+    <!-- Samsung fastboot (Odin/Download) -->
+    <usb-device vendor-id="1256" />                      <!-- 0x04E8 -->
+    <!-- Qualcomm fastboot (generic) -->
+    <usb-device vendor-id="1479" />                      <!-- 0x05C7 -->
+</resources>

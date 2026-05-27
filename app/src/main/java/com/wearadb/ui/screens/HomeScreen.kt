@@ -34,6 +34,7 @@ fun HomeScreen(
     onNavigateToPairing: () -> Unit,
     onNavigateToAdvanced: () -> Unit,
     onNavigateToFastboot: () -> Unit,
+    onNavigateToUsbAdb: () -> Unit = {},
     viewModel: AppViewModel = hiltViewModel()
 ) {
     val c = WearAdbTheme.colors
@@ -171,6 +172,13 @@ fun HomeScreen(
                                 onToggleFavorite = { viewModel.toggleFavorite(device.address) },
                                 onRemove = { viewModel.removeDevice(device.address) }
                             )
+                        }
+                    }
+                    // 有线ADB 始终可见
+                    item {
+                        Spacer(Modifier.height(8.dp))
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            FeatureCard(Icons.Outlined.Usb, "有线ADB", "USB连接设备", Modifier.weight(1f), onNavigateToUsbAdb)
                         }
                     }
                 }
@@ -322,6 +330,12 @@ fun HomeScreen(
                             FeatureCard(Icons.Outlined.Build, "高级", "重启/截屏/音量", Modifier.weight(1f), onNavigateToAdvanced)
                             FeatureCard(Icons.Outlined.DeveloperBoard, "Fastboot", "刷机/线刷", Modifier.weight(1f), onNavigateToFastboot)
                         }
+                    }
+                }
+                // 有线ADB 始终可见（不需要无线连接）
+                item {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        FeatureCard(Icons.Outlined.Usb, "有线ADB", "USB连接设备", Modifier.weight(1f), onNavigateToUsbAdb)
                     }
                 }
                 if (devices.isNotEmpty()) {

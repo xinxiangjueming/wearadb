@@ -11,6 +11,9 @@ import com.wearadb.data.repository.AdbRepository
 import com.wearadb.fastboot.FastbootConnectionState
 import com.wearadb.fastboot.FastbootDevice
 import com.wearadb.fastboot.FastbootRepository
+import com.wearadb.adb.UsbAdbRepository
+import com.wearadb.adb.UsbAdbConnectionState
+import com.wearadb.adb.UsbAdbDeviceInfo
 import io.github.muntashirakon.adb.AdbStream
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -20,7 +23,8 @@ import javax.inject.Inject
 @HiltViewModel
 class AppViewModel @Inject constructor(
     private val repository: AdbRepository,
-    private val fastbootRepository: FastbootRepository
+    private val fastbootRepository: FastbootRepository,
+    private val usbAdbRepository: UsbAdbRepository
 ) : ViewModel() {
 
     val connectionState: StateFlow<ConnectionState> = repository.connectionState
@@ -179,34 +183,74 @@ class AppViewModel @Inject constructor(
     fun executeCommand(command: String) {
         viewModelScope.launch {
             try {
-                // 关闭旧的 shell 流
-                try { shellStream?.close() } catch (_: Exception) {}
-                shellStream = null
-
-                // 打开新的 shell 流并执行命令
-                val stream = repository.openShell(command)
-                shellStream = stream
-
-                val os = stream.openOutputStream()
-                os.write("$command\n".toByteArray())
-                os.flush()
-
-                // 读取输出
-                val reader = java.io.BufferedReader(java.io.InputStreamReader(stream.openInputStream()))
-                val sb = StringBuilder()
-                val startTime = System.currentTimeMillis()
-                while (System.currentTimeMillis() - startTime < 15000) {
-                    if (reader.ready()) {
-                        val line = reader.readLine() ?: break
-                        sb.appendLine(line)
-                        _shellOutput.value = sb.toString()
-                    } else {
-                        kotlinx.coroutines.delay(50)
+                if (connectionState.value == ConnectionState.CONNECTED) {
+                    // 无线ADB：流式读取
+                    try { shellStream?.close() } catch (_: Exception) {}
+                    shellStream = null
+                    val stream = repository.openShell(command)
+                    shellStream = stream
+                    val os = stream.openOutputStream()
+                    os.write("$command\n".toByteArray())
+                    os.flush()
+                    val reader = java.io.BufferedReader(java.io.InputStreamReader(stream.openInputStream()))
+                    val sb = StringBuilder()
+                    val startTime = System.currentTimeMillis()
+                    while (System.currentTimeMillis() - startTime < 15000) {
+                        if (reader.ready()) {
+                            val line = reader.readLine() ?: break
+                            sb.appendLine(line)
+                            _shellOutput.value = sb.toString()
+                        } else {
+                            kotlinx.coroutines.delay(50)
+                        }
                     }
+                } else if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
+                    // USB ADB：一次性执行
+                    _shellOutput.value = "执行中..."
+                    _shellOutput.value = usbAdbRepository.executeCommand(command)
+                } else {
+                    _shellOutput.value = "未连接"
                 }
             } catch (e: Exception) {
                 _shellOutput.value = "Error: ${e.message}"
             }
+        }
+    }
+
+    /** 批量执行多条命令，结果合并显示 */
+    fun executeCommands(commands: List<String>) {
+        viewModelScope.launch {
+            val results = StringBuilder()
+            for (cmd in commands) {
+                try {
+                    val result = if (connectionState.value == ConnectionState.CONNECTED) {
+                        val stream = repository.openShell(cmd)
+                        val os = stream.openOutputStream()
+                        os.write("$cmd\n".toByteArray())
+                        os.flush()
+                        val reader = java.io.BufferedReader(java.io.InputStreamReader(stream.openInputStream()))
+                        val sb = StringBuilder()
+                        val startTime = System.currentTimeMillis()
+                        while (System.currentTimeMillis() - startTime < 10000) {
+                            if (reader.ready()) {
+                                val line = reader.readLine() ?: break
+                                sb.appendLine(line)
+                            } else {
+                                kotlinx.coroutines.delay(50)
+                            }
+                        }
+                        sb.toString().ifEmpty { "(无输出)" }
+                    } else if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
+                        usbAdbRepository.executeCommand(cmd)
+                    } else {
+                        "未连接"
+                    }
+                    results.appendLine(result)
+                } catch (e: Exception) {
+                    results.appendLine("Error: ${e.message}")
+                }
+            }
+            _shellOutput.value = results.toString()
         }
     }
 
@@ -215,7 +259,13 @@ class AppViewModel @Inject constructor(
         viewModelScope.launch {
             if (!force && _deviceInfo.value != null) return@launch
             _deviceInfoLoading.value = true
-            try { _deviceInfo.value = repository.getDeviceInfo() } catch (_: Exception) {}
+            try {
+                if (connectionState.value == ConnectionState.CONNECTED) {
+                    _deviceInfo.value = repository.getDeviceInfo()
+                } else if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
+                    _deviceInfo.value = usbAdbRepository.getDeviceInfo()
+                }
+            } catch (_: Exception) {}
             _deviceInfoLoading.value = false
         }
     }
@@ -227,7 +277,13 @@ class AppViewModel @Inject constructor(
             if (!force && appsLoadedOnce && _apps.value.isNotEmpty()) return@launch
             _appsLoading.value = true
             try {
-                _apps.value = repository.getInstalledPackages()
+                _apps.value = if (connectionState.value == ConnectionState.CONNECTED) {
+                    repository.getInstalledPackages()
+                } else if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
+                    usbAdbRepository.getInstalledPackages()
+                } else {
+                    emptyList()
+                }
                 appsLoadedOnce = true
             } catch (_: Exception) {}
             _appsLoading.value = false
@@ -355,13 +411,33 @@ class AppViewModel @Inject constructor(
     }
 
     // ── Advanced Ops ──
+
+    /** Whether USB ADB is the active connection. */
+    private val isUsbAdbActive: Boolean
+        get() = usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED
+
+    /** Execute a shell command on USB ADB. */
+    private fun usbAdbCmd(command: String) {
+        viewModelScope.launch { usbAdbRepository.executeCommand(command) }
+    }
+
     fun reboot(mode: String = "") {
-        viewModelScope.launch {
-            when (mode) {
-                "recovery" -> repository.rebootRecovery()
-                "bootloader" -> repository.rebootBootloader()
-                "shutdown" -> repository.shutdown()
-                else -> repository.reboot()
+        if (isUsbAdbActive) {
+            val cmd = when (mode) {
+                "recovery" -> "reboot recovery"
+                "bootloader" -> "reboot bootloader"
+                "shutdown" -> "reboot -p"
+                else -> "reboot"
+            }
+            usbAdbCmd(cmd)
+        } else {
+            viewModelScope.launch {
+                when (mode) {
+                    "recovery" -> repository.rebootRecovery()
+                    "bootloader" -> repository.rebootBootloader()
+                    "shutdown" -> repository.shutdown()
+                    else -> repository.reboot()
+                }
             }
         }
     }
@@ -369,7 +445,11 @@ class AppViewModel @Inject constructor(
     fun takeScreenshot() {
         viewModelScope.launch {
             _screenshotLoading.value = true
-            _screenshotData.value = repository.screenshot()
+            _screenshotData.value = if (isUsbAdbActive) {
+                null // USB ADB screenshot not supported yet
+            } else {
+                repository.screenshot()
+            }
             _screenshotLoading.value = false
         }
     }
@@ -377,27 +457,60 @@ class AppViewModel @Inject constructor(
     fun clearScreenshot() { _screenshotData.value = null }
 
     fun tap(x: Int, y: Int) {
-        viewModelScope.launch { repository.tap(x, y) }
+        if (isUsbAdbActive) usbAdbCmd("input tap $x $y")
+        else viewModelScope.launch { repository.tap(x, y) }
     }
 
     fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, dur: Int = 300) {
-        viewModelScope.launch { repository.swipe(x1, y1, x2, y2, dur) }
+        if (isUsbAdbActive) usbAdbCmd("input swipe $x1 $y1 $x2 $y2 $dur")
+        else viewModelScope.launch { repository.swipe(x1, y1, x2, y2, dur) }
     }
 
     fun keyEvent(code: Int) {
-        viewModelScope.launch { repository.keyEvent(code) }
+        if (isUsbAdbActive) usbAdbCmd("input keyevent $code")
+        else viewModelScope.launch { repository.keyEvent(code) }
     }
 
-    fun enableWifi() { viewModelScope.launch { repository.enableWifi() } }
-    fun disableWifi() { viewModelScope.launch { repository.disableWifi() } }
-    fun enableBluetooth() { viewModelScope.launch { repository.enableBluetooth() } }
-    fun disableBluetooth() { viewModelScope.launch { repository.disableBluetooth() } }
-    fun volumeUp() { viewModelScope.launch { repository.volumeUp() } }
-    fun volumeDown() { viewModelScope.launch { repository.volumeDown() } }
-    fun volumeMute() { viewModelScope.launch { repository.volumeMute() } }
-    fun screenOn() { viewModelScope.launch { repository.screenOn() } }
-    fun screenOff() { viewModelScope.launch { repository.screenOff() } }
-    fun inputText(text: String) { viewModelScope.launch { repository.inputText(text) } }
+    fun enableWifi() {
+        if (isUsbAdbActive) usbAdbCmd("svc wifi enable")
+        else viewModelScope.launch { repository.enableWifi() }
+    }
+    fun disableWifi() {
+        if (isUsbAdbActive) usbAdbCmd("svc wifi disable")
+        else viewModelScope.launch { repository.disableWifi() }
+    }
+    fun enableBluetooth() {
+        if (isUsbAdbActive) usbAdbCmd("svc bluetooth enable")
+        else viewModelScope.launch { repository.enableBluetooth() }
+    }
+    fun disableBluetooth() {
+        if (isUsbAdbActive) usbAdbCmd("svc bluetooth disable")
+        else viewModelScope.launch { repository.disableBluetooth() }
+    }
+    fun volumeUp() {
+        if (isUsbAdbActive) usbAdbCmd("input keyevent 24")
+        else viewModelScope.launch { repository.volumeUp() }
+    }
+    fun volumeDown() {
+        if (isUsbAdbActive) usbAdbCmd("input keyevent 25")
+        else viewModelScope.launch { repository.volumeDown() }
+    }
+    fun volumeMute() {
+        if (isUsbAdbActive) usbAdbCmd("input keyevent 164")
+        else viewModelScope.launch { repository.volumeMute() }
+    }
+    fun screenOn() {
+        if (isUsbAdbActive) usbAdbCmd("input keyevent 26")
+        else viewModelScope.launch { repository.screenOn() }
+    }
+    fun screenOff() {
+        if (isUsbAdbActive) usbAdbCmd("input keyevent 26")
+        else viewModelScope.launch { repository.screenOff() }
+    }
+    fun inputText(text: String) {
+        if (isUsbAdbActive) usbAdbCmd("input text \"$text\"")
+        else viewModelScope.launch { repository.inputText(text) }
+    }
 
     fun removeDevice(address: String) { viewModelScope.launch { repository.removeDevice(address) } }
     fun toggleFavorite(address: String) { viewModelScope.launch { repository.toggleFavorite(address) } }
@@ -545,11 +658,67 @@ class AppViewModel @Inject constructor(
         }
     }
 
+    // ── 有线 USB ADB ──
+
+    val usbAdbConnectionState: StateFlow<UsbAdbConnectionState> = usbAdbRepository.connectionState
+    val usbAdbConnectedDevice: StateFlow<UsbAdbDeviceInfo?> = usbAdbRepository.connectedDevice
+    val usbAdbConnectLog: StateFlow<String> = usbAdbRepository.connectLog
+
+    private val _usbAdbDevices = MutableStateFlow<List<UsbAdbDeviceInfo>>(emptyList())
+    val usbAdbDevices: StateFlow<List<UsbAdbDeviceInfo>> = _usbAdbDevices.asStateFlow()
+
+    private val _usbAdbShellOutput = MutableStateFlow("")
+    val usbAdbShellOutput: StateFlow<String> = _usbAdbShellOutput.asStateFlow()
+
+    private val _usbAdbResult = MutableSharedFlow<String>()
+    val usbAdbResult: SharedFlow<String> = _usbAdbResult.asSharedFlow()
+
+    fun scanUsbAdbDevices() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            _usbAdbDevices.value = usbAdbRepository.scanDevices()
+        }
+    }
+
+    fun connectUsbAdb(deviceInfo: UsbAdbDeviceInfo) {
+        viewModelScope.launch {
+            val success = usbAdbRepository.connect(deviceInfo)
+            if (success) {
+                loadDeviceInfo(force = true)
+            }
+        }
+    }
+
+    fun disconnectUsbAdb() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            usbAdbRepository.disconnect()
+            _deviceInfo.value = null
+            _usbAdbShellOutput.value = ""
+        }
+    }
+
+    fun executeUsbAdbCommand(command: String) {
+        viewModelScope.launch {
+            _usbAdbShellOutput.value = "执行中..."
+            val result = usbAdbRepository.executeCommand(command)
+            _usbAdbShellOutput.value = result
+        }
+    }
+
+    // ── 活动ADB连接检查 ──
+
+    /** 是否有任何ADB连接（无线或有线） */
+    val isAnyAdbConnected: StateFlow<Boolean> = combine(
+        connectionState, usbAdbConnectionState
+    ) { wireless, usb ->
+        wireless == ConnectionState.CONNECTED || usb == UsbAdbConnectionState.CONNECTED
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(), false)
+
     override fun onCleared() {
         super.onCleared()
-        disconnect()
-        fastbootRepository.destroy()
-        repository.destroy()
+        // Don't destroy singletons here — they outlive the ViewModel.
+        // Only disconnect the wireless ADB stream (non-singleton resource).
+        try { shellStream?.close() } catch (_: Exception) {}
+        shellStream = null
     }
 }
 
