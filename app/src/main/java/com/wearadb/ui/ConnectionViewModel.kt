@@ -12,7 +12,10 @@ import com.wearadb.adb.UsbAdbConnectionState
 import io.github.muntashirakon.adb.AdbStream
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
@@ -165,7 +168,7 @@ class ConnectionViewModel @Inject constructor(
             if (result.success) {
                 _pairingState.value = PairingState.Success(result.message)
                 if (result.port > 0 && result.port != port) {
-                    kotlinx.coroutines.delay(500)
+                    delay(500)
                     connect(result.host, result.port, useTls = true)
                 }
             } else {
@@ -181,24 +184,26 @@ class ConnectionViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 if (connectionState.value == ConnectionState.CONNECTED) {
-                    try { shellStream?.close() } catch (_: Exception) {}
-                    shellStream = null
-                    val stream = repository.openShell(command)
-                    shellStream = stream
-                    val os = stream.openOutputStream()
-                    os.write("$command\n".toByteArray())
-                    os.flush()
-                    val reader = java.io.BufferedReader(java.io.InputStreamReader(stream.openInputStream()))
-                    val sb = StringBuilder()
-                    val startTime = System.currentTimeMillis()
-                    while (System.currentTimeMillis() - startTime < 15000) {
-                        if (reader.ready()) {
-                            val line = reader.readLine() ?: break
-                            sb.appendLine(line)
-                            _shellOutput.value = sb.toString()
-                        } else {
-                            kotlinx.coroutines.delay(50)
+                    _shellOutput.value = withContext(Dispatchers.IO) {
+                        try { shellStream?.close() } catch (_: Exception) {}
+                        shellStream = null
+                        val stream = repository.openShell(command)
+                        shellStream = stream
+                        val os = stream.openOutputStream()
+                        os.write("$command\n".toByteArray())
+                        os.flush()
+                        val reader = java.io.BufferedReader(java.io.InputStreamReader(stream.openInputStream()))
+                        val sb = StringBuilder()
+                        val startTime = System.currentTimeMillis()
+                        while (System.currentTimeMillis() - startTime < 15000) {
+                            if (reader.ready()) {
+                                val line = reader.readLine() ?: break
+                                sb.appendLine(line)
+                            } else {
+                                delay(50)
+                            }
                         }
+                        sb.toString()
                     }
                 } else if (isUsbAdbActive) {
                     _shellOutput.value = "执行中..."
@@ -218,22 +223,24 @@ class ConnectionViewModel @Inject constructor(
             for (cmd in commands) {
                 try {
                     val result = if (connectionState.value == ConnectionState.CONNECTED) {
-                        val stream = repository.openShell(cmd)
-                        val os = stream.openOutputStream()
-                        os.write("$cmd\n".toByteArray())
-                        os.flush()
-                        val reader = java.io.BufferedReader(java.io.InputStreamReader(stream.openInputStream()))
-                        val sb = StringBuilder()
-                        val startTime = System.currentTimeMillis()
-                        while (System.currentTimeMillis() - startTime < 10000) {
-                            if (reader.ready()) {
-                                val line = reader.readLine() ?: break
-                                sb.appendLine(line)
-                            } else {
-                                kotlinx.coroutines.delay(50)
+                        withContext(Dispatchers.IO) {
+                            val stream = repository.openShell(cmd)
+                            val os = stream.openOutputStream()
+                            os.write("$cmd\n".toByteArray())
+                            os.flush()
+                            val reader = java.io.BufferedReader(java.io.InputStreamReader(stream.openInputStream()))
+                            val sb = StringBuilder()
+                            val startTime = System.currentTimeMillis()
+                            while (System.currentTimeMillis() - startTime < 10000) {
+                                if (reader.ready()) {
+                                    val line = reader.readLine() ?: break
+                                    sb.appendLine(line)
+                                } else {
+                                    delay(50)
+                                }
                             }
+                            sb.toString().ifEmpty { "(无输出)" }
                         }
-                        sb.toString().ifEmpty { "(无输出)" }
                     } else if (isUsbAdbActive) {
                         usbAdbRepository.executeCommand(cmd)
                     } else {

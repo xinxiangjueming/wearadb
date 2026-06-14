@@ -2,11 +2,16 @@ package com.wearadb.adb
 
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.security.KeyFactory
 import java.security.PrivateKey
 import java.security.cert.Certificate
@@ -41,22 +46,43 @@ class UsbAdbRepository @Inject constructor(
     val connectLog: StateFlow<String> = _connectLog.asStateFlow()
     private val logLines = mutableListOf<String>()
 
-    // ── Manager ──
-    private val manager: UsbAdbManager
+    // ── Deferred Manager (RSA key gen off main thread) ──
+    private data class AdbComponents(
+        val manager: UsbAdbManager,
+        val privateKey: PrivateKey,
+        val certificate: Certificate
+    )
+    private val initDeferred = CompletableDeferred<AdbComponents>()
 
     init {
-        val (pk, cert) = loadOrGenerateKeyPair()
-        manager = UsbAdbManager(appContext, pk, cert) { msg ->
-            synchronized(logLines) {
-                logLines.add(msg)
-                _connectLog.value = logLines.joinToString("\n")
+        // Move RSA key generation + file IO off main thread
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            try {
+                val (pk, cert) = loadOrGenerateKeyPair()
+                val mgr = UsbAdbManager(appContext, pk, cert) { msg ->
+                    synchronized(logLines) {
+                        logLines.add(msg)
+                        _connectLog.value = logLines.joinToString("\n")
+                    }
+                }
+                initDeferred.complete(AdbComponents(mgr, pk, cert))
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "Async init failed", e)
+                initDeferred.completeExceptionally(e)
             }
         }
     }
 
+    /** Await manager initialization (runs on IO, never blocks main thread). */
+    private suspend fun awaitManager(): UsbAdbManager {
+        return withTimeout(30_000) { initDeferred.await().manager }
+    }
+
     // ── Scanning ──
 
-    fun scanDevices(): List<UsbAdbDeviceInfo> = manager.scanDevices()
+    suspend fun scanDevices(): List<UsbAdbDeviceInfo> = withContext(Dispatchers.IO) {
+        awaitManager().scanDevices()
+    }
 
     // ── Connection ──
 
@@ -64,7 +90,8 @@ class UsbAdbRepository @Inject constructor(
         synchronized(logLines) { logLines.clear(); _connectLog.value = "" }
         _connectionState.value = UsbAdbConnectionState.CONNECTING
 
-        val success = manager.connect(deviceInfo)
+        val mgr = awaitManager()
+        val success = mgr.connect(deviceInfo)
         if (success) {
             _connectionState.value = UsbAdbConnectionState.CONNECTED
             _connectedDevice.value = deviceInfo
@@ -75,15 +102,18 @@ class UsbAdbRepository @Inject constructor(
         success
     }
 
-    fun disconnect() {
+    suspend fun disconnect() {
         try {
-            manager.disconnect()
+            awaitManager().disconnect()
         } catch (_: Exception) {}
         _connectionState.value = UsbAdbConnectionState.DISCONNECTED
         _connectedDevice.value = null
     }
 
-    val isConnected: Boolean get() = manager.isConnected
+    val isConnected: Boolean
+        get() = try {
+            initDeferred.getCompleted().manager.isConnected
+        } catch (_: Exception) { false }
 
     // ── Commands ──
 
@@ -92,7 +122,7 @@ class UsbAdbRepository @Inject constructor(
      * Returns the command output as a string.
      */
     suspend fun executeCommand(command: String): String = withContext(Dispatchers.IO) {
-        val conn = manager.getConnection() ?: return@withContext "未连接"
+        val conn = awaitManager().getConnection() ?: return@withContext "未连接"
         try {
             val stream = conn.openShell(command)
             val result = stream.readAll(15000)
@@ -109,7 +139,7 @@ class UsbAdbRepository @Inject constructor(
      * and parses with AdbOutputParser for full DeviceInfo fields.
      */
     suspend fun getDeviceInfo(): com.wearadb.data.model.DeviceInfo = withContext(Dispatchers.IO) {
-        val conn = manager.getConnection() ?: return@withContext com.wearadb.data.model.DeviceInfo()
+        val conn = awaitManager().getConnection() ?: return@withContext com.wearadb.data.model.DeviceInfo()
 
         try {
             android.util.Log.d(TAG, "getDeviceInfo: 开始执行命令...")
@@ -142,7 +172,7 @@ class UsbAdbRepository @Inject constructor(
      * Get installed packages via shell command.
      */
     suspend fun getInstalledPackages(): List<com.wearadb.data.model.AppEntry> = withContext(Dispatchers.IO) {
-        val conn = manager.getConnection() ?: return@withContext emptyList()
+        val conn = awaitManager().getConnection() ?: return@withContext emptyList()
         try {
             val combined = conn.openShell(
                 "echo ==FULL==; pm list packages -f; echo ==SYSTEM==; pm list packages -s; echo ==THIRD==; pm list packages -3"
@@ -171,7 +201,7 @@ class UsbAdbRepository @Inject constructor(
      * Runs `screencap -p` and reads the raw PNG bytes from the stream.
      */
     suspend fun screenshot(): ByteArray? = withContext(Dispatchers.IO) {
-        val conn = manager.getConnection() ?: return@withContext null
+        val conn = awaitManager().getConnection() ?: return@withContext null
         try {
             android.util.Log.d(TAG, "screenshot: opening shell stream...")
             val stream = conn.openShell("screencap -p")
@@ -226,7 +256,7 @@ class UsbAdbRepository @Inject constructor(
     }
 
     fun destroy() {
-        manager.destroy()
+        try { initDeferred.getCompleted().manager.destroy() } catch (_: Exception) {}
     }
 
     // ── Key management ──
