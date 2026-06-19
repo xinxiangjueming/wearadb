@@ -413,13 +413,18 @@ class ConnectionViewModel @Inject constructor(
                 "shutdown" -> "reboot -p"
                 else -> "reboot"
             }
-            usbAdbCmd(cmd)
+            viewModelScope.launch {
+                usbAdbRepository.executeCommand(cmd)
+                if (mode == "bootloader" || mode == "recovery" || mode == "shutdown") {
+                    usbAdbRepository.disconnect()
+                }
+            }
         } else {
             viewModelScope.launch {
                 when (mode) {
-                    "recovery" -> repository.rebootRecovery()
-                    "bootloader" -> repository.rebootBootloader()
-                    "shutdown" -> repository.shutdown()
+                    "recovery" -> { repository.rebootRecovery(); disconnect() }
+                    "bootloader" -> { repository.rebootBootloader(); disconnect() }
+                    "shutdown" -> { repository.shutdown(); disconnect() }
                     else -> repository.reboot()
                 }
             }

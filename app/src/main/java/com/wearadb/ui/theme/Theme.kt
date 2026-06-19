@@ -3,6 +3,9 @@ package com.wearadb.ui.theme
 import android.app.Activity
 import android.os.Build
 import android.view.WindowManager
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -269,13 +272,35 @@ fun WearAdbTheme(
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
-            val window = (view.context as Activity).window
+            val window = (view.context as ComponentActivity).window
 
-            @Suppress("DEPRECATION")
-            window.statusBarColor = Color.Transparent.toArgb()
-            @Suppress("DEPRECATION")
-            window.navigationBarColor = Color.Transparent.toArgb()
-            WindowCompat.setDecorFitsSystemWindows(window, false)
+            window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                (view.context as ComponentActivity).enableEdgeToEdge(
+                    statusBarStyle = SystemBarStyle.auto(
+                        android.graphics.Color.TRANSPARENT,
+                        android.graphics.Color.TRANSPARENT
+                    ),
+                    navigationBarStyle = SystemBarStyle.auto(
+                        android.graphics.Color.TRANSPARENT,
+                        android.graphics.Color.TRANSPARENT
+                    )
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                window.statusBarColor = Color.Transparent.toArgb()
+                @Suppress("DEPRECATION")
+                window.navigationBarColor = Color.Transparent.toArgb()
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+            }
+
+            // enableEdgeToEdge() 内部会重新打开 contrast enforcement，
+            // 必须在它之后再关闭，否则会被覆盖
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                window.isNavigationBarContrastEnforced = false
+                window.isStatusBarContrastEnforced = false
+            }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 window.attributes.layoutInDisplayCutoutMode =
@@ -285,8 +310,6 @@ fun WearAdbTheme(
             val insetsController = WindowCompat.getInsetsController(window, view)
             insetsController.isAppearanceLightStatusBars = !darkTheme
             insetsController.isAppearanceLightNavigationBars = !darkTheme
-
-            // 横屏：小白条沉浸（透明叠在内容上，不占空间，滑动唤出）
             insetsController.systemBarsBehavior =
                 androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }

@@ -36,7 +36,7 @@ private data class OpsItem(val icon: ImageVector, val label: String, val onClick
 fun AdvancedOpsScreen(
     onBack: () -> Unit,
     onNavigateToFiles: () -> Unit,
-    onNavigateToFastboot: () -> Unit,
+    onNavigateToHome: () -> Unit,
     viewModel: ConnectionViewModel = hiltViewModel()
 ) {
     val c = WearAdbTheme.colors
@@ -125,12 +125,6 @@ fun AdvancedOpsScreen(
         item(span = { GridItemSpan(maxLineSpan) }) {
             OpsButton(Icons.Outlined.RestartAlt, s.opsRebootDevice) { showRebootDialog = true }
         }
-
-        // ── Fastboot ──
-        item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(s.opsWiredDebug) }
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            OpsButton(Icons.Outlined.DeveloperBoard, s.opsFastbootMode) { onNavigateToFastboot() }
-        }
     }
 
     // ── Reboot Dialog ──
@@ -146,13 +140,25 @@ fun AdvancedOpsScreen(
                     TextButton(onClick = { viewModel.reboot(); showRebootDialog = false }) {
                         Text(s.opsRebootNormal, color = c.accent)
                     }
-                    TextButton(onClick = { viewModel.reboot("recovery"); showRebootDialog = false }) {
+                    TextButton(onClick = {
+                        viewModel.reboot("recovery")
+                        showRebootDialog = false
+                        onNavigateToHome()
+                    }) {
                         Text("Recovery 模式", color = c.warning)
                     }
-                    TextButton(onClick = { viewModel.reboot("bootloader"); showRebootDialog = false }) {
+                    TextButton(onClick = {
+                        viewModel.reboot("bootloader")
+                        showRebootDialog = false
+                        onNavigateToHome()
+                    }) {
                         Text("Bootloader 模式", color = c.warning)
                     }
-                    TextButton(onClick = { viewModel.reboot("shutdown"); showRebootDialog = false }) {
+                    TextButton(onClick = {
+                        viewModel.reboot("shutdown")
+                        showRebootDialog = false
+                        onNavigateToHome()
+                    }) {
                         Text(s.opsShutdown, color = c.error)
                     }
                 }

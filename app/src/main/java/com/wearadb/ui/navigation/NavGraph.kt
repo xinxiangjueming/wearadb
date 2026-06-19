@@ -85,7 +85,9 @@ fun AppNavGraph(navController: NavHostController) {
             AdvancedOpsScreen(
                 onBack = { navController.popBackStack() },
                 onNavigateToFiles = { navController.navigate(Routes.FILES) },
-                onNavigateToFastboot = { navController.navigate(Routes.FASTBOOT) }
+                onNavigateToHome = {
+                    navController.popBackStack(Routes.HOME, inclusive = false)
+                }
             )
         }
         composable(Routes.FASTBOOT) {
