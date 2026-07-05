@@ -251,6 +251,7 @@
     <string name="usb_desc_info">Model, OS version, storage, etc.</string>
     <string name="usb_desc_shell">Run shell commands</string>
     <string name="usb_desc_apps">View, install, uninstall apps</string>
+    <string name="usb_desc_files">Browse, push, delete files on device</string>
     <string name="usb_desc_advanced">Reboot, screenshot, volume, WiFi, BT, etc.</string>
     <string name="usb_connected_fmt">Connected: %1$s</string>
     <string name="usb_not_connected">Not connected — connect an Android device via USB cable</string>

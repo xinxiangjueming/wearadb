@@ -251,6 +251,7 @@
     <string name="usb_desc_info">查看型号、系统版本、存储等</string>
     <string name="usb_desc_shell">执行 shell 命令</string>
     <string name="usb_desc_apps">查看、安装、卸载应用</string>
+    <string name="usb_desc_files">浏览、推送、删除设备上的文件</string>
     <string name="usb_desc_advanced">重启、截屏、音量、WiFi、蓝牙等</string>
     <string name="usb_connected_fmt">已连接: %1$s</string>
     <string name="usb_not_connected">未连接 — 用USB线连接Android设备</string>

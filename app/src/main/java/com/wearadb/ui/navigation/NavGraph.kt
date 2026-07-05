@@ -101,6 +101,7 @@ fun AppNavGraph(navController: NavHostController) {
                 onNavigateToDeviceInfo = { navController.navigate(Routes.DEVICE_INFO) },
                 onNavigateToShell = { navController.navigate(Routes.SHELL) },
                 onNavigateToApps = { navController.navigate(Routes.APPS) },
+                onNavigateToFiles = { navController.navigate(Routes.FILES) },
                 onNavigateToAdvanced = { navController.navigate(Routes.ADVANCED) }
             )
         }

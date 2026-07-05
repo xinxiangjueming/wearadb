@@ -24,6 +24,7 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class ConnectionViewModel @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
     private val repository: AdbRepository,
     private val usbAdbRepository: UsbAdbRepository
 ) : ViewModel() {
@@ -387,7 +388,13 @@ class ConnectionViewModel @Inject constructor(
         viewModelScope.launch {
             if (!force && _files.value.isNotEmpty() && path == _currentPath.value) return@launch
             _filesLoading.value = true; _currentPath.value = path
-            try { _files.value = repository.listFiles(path) } catch (_: Exception) { _files.value = emptyList() }
+            try {
+                _files.value = if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
+                    usbAdbRepository.listFiles(path)
+                } else {
+                    repository.listFiles(path)
+                }
+            } catch (_: Exception) { _files.value = emptyList() }
             _filesLoading.value = false
         }
     }
@@ -400,20 +407,50 @@ class ConnectionViewModel @Inject constructor(
     }
 
     fun deleteFile(path: String, onResult: (String) -> Unit) {
-        viewModelScope.launch { onResult(repository.deleteFile(path).trim()); loadFiles(force = true) }
+        viewModelScope.launch {
+            val result = if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
+                usbAdbRepository.deleteFile(path)
+            } else {
+                repository.deleteFile(path)
+            }
+            onResult(result.trim()); loadFiles(force = true)
+        }
     }
 
     fun createDirectory(path: String, onResult: (String) -> Unit) {
-        viewModelScope.launch { onResult(repository.createDirectory(path).trim()); loadFiles(force = true) }
+        viewModelScope.launch {
+            val result = if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
+                usbAdbRepository.createDirectory(path)
+            } else {
+                repository.createDirectory(path)
+            }
+            onResult(result.trim()); loadFiles(force = true)
+        }
     }
 
     fun readFile(path: String, onResult: (String) -> Unit) {
-        viewModelScope.launch { onResult(repository.readFile(path)) }
+        viewModelScope.launch {
+            val result = if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
+                usbAdbRepository.readFile(path)
+            } else {
+                repository.readFile(path)
+            }
+            onResult(result)
+        }
     }
 
     fun pushFile(data: ByteArray, remotePath: String, onResult: ((String) -> Unit)? = null) {
         viewModelScope.launch {
-            val result = repository.pushFile(data, remotePath)
+            val result = if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
+                // USB: 写临时文件再推送
+                val tmpFile = java.io.File(appContext.cacheDir, "wearadb_push_tmp")
+                tmpFile.writeBytes(data)
+                val r = usbAdbRepository.pushFile(tmpFile, remotePath)
+                tmpFile.delete()
+                r
+            } else {
+                repository.pushFile(data, remotePath)
+            }
             _opResult.emit(result)
             onResult?.invoke(result)
             loadFiles(force = true)
@@ -421,7 +458,13 @@ class ConnectionViewModel @Inject constructor(
     }
 
     fun pullFile(remotePath: String, onResult: (PullResult) -> Unit) {
-        viewModelScope.launch { onResult(repository.pullFile(remotePath)) }
+        viewModelScope.launch {
+            if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
+                onResult(PullResult(false, null, "有线连接暂不支持拉取文件"))
+            } else {
+                onResult(repository.pullFile(remotePath))
+            }
+        }
     }
 
     // ── Advanced Ops ──

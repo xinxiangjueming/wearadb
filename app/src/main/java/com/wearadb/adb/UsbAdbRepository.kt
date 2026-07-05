@@ -380,6 +380,26 @@ class UsbAdbRepository @Inject constructor(
         }
     }
 
+    // ── 文件管理 ──
+
+    suspend fun listFiles(path: String): List<com.wearadb.data.model.FileEntry> = withContext(Dispatchers.IO) {
+        val output = executeCommand("ls -Lla $path 2>&1")
+        android.util.Log.d(TAG, "listFiles($path) output length=${output.length}")
+        com.wearadb.adb.AdbOutputParser.parseFileListing(output, path)
+    }
+
+    suspend fun readFile(path: String): String = withContext(Dispatchers.IO) {
+        executeCommand("cat $path")
+    }
+
+    suspend fun deleteFile(path: String): String = withContext(Dispatchers.IO) {
+        executeCommand("rm -rf $path")
+    }
+
+    suspend fun createDirectory(path: String): String = withContext(Dispatchers.IO) {
+        executeCommand("mkdir -p $path")
+    }
+
     private fun littleEndianToInt(bytes: ByteArray, offset: Int): Int =
         (bytes[offset].toInt() and 0xFF) or
                 ((bytes[offset + 1].toInt() and 0xFF) shl 8) or

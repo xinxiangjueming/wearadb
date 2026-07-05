@@ -34,6 +34,7 @@ fun UsbAdbScreen(
     onNavigateToDeviceInfo: () -> Unit = {},
     onNavigateToShell: () -> Unit = {},
     onNavigateToApps: () -> Unit = {},
+    onNavigateToFiles: () -> Unit = {},
     onNavigateToAdvanced: () -> Unit = {},
     viewModel: UsbAdbViewModel = hiltViewModel()
 ) {
@@ -155,6 +156,15 @@ fun UsbAdbScreen(
                     subtitle = s.usbDescApps,
                     cornerRadius = cornerRadius,
                     onClick = onNavigateToApps
+                )
+
+                // 文件管理
+                UsbAdbFeatureCard(
+                    icon = Icons.Outlined.FolderOpen,
+                    title = s.filesTitle,
+                    subtitle = s.usbDescFiles,
+                    cornerRadius = cornerRadius,
+                    onClick = onNavigateToFiles
                 )
 
                 // 高级功能

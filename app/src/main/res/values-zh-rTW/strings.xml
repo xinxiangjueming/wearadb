@@ -251,6 +251,7 @@
     <string name="usb_desc_info">檢視型號、系統版本、儲存空間等</string>
     <string name="usb_desc_shell">執行 Shell 指令</string>
     <string name="usb_desc_apps">檢視、安裝、解除安裝應用程式</string>
+    <string name="usb_desc_files">瀏覽、推送、刪除裝置上的檔案</string>
     <string name="usb_desc_advanced">重新啟動、螢幕截圖、音量、WiFi、藍牙等</string>
     <string name="usb_connected_fmt">已連線：%1$s</string>
     <string name="usb_not_connected">未連線 — 請使用 USB 傳輸線連接 Android 裝置</string>

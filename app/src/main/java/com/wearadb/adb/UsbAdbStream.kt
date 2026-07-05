@@ -45,6 +45,7 @@ class UsbAdbStream(
     fun onOpened(remoteId: Int) {
         this.remoteId = remoteId
         this.isOpened = true
+        writeReady.set(true)
         openLatch.countDown()
         Log.d(TAG, "Stream $localId opened (remote=$remoteId)")
     }
@@ -207,8 +208,12 @@ class UsbAdbStream(
 
     /**
      * Write data to this stream via the parent connection.
+     * Waits for OKAY from device before sending (ADB flow control).
      */
     fun write(data: ByteArray, connection: UsbAdbConnection) {
+        // 等待上一次写入的 OKAY 确认
+        waitForWriteReady(5000)
+        writeReady.set(false)
         connection.sendMessage(createWriteMessage(data))
     }
 }
