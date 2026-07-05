@@ -48,6 +48,15 @@ fun AppsScreen(
     val apps by viewModel.apps.collectAsState()
     val loading by viewModel.appsLoading.collectAsState()
     val filter by viewModel.appsFilter.collectAsState()
+
+    // recomposition tracking
+    var recompositionCount = remember { 0 }
+    SideEffect {
+        recompositionCount++
+        if (recompositionCount % 5 == 0 || recompositionCount <= 2) {
+            android.util.Log.d("AppsScreen", "recomposition #$recompositionCount, apps=${apps.size}")
+        }
+    }
     var searchQuery by remember { mutableStateOf("") }
     var expandedPkg by remember { mutableStateOf<String?>(null) }
     var snackbarMessage by remember { mutableStateOf<String?>(null) }
@@ -206,18 +215,42 @@ fun AppsScreen(
                 if (systemApps.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(s.appsSystemCount(systemApps.size)) }
                     items(systemApps, key = { it.packageName }) { app ->
-                        AppListItem(app, expandedPkg, onToggleExpand = { expandedPkg = it }, viewModel = viewModel, snackbarMessage = { snackbarMessage = it })
+                        AppListItem(app, expandedPkg, onToggleExpand = { expandedPkg = it },
+                            onUninstall = { viewModel.uninstallApp(app.packageName) { snackbarMessage = it } },
+                            onClearData = { viewModel.clearAppData(app.packageName) { snackbarMessage = it } },
+                            onForceStop = { viewModel.forceStopApp(app.packageName) { snackbarMessage = it } },
+                            onToggleEnabled = {
+                                if (app.isEnabled) viewModel.disableApp(app.packageName) { snackbarMessage = it }
+                                else viewModel.enableApp(app.packageName) { snackbarMessage = it }
+                                viewModel.loadApps(force = true)
+                            })
                     }
                 }
                 if (thirdPartyApps.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(s.appsThirdCount(thirdPartyApps.size)) }
                     items(thirdPartyApps, key = { it.packageName }) { app ->
-                        AppListItem(app, expandedPkg, onToggleExpand = { expandedPkg = it }, viewModel = viewModel, snackbarMessage = { snackbarMessage = it })
+                        AppListItem(app, expandedPkg, onToggleExpand = { expandedPkg = it },
+                            onUninstall = { viewModel.uninstallApp(app.packageName) { snackbarMessage = it } },
+                            onClearData = { viewModel.clearAppData(app.packageName) { snackbarMessage = it } },
+                            onForceStop = { viewModel.forceStopApp(app.packageName) { snackbarMessage = it } },
+                            onToggleEnabled = {
+                                if (app.isEnabled) viewModel.disableApp(app.packageName) { snackbarMessage = it }
+                                else viewModel.enableApp(app.packageName) { snackbarMessage = it }
+                                viewModel.loadApps(force = true)
+                            })
                     }
                 }
             } else {
                 items(filteredApps, key = { it.packageName }) { app ->
-                    AppListItem(app, expandedPkg, onToggleExpand = { expandedPkg = it }, viewModel = viewModel, snackbarMessage = { snackbarMessage = it })
+                    AppListItem(app, expandedPkg, onToggleExpand = { expandedPkg = it },
+                        onUninstall = { viewModel.uninstallApp(app.packageName) { snackbarMessage = it } },
+                        onClearData = { viewModel.clearAppData(app.packageName) { snackbarMessage = it } },
+                        onForceStop = { viewModel.forceStopApp(app.packageName) { snackbarMessage = it } },
+                        onToggleEnabled = {
+                            if (app.isEnabled) viewModel.disableApp(app.packageName) { snackbarMessage = it }
+                            else viewModel.enableApp(app.packageName) { snackbarMessage = it }
+                            viewModel.loadApps(force = true)
+                        })
                 }
             }
         }
@@ -229,26 +262,18 @@ private fun AppListItem(
     app: AppEntry,
     expandedPkg: String?,
     onToggleExpand: (String?) -> Unit,
-    viewModel: ConnectionViewModel,
-    snackbarMessage: (String) -> Unit
+    onUninstall: () -> Unit,
+    onClearData: () -> Unit,
+    onForceStop: () -> Unit,
+    onToggleEnabled: () -> Unit
 ) {
     val isExpanded = expandedPkg == app.packageName
-    val onUninstall = remember(app.packageName) { { viewModel.uninstallApp(app.packageName) { snackbarMessage(it) } } }
-    val onClear = remember(app.packageName) { { viewModel.clearAppData(app.packageName) { snackbarMessage(it) } } }
-    val onStop = remember(app.packageName) { { viewModel.forceStopApp(app.packageName) { snackbarMessage(it) } } }
-    val onToggleEnabled = remember(app.packageName) {
-        {
-            if (app.isEnabled) viewModel.disableApp(app.packageName) { snackbarMessage(it) }
-            else viewModel.enableApp(app.packageName) { snackbarMessage(it) }
-            viewModel.loadApps(force = true)
-        }
-    }
     AppCard(
         app = app, expanded = isExpanded,
         onToggleExpand = { onToggleExpand(if (isExpanded) null else app.packageName) },
         onUninstall = onUninstall,
-        onClearData = onClear,
-        onForceStop = onStop,
+        onClearData = onClearData,
+        onForceStop = onForceStop,
         onToggleEnabled = onToggleEnabled
     )
 }

@@ -460,7 +460,8 @@ class ConnectionViewModel @Inject constructor(
     fun pullFile(remotePath: String, onResult: (PullResult) -> Unit) {
         viewModelScope.launch {
             if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
-                onResult(PullResult(false, null, "有线连接暂不支持拉取文件"))
+                val (success, data) = usbAdbRepository.pullFile(remotePath)
+                onResult(PullResult(success, data, if (success) "拉取成功: $remotePath" else "拉取失败"))
             } else {
                 onResult(repository.pullFile(remotePath))
             }

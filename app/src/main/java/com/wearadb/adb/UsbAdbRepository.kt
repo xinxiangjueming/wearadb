@@ -400,6 +400,98 @@ class UsbAdbRepository @Inject constructor(
         executeCommand("mkdir -p $path")
     }
 
+    suspend fun pullFile(remotePath: String): Pair<Boolean, ByteArray?> = withContext(Dispatchers.IO) {
+        android.util.Log.d(TAG, "pullFile: $remotePath")
+        val conn = awaitManager().getConnection() ?: return@withContext false to null
+        try {
+            val stream = conn.openSync()
+
+            // RECV header — single buffer
+            val pathBytes = remotePath.toByteArray()
+            val recvBuf = java.nio.ByteBuffer.allocate(8 + pathBytes.size).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            recvBuf.putInt(0x56434552) // RECV
+            recvBuf.putInt(pathBytes.size)
+            recvBuf.put(pathBytes)
+            stream.write(recvBuf.array(), conn)
+            android.util.Log.d(TAG, "pullFile: RECV sent, ${recvBuf.array().size} bytes")
+
+            // Buffered reader: WRTE payloads → continuous byte stream
+            val dataBuffer = java.io.ByteArrayOutputStream()
+            var totalReceived = 0L
+            var dataOffset = 0 // tracks consumed bytes in dataBuffer
+
+            fun refillBuffer(): Boolean {
+                // Discard consumed bytes
+                if (dataOffset > 0) {
+                    val remaining = dataBuffer.toByteArray().copyOfRange(dataOffset, dataBuffer.size())
+                    dataBuffer.reset()
+                    dataBuffer.write(remaining)
+                    dataOffset = 0
+                }
+                // Read more WRTE payloads until we have enough
+                while (dataBuffer.size() - dataOffset < 8) {
+                    val chunk = stream.readBlocking(10000) ?: return false
+                    dataBuffer.write(chunk)
+                }
+                return true
+            }
+
+            fun readBytes(n: Int): ByteArray? {
+                // Ensure buffer has enough data, refill if needed
+                while (dataBuffer.size() - dataOffset < n) {
+                    val chunk = stream.readBlocking(10000) ?: return null
+                    dataBuffer.write(chunk)
+                }
+                val buf = dataBuffer.toByteArray()
+                val result = buf.copyOfRange(dataOffset, dataOffset + n)
+                dataOffset += n
+                return result
+            }
+
+            // Read SYNC DATA chunks
+            val output = java.io.ByteArrayOutputStream()
+            while (true) {
+                if (!refillBuffer()) break
+                val headerBytes = readBytes(8) ?: break
+                val cmd = littleEndianToInt(headerBytes, 0)
+                val size = littleEndianToInt(headerBytes, 4)
+                android.util.Log.d(TAG, "pullFile: cmd=0x${cmd.toString(16)}, size=$size")
+
+                when (cmd) {
+                    0x41544144 -> { // DATA
+                        var remaining = size
+                        while (remaining > 0) {
+                            val chunk = readBytes(remaining) ?: break
+                            output.write(chunk)
+                            totalReceived += chunk.size
+                            remaining -= chunk.size
+                        }
+                        if (totalReceived % (1024 * 1024) < 65536) {
+                            android.util.Log.d(TAG, "pullFile: received ${totalReceived / 1024}KB")
+                        }
+                    }
+                    0x454e4f44 -> { // DONE
+                        android.util.Log.d(TAG, "pullFile: DONE, totalReceived=$totalReceived")
+                        break
+                    }
+                    0x4c494146 -> { // FAIL
+                        android.util.Log.w(TAG, "pullFile: FAIL")
+                        conn.closeStream(stream)
+                        return@withContext false to null
+                    }
+                    else -> break
+                }
+            }
+
+            conn.closeStream(stream)
+            android.util.Log.d(TAG, "pullFile: success, ${output.size()} bytes")
+            true to output.toByteArray()
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "pullFile exception", e)
+            false to null
+        }
+    }
+
     private fun littleEndianToInt(bytes: ByteArray, offset: Int): Int =
         (bytes[offset].toInt() and 0xFF) or
                 ((bytes[offset + 1].toInt() and 0xFF) shl 8) or

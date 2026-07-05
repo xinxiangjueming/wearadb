@@ -47,6 +47,15 @@ fun FilesScreen(
     val files by viewModel.files.collectAsState()
     val currentPath by viewModel.currentPath.collectAsState()
     val loading by viewModel.filesLoading.collectAsState()
+
+    // recomposition tracking
+    var recompositionCount = remember { 0 }
+    SideEffect {
+        recompositionCount++
+        if (recompositionCount % 5 == 0 || recompositionCount <= 2) {
+            android.util.Log.d("FilesScreen", "recomposition #$recompositionCount, files=${files.size}, path=$currentPath")
+        }
+    }
     var selectedFile by remember { mutableStateOf<FileEntry?>(null) }
     var showFileContent by remember { mutableStateOf(false) }
     var fileContent by remember { mutableStateOf("") }
@@ -165,7 +174,7 @@ fun FilesScreen(
                     ) {
                         itemsIndexed(
                             items = files,
-                            key = { index, file -> "${file.path}|${file.name}|$index" }
+                            key = { _, file -> file.path }
                         ) { _, file ->
                             FileCard(file, selectedFile?.path == file.path,
                                 onClick = {
@@ -269,7 +278,7 @@ fun FilesScreen(
                 ) {
                     itemsIndexed(
                         items = files,
-                        key = { index, file -> "${file.path}|${file.name}|$index" }
+                        key = { _, file -> file.path }
                     ) { _, file ->
                         FileCard(file, selectedFile?.path == file.path,
                             onClick = {
