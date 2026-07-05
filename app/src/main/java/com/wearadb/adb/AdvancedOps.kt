@@ -119,46 +119,50 @@ object AdvancedOps {
         val buf = ByteArray(65536)
         val startTime = System.currentTimeMillis()
         var lastDataTime = startTime
+        var totalRead = 0
 
         android.util.Log.d("Screenshot", "$tag: reading stream (waiting for EOF)...")
         while (System.currentTimeMillis() - startTime < 15000) {
-            if (inputStream.available() > 0) {
+            val available = try { inputStream.available() } catch (_: Exception) { 0 }
+            if (available > 0) {
                 val n = inputStream.read(buf)
                 if (n < 0) {
-                    android.util.Log.d("Screenshot", "$tag: EOF, total=${buffer.size()}")
+                    android.util.Log.d("Screenshot", "$tag: EOF at totalRead=$totalRead")
                     break
                 }
                 buffer.write(buf, 0, n)
+                totalRead += n
                 lastDataTime = System.currentTimeMillis()
+                if (totalRead % (256 * 1024) < n) {
+                    android.util.Log.d("Screenshot", "$tag: read ${totalRead / 1024}KB so far")
+                }
             } else {
-                // 有数据后 3 秒无新数据，提前退出（不等满超时）
-                if (buffer.size() > 0 && System.currentTimeMillis() - lastDataTime > 3000) {
-                    android.util.Log.d("Screenshot", "$tag: 3s idle after data, total=${buffer.size()}")
+                // 有数据后 5 秒无新数据，提前退出
+                if (buffer.size() > 0 && System.currentTimeMillis() - lastDataTime > 5000) {
+                    android.util.Log.d("Screenshot", "$tag: 5s idle after data, total=${buffer.size()}")
                     break
                 }
-                Thread.sleep(30)
+                Thread.sleep(50)
             }
         }
 
         val bytes = buffer.toByteArray()
-        android.util.Log.d("Screenshot", "$tag: total ${bytes.size} bytes")
+        android.util.Log.d("Screenshot", "$tag: total ${bytes.size} bytes, first32=${bytes.take(32).joinToString("") { "%02x".format(it) }}")
 
         // 找到 PNG 签名，跳过 shell 回显前缀
         val pngStart = findPngSignature(bytes)
         if (pngStart < 0) {
-            android.util.Log.e("Screenshot", "$tag: no PNG signature found")
+            android.util.Log.e("Screenshot", "$tag: no PNG signature found, rawHex=${bytes.take(64).joinToString("") { "%02x".format(it) }}")
             return null
         }
-        if (pngStart > 0) {
-            android.util.Log.d("Screenshot", "$tag: skipping $pngStart bytes prefix")
-        }
+        android.util.Log.d("Screenshot", "$tag: PNG found at offset $pngStart")
 
         val pngData = bytes.copyOfRange(pngStart, bytes.size)
 
         // 截取到 IEND（避免尾部的 shell prompt 等杂数据）
         val trimmed = trimToIend(pngData)
         if (trimmed != null && trimmed.size > 64) {
-            android.util.Log.d("Screenshot", "$tag: success! PNG ${trimmed.size} bytes")
+            android.util.Log.d("Screenshot", "$tag: success! PNG ${trimmed.size} bytes, last12=${trimmed.takeLast(12).joinToString("") { "%02x".format(it) }}")
             logPngDimensions(trimmed, tag)
             return trimmed
         }
@@ -181,18 +185,23 @@ object AdvancedOps {
      */
     private fun trimToIend(data: ByteArray): ByteArray? {
         if (data.size < 12) return null
-        // IEND 通常在文件末尾附近，但尾部可能有 shell prompt 等杂数据
-        // 从尾部往前搜索，范围扩大到 4KB（覆盖大部分尾部垃圾）
-        val searchRange = minOf(data.size - 12, 4096)
-        for (i in data.size - 12 downTo data.size - 12 - searchRange) {
+        // IEND chunk = [4字节长度=0][4字节"IEND"][4字节CRC]，共12字节
+        // "IEND" 字符串在 data.size - 8 的位置
+        val searchEnd = data.size - 8  // IEND 字符串的起始位置
+        val searchRange = minOf(searchEnd, 32768)
+        android.util.Log.d("Screenshot", "trimToIend: searching up to $searchRange bytes from end, data.size=${data.size}")
+        for (i in searchEnd downTo searchEnd - searchRange) {
             if (i < 0) break
-            if (data[i] == 0x49.toByte() &&
-                data[i + 1] == 0x45.toByte() &&
-                data[i + 2] == 0x4E.toByte() &&
-                data[i + 3] == 0x44.toByte()) {
-                return data.copyOf(i + 12)
+            if (data[i] == 0x49.toByte() &&      // 'I'
+                data[i + 1] == 0x45.toByte() &&  // 'E'
+                data[i + 2] == 0x4E.toByte() &&  // 'N'
+                data[i + 3] == 0x44.toByte()) {  // 'D'
+                val result = data.copyOf(i + 12)
+                android.util.Log.d("Screenshot", "trimToIend: found IEND at offset $i, result=${result.size} bytes")
+                return result
             }
         }
+        android.util.Log.w("Screenshot", "trimToIend: IEND not found")
         return null
     }
 
@@ -290,7 +299,13 @@ object AdvancedOps {
                         ((data[21].toInt() and 0xFF) shl 16) or
                         ((data[22].toInt() and 0xFF) shl 8) or
                         (data[23].toInt() and 0xFF)
-                android.util.Log.d("Screenshot", "$tag: PNG dimensions=${w}x${h}, size=${data.size}")
+                android.util.Log.d("Screenshot", "$tag: PNG dimensions=${w}x${h}, size=${data.size}, ratio=${"%.1f".format(data.size.toDouble() / (w * h * 3))}")
+
+                // 检查 IEND 是否在正确位置（文件末尾 12 字节）
+                val lastChunkType = if (data.size >= 12) {
+                    String(data, data.size - 8, 4)
+                } else "?"
+                android.util.Log.d("Screenshot", "$tag: last chunk type='$lastChunkType', ends_with_IEND=${data.size >= 12 && data[data.size - 8] == 0x49.toByte()}")
 
                 if (w > 10000 || h > 10000 || w <= 0 || h <= 0) {
                     android.util.Log.e("Screenshot", "$tag: INVALID dimensions! PNG data may be corrupted")
