@@ -255,6 +255,137 @@ class UsbAdbRepository @Inject constructor(
         return null
     }
 
+    // ── 文件推送 ──
+
+    suspend fun pushFile(localFile: File, remotePath: String): String = withContext(Dispatchers.IO) {
+        android.util.Log.d(TAG, "pushFile: ${localFile.name} (${localFile.length()} bytes) -> $remotePath")
+        val conn = awaitManager().getConnection() ?: return@withContext "未连接"
+        try {
+            val stream = conn.openSync()
+
+            // SEND header — single buffer, write via WRTE
+            val pathBytes = "$remotePath,0644".toByteArray()
+            val sendBuf = java.nio.ByteBuffer.allocate(8 + pathBytes.size).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            sendBuf.putInt(0x444e4553)
+            sendBuf.putInt(pathBytes.size)
+            sendBuf.put(pathBytes)
+            stream.write(sendBuf.array(), conn)
+            android.util.Log.d(TAG, "pushFile: SEND sent, ${sendBuf.array().size} bytes")
+
+            // DATA chunks
+            val chunkSize = 64 * 1024
+            val buf = ByteArray(chunkSize)
+            var totalSent = 0L
+            var chunkCount = 0
+            localFile.inputStream().use { fis ->
+                var bytesRead: Int
+                while (fis.read(buf).also { bytesRead = it } != -1) {
+                    val packet = java.nio.ByteBuffer.allocate(8 + bytesRead).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                    packet.putInt(0x41544144)
+                    packet.putInt(bytesRead)
+                    packet.put(buf, 0, bytesRead)
+                    stream.write(packet.array(), conn)
+                    totalSent += bytesRead
+                    chunkCount++
+                    if (chunkCount % 100 == 0) {
+                        android.util.Log.d(TAG, "pushFile: DATA #$chunkCount, totalSent=$totalSent")
+                    }
+                }
+            }
+            android.util.Log.d(TAG, "pushFile: all DATA sent, totalSent=$totalSent, chunks=$chunkCount")
+
+            // DONE
+            val doneBuf = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            doneBuf.putInt(0x454e4f44)
+            doneBuf.putInt((System.currentTimeMillis() / 1000).toInt())
+            stream.write(doneBuf.array(), conn)
+            android.util.Log.d(TAG, "pushFile: DONE sent")
+
+            // Read response — must wait for device reply
+            val resp = ByteArray(8)
+            var totalRead = 0
+            while (totalRead < 8) {
+                val data = stream.readBlocking(5000) ?: break
+                val toCopy = minOf(data.size, 8 - totalRead)
+                data.copyInto(resp, totalRead, 0, toCopy)
+                totalRead += toCopy
+            }
+            val respCmd = littleEndianToInt(resp, 0)
+            android.util.Log.d(TAG, "pushFile: response totalRead=$totalRead, respCmd=0x${respCmd.toString(16)}")
+
+            conn.closeStream(stream)
+
+            when (respCmd) {
+                0x59414b4f -> "推送成功: $remotePath"
+                0x4c494146 -> "推送失败"
+                else -> "推送完成"
+            }
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "pushFile exception", e)
+            "推送异常: ${e.message}"
+        }
+    }
+
+    // ── 安装 APK ──
+
+    suspend fun installApk(apkData: ByteArray): String = withContext(Dispatchers.IO) {
+        android.util.Log.d(TAG, "installApk(ByteArray): size=${apkData.size}")
+        try {
+            val tmpPath = "/data/local/tmp/_wearadb_install_${System.currentTimeMillis()}.apk"
+            // Write bytes to temp file, then push
+            val tmpFile = File(appContext.cacheDir, "wearadb_usb_install.apk")
+            tmpFile.writeBytes(apkData)
+            val pushResult = pushFile(tmpFile, tmpPath)
+            tmpFile.delete()
+            android.util.Log.d(TAG, "installApk(ByteArray): pushResult=$pushResult")
+            if (!pushResult.contains("成功")) return@withContext "推送失败: $pushResult"
+
+            val installResult = executeCommand("pm install -r $tmpPath")
+            android.util.Log.d(TAG, "installApk(ByteArray): installResult=$installResult")
+            executeCommand("rm -f $tmpPath")
+
+            val clean = installResult.trim()
+            when {
+                clean.contains("Success") -> "安装成功"
+                clean.isEmpty() -> "安装失败: 无响应"
+                else -> "安装失败: $clean"
+            }
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "installApk(ByteArray) exception", e)
+            "安装异常: ${e.message}"
+        }
+    }
+
+    suspend fun installApk(apkFile: File): String = withContext(Dispatchers.IO) {
+        android.util.Log.d(TAG, "installApk: ${apkFile.name}, size=${apkFile.length()}")
+        try {
+            val tmpPath = "/data/local/tmp/_wearadb_install_${System.currentTimeMillis()}.apk"
+            val pushResult = pushFile(apkFile, tmpPath)
+            android.util.Log.d(TAG, "installApk: pushResult=$pushResult")
+            if (!pushResult.contains("成功")) return@withContext "推送失败: $pushResult"
+
+            val installResult = executeCommand("pm install -r $tmpPath")
+            android.util.Log.d(TAG, "installApk: installResult=$installResult")
+            executeCommand("rm -f $tmpPath")
+
+            val clean = installResult.trim()
+            when {
+                clean.contains("Success") -> "安装成功"
+                clean.isEmpty() -> "安装失败: 无响应"
+                else -> "安装失败: $clean"
+            }
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "installApk exception", e)
+            "安装异常: ${e.message}"
+        }
+    }
+
+    private fun littleEndianToInt(bytes: ByteArray, offset: Int): Int =
+        (bytes[offset].toInt() and 0xFF) or
+                ((bytes[offset + 1].toInt() and 0xFF) shl 8) or
+                ((bytes[offset + 2].toInt() and 0xFF) shl 16) or
+                ((bytes[offset + 3].toInt() and 0xFF) shl 24)
+
     fun destroy() {
         try { initDeferred.getCompleted().manager.destroy() } catch (_: Exception) {}
     }

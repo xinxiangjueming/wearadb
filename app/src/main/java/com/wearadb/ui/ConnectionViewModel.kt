@@ -315,7 +315,11 @@ class ConnectionViewModel @Inject constructor(
     fun installApk(apkData: ByteArray, onResult: (String) -> Unit) {
         viewModelScope.launch {
             onResult("正在安装...")
-            val result = repository.installApk(apkData)
+            val result = if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
+                usbAdbRepository.installApk(apkData)
+            } else {
+                repository.installApk(apkData)
+            }
             onResult(result)
             loadApps(force = true)
         }
@@ -333,10 +337,26 @@ class ConnectionViewModel @Inject constructor(
     fun installApkFile(apkFile: java.io.File, onResult: (String) -> Unit) {
         viewModelScope.launch {
             onResult("正在安装...")
-            val result = repository.installApk(apkFile)
+            val result = if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
+                usbAdbRepository.installApk(apkFile)
+            } else {
+                repository.installApk(apkFile)
+            }
             onResult(result)
             loadApps(force = true)
         }
+    }
+
+    /** 同步版本：等待安装完成后才返回，用于临时文件需要在安装期间保持存在的场景 */
+    suspend fun installApkFileSync(apkFile: java.io.File, onResult: (String) -> Unit) {
+        onResult("正在安装...")
+        val result = if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
+            usbAdbRepository.installApk(apkFile)
+        } else {
+            repository.installApk(apkFile)
+        }
+        onResult(result)
+        loadApps(force = true)
     }
 
     fun installSplitApkFiles(apkFiles: List<Pair<String, java.io.File>>, onResult: (String) -> Unit) {

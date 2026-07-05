@@ -56,7 +56,7 @@ fun HomeScreen(
     val navBarPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     var hostInput by remember(lastHost) { mutableStateOf(lastHost) }
-    var portInput by remember(lastPort) { mutableStateOf(lastPort.toString()) }
+    var portInput by remember(lastPort) { mutableStateOf(if (lastPort > 0) lastPort.toString() else "") }
     val isConnecting by remember(connectionState) {
         derivedStateOf { connectionState == ConnectionState.CONNECTING || connectionState == ConnectionState.AUTHENTICATING }
     }

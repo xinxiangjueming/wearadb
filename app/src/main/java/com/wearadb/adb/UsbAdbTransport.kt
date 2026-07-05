@@ -26,7 +26,7 @@ class UsbAdbTransport(
 ) {
     companion object {
         private const val TAG = "UsbAdbTransport"
-        private const val WRITE_TIMEOUT = 1000
+        private const val WRITE_TIMEOUT = 5000
     }
 
     @Volatile
@@ -87,7 +87,9 @@ class UsbAdbTransport(
                 // requestWait() without timeout — blocks until data arrives
                 val response = conn.requestWait()
                 if (response == null || response !== request) {
+                    Log.w(TAG, "USB read: unexpected response (null=${response == null}), retry=$retryCount")
                     if (++retryCount > maxRetries) {
+                        Log.e(TAG, "USB read FAILED after $maxRetries retries, totalRead=$totalRead/$length")
                         throw IOException("USB read failed after $maxRetries retries")
                     }
                     continue
@@ -103,7 +105,9 @@ class UsbAdbTransport(
                     Log.v(TAG, "read: +$bytesRead total=$totalRead/$length")
                 } else {
                     // 0 bytes — possibly timeout or empty response
+                    Log.w(TAG, "USB read: 0 bytes, retry=$retryCount")
                     if (++retryCount > maxRetries) {
+                        Log.e(TAG, "USB read FAILED: no data after $maxRetries retries, totalRead=$totalRead/$length")
                         throw IOException("USB read: no data after $maxRetries retries")
                     }
                 }
@@ -117,19 +121,23 @@ class UsbAdbTransport(
 
     /**
      * Write `buffer` to USB OUT endpoint.
-     * Uses bulkTransfer with the full remaining size.
+     * Splits into chunks matching the endpoint's maxPacketSize to avoid
+     * Android USB bulk transfer size limits.
      */
     fun writeBuffer(buffer: ByteArray) {
         if (closed) throw IOException("Transport closed")
+        // Use endpoint maxPacketSize as chunk limit (typically 512 for USB 2.0)
+        val maxChunk = outEp.maxPacketSize.coerceAtLeast(512)
         var offset = 0
 
         while (offset < buffer.size) {
             val remaining = buffer.size - offset
-            // bulkTransfer needs a contiguous array starting at index 0
-            val chunk = if (offset == 0 && remaining == buffer.size) buffer
-                        else buffer.copyOfRange(offset, offset + remaining)
-            val transferred = conn.bulkTransfer(outEp, chunk, remaining, WRITE_TIMEOUT)
+            val len = minOf(remaining, maxChunk)
+            val chunk = if (offset == 0 && len == buffer.size) buffer
+                        else buffer.copyOfRange(offset, offset + len)
+            val transferred = conn.bulkTransfer(outEp, chunk, len, WRITE_TIMEOUT)
             if (transferred < 0) {
+                Log.e(TAG, "USB bulk write FAILED: transferred=$transferred, offset=$offset, total=${buffer.size}, maxChunk=$maxChunk")
                 throw IOException("USB bulk write failed (transferred=$transferred)")
             }
             offset += transferred

@@ -105,14 +105,17 @@ fun AppsScreen(
                     // ── Split APK: 流式解压 + 逐个推送（避免 OOM）──
                     // 写入临时文件，保持 FD 打开防止 MIUI 清理
                     val tmpApks = File(context.cacheDir, "wearadb_split.apks")
-                    val tmpFd = java.io.FileOutputStream(tmpApks)
                     try {
                         // 1. 从 URI 拷贝到临时文件
-                        val copied = context.contentResolver.openInputStream(uri)?.use { input ->
-                            tmpFd.use { output -> input.copyTo(output) }
-                        } ?: -1L
-                        android.util.Log.d("AppsScreen", "apks copyTo: $copied bytes")
-                        if (copied <= 0) {
+                        var copied = -1L
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            java.io.FileOutputStream(tmpApks).use { output ->
+                                copied = input.copyTo(output)
+                                output.fd.sync()
+                            }
+                        }
+                        android.util.Log.d("AppsScreen", "apks copyTo: $copied bytes, file size=${tmpApks.length()}")
+                        if (copied <= 0L || !tmpApks.exists() || tmpApks.length() == 0L) {
                             launch(Dispatchers.Main) { snackbarMessage = "读取 .apks 失败" }
                             return@launch
                         }
@@ -131,15 +134,20 @@ fun AppsScreen(
                     // ── 普通 APK: 拷贝到临时文件后流式推送（避免 OOM）──
                     val tmpApk = File(context.cacheDir, "wearadb_install.apk")
                     try {
-                        val copied = context.contentResolver.openInputStream(uri)?.use { input ->
-                            tmpApk.outputStream().use { output -> input.copyTo(output) }
-                        } ?: -1L
-                        if (copied <= 0) {
+                        var copied = -1L
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            java.io.FileOutputStream(tmpApk).use { output ->
+                                copied = input.copyTo(output)
+                                output.fd.sync()
+                            }
+                        }
+                        android.util.Log.d("AppsScreen", "apk copyTo: $copied bytes, file size=${tmpApk.length()}")
+                        if (copied <= 0L || !tmpApk.exists() || tmpApk.length() == 0L) {
                             launch(Dispatchers.Main) { snackbarMessage = "读取 APK 失败" }
                             return@launch
                         }
-                        android.util.Log.d("AppsScreen", "apk copyTo: $copied bytes")
-                        viewModel.installApkFile(tmpApk) { result ->
+                        // 同步执行安装，确保临时文件在安装完成前不被删除
+                        viewModel.installApkFileSync(tmpApk) { result ->
                             snackbarMessage = result
                         }
                     } finally {

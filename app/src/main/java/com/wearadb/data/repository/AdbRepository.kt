@@ -21,6 +21,8 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStreamReader
 import java.io.OutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -473,13 +475,18 @@ class AdbRepository @Inject constructor(
 
     // ── 安装 APK ──
     suspend fun installApk(apkData: ByteArray): String = withContext(Dispatchers.IO) {
+        android.util.Log.d("AdbRepo", "installApk(ByteArray): size=${apkData.size}")
         try {
             val tmpPath = "/data/local/tmp/_wearadb_install_${System.currentTimeMillis()}.apk"
             // 1. 推送 APK 到临时目录
+            android.util.Log.d("AdbRepo", "installApk(ByteArray): pushing to $tmpPath")
             val pushResult = pushFile(apkData, tmpPath)
+            android.util.Log.d("AdbRepo", "installApk(ByteArray): pushResult=$pushResult")
             if (!pushResult.contains("成功")) return@withContext "推送失败: $pushResult"
             // 2. 执行安装
+            android.util.Log.d("AdbRepo", "installApk(ByteArray): running pm install")
             val installResult = runSingleCommand("pm install -r $tmpPath", 60000)
+            android.util.Log.d("AdbRepo", "installApk(ByteArray): installResult=$installResult")
             // 3. 清理临时文件
             runSingleCommand("rm -f $tmpPath", 5000)
             // 4. 返回结果
@@ -490,22 +497,27 @@ class AdbRepository @Inject constructor(
                 else -> "安装失败: $clean"
             }
         } catch (e: Exception) {
+            android.util.Log.e("AdbRepo", "installApk(ByteArray) exception", e)
             "安装异常: ${e.message}"
         }
     }
 
     // ── 安装 Split APK (.apks) ──
     suspend fun installSplitApk(apkFiles: List<Pair<String, ByteArray>>): String = withContext(Dispatchers.IO) {
+        android.util.Log.d("AdbRepo", "installSplitApk: ${apkFiles.size} files")
         val tmpDir = "/data/local/tmp/_wearadb_split_${System.currentTimeMillis()}"
         try {
             // 1. 创建临时目录
             runSingleCommand("mkdir -p $tmpDir", 5000)
+            android.util.Log.d("AdbRepo", "installSplitApk: tmpDir=$tmpDir")
             // 2. 推送所有 split APK 到设备
             for ((name, data) in apkFiles) {
                 // 用安全文件名，避免特殊字符导致 shell 解析异常
                 val safeName = name.replace(Regex("[^a-zA-Z0-9._-]"), "_")
                 val remotePath = "$tmpDir/$safeName"
+                android.util.Log.d("AdbRepo", "installSplitApk: pushing $safeName (${data.size} bytes)")
                 val pushResult = pushFile(data, remotePath)
+                android.util.Log.d("AdbRepo", "installSplitApk: push $safeName result=$pushResult")
                 if (!pushResult.contains("成功")) {
                     runSingleCommand("rm -rf $tmpDir", 5000)
                     return@withContext "推送失败 ($name): $pushResult"
@@ -553,11 +565,16 @@ class AdbRepository @Inject constructor(
     }
     // ── 安装 APK（File 版，避免 OOM）──
     suspend fun installApk(apkFile: File): String = withContext(Dispatchers.IO) {
+        android.util.Log.d("AdbRepo", "installApk(File): ${apkFile.name}, size=${apkFile.length()}")
         try {
             val tmpPath = "/data/local/tmp/_wearadb_install_${System.currentTimeMillis()}.apk"
+            android.util.Log.d("AdbRepo", "installApk(File): pushing to $tmpPath")
             val pushResult = pushFile(apkFile, tmpPath)
+            android.util.Log.d("AdbRepo", "installApk(File): pushResult=$pushResult")
             if (!pushResult.contains("成功")) return@withContext "推送失败: $pushResult"
+            android.util.Log.d("AdbRepo", "installApk(File): running pm install")
             val installResult = runSingleCommand("pm install -r $tmpPath", 60000)
+            android.util.Log.d("AdbRepo", "installApk(File): installResult=$installResult")
             runSingleCommand("rm -f $tmpPath", 5000)
             val clean = installResult.trim()
             when {
@@ -566,6 +583,7 @@ class AdbRepository @Inject constructor(
                 else -> "安装失败: $clean"
             }
         } catch (e: Exception) {
+            android.util.Log.e("AdbRepo", "installApk(File) exception", e)
             "安装异常: ${e.message}"
         }
     }
@@ -733,30 +751,54 @@ class AdbRepository @Inject constructor(
                 val inputStream = stream.openInputStream()
 
                 val pathBytes = "$remotePath,0644".toByteArray()
-                os.write(intToLittleEndian(0x444e4553)) // SEND
-                os.write(intToLittleEndian(pathBytes.size))
-                os.write(pathBytes)
+                android.util.Log.d("AdbRepo", "pushFile(File): remotePath=$remotePath, pathBytes.size=${pathBytes.size}")
+                // Combine SEND header into one buffer to avoid splitting into multiple WRTE packets
+                val sendHeader = ByteBuffer.allocate(8 + pathBytes.size).order(ByteOrder.LITTLE_ENDIAN)
+                sendHeader.putInt(0x444e4553) // SEND
+                sendHeader.putInt(pathBytes.size)
+                sendHeader.put(pathBytes)
+                val sendBytes = sendHeader.array()
+                android.util.Log.d("AdbRepo", "pushFile(File): SEND header ${sendBytes.size} bytes, hex=${sendBytes.take(16).joinToString("") { "%02x".format(it) }}...")
+                os.write(sendBytes)
+                android.util.Log.d("AdbRepo", "pushFile(File): SEND header sent OK")
 
                 val chunkSize = 64 * 1024
                 val buf = ByteArray(chunkSize)
+                var totalSent = 0L
+                var chunkCount = 0
                 localFile.inputStream().use { fis ->
                     var bytesRead: Int
                     while (fis.read(buf).also { bytesRead = it } != -1) {
-                        os.write(intToLittleEndian(0x41544144)) // DATA
-                        os.write(intToLittleEndian(bytesRead))
-                        os.write(buf, 0, bytesRead)
+                        // Combine DATA header (8 bytes) + payload into one write
+                        val packet = ByteBuffer.allocate(8 + bytesRead).order(ByteOrder.LITTLE_ENDIAN)
+                        packet.putInt(0x41544144) // DATA
+                        packet.putInt(bytesRead)
+                        packet.put(buf, 0, bytesRead)
+                        os.write(packet.array())
+                        totalSent += bytesRead
+                        chunkCount++
+                        if (chunkCount % 100 == 0) {
+                            android.util.Log.d("AdbRepo", "pushFile(File): DATA chunk #$chunkCount sent, totalSent=$totalSent bytes")
+                        }
                     }
                 }
+                android.util.Log.d("AdbRepo", "pushFile(File): all DATA sent, totalSent=$totalSent bytes, chunkCount=$chunkCount")
 
-                os.write(intToLittleEndian(0x454e4f44)) // DONE
-                os.write(intToLittleEndian((System.currentTimeMillis() / 1000).toInt()))
+                // Combine DONE header into one buffer
+                val doneHeader = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
+                doneHeader.putInt(0x454e4f44) // DONE
+                doneHeader.putInt((System.currentTimeMillis() / 1000).toInt())
+                os.write(doneHeader.array())
                 os.flush()
+                android.util.Log.d("AdbRepo", "pushFile(File): DONE sent, flushed")
 
                 val resp = ByteArray(8)
-                inputStream.read(resp)
+                val readBytes = inputStream.read(resp)
                 val respCmd = littleEndianToInt(resp, 0)
+                android.util.Log.d("AdbRepo", "pushFile(File): response readBytes=$readBytes, respCmd=0x${respCmd.toString(16)}, hex=${resp.joinToString("") { "%02x".format(it) }}")
 
                 try { stream.close() } catch (_: Exception) {}
+                android.util.Log.d("AdbRepo", "pushFile(File): stream closed")
 
                 val result = when (respCmd) {
                     0x59414b4f -> "推送成功: $remotePath"
@@ -800,39 +842,57 @@ class AdbRepository @Inject constructor(
 
     // ── 文件传输 ──
     suspend fun pushFile(localData: ByteArray, remotePath: String): String = withContext(Dispatchers.IO) {
+        android.util.Log.d("AdbRepo", "pushFile(ByteArray): ${localData.size} bytes -> $remotePath")
         try {
             val stream = manager.openStream(LocalServices.SYNC)
+            android.util.Log.d("AdbRepo", "pushFile(ByteArray): SYNC stream opened")
             val os = stream.openOutputStream()
             val inputStream = stream.openInputStream()
 
-            // SEND header
+            // SEND header — single buffer
             val pathBytes = "$remotePath,0644".toByteArray()
-            os.write(intToLittleEndian(0x444e4553)) // SEND
-            os.write(intToLittleEndian(pathBytes.size))
-            os.write(pathBytes)
+            val sendBuf = ByteBuffer.allocate(8 + pathBytes.size).order(ByteOrder.LITTLE_ENDIAN)
+            sendBuf.putInt(0x444e4553)
+            sendBuf.putInt(pathBytes.size)
+            sendBuf.put(pathBytes)
+            os.write(sendBuf.array())
+            android.util.Log.d("AdbRepo", "pushFile(ByteArray): SEND header sent, ${sendBuf.array().size} bytes")
 
-            // DATA chunks (64KB)
+            // DATA chunks — each header+payload as one buffer
             val chunkSize = 64 * 1024
             var offset = 0
+            var chunkCount = 0
             while (offset < localData.size) {
                 val len = minOf(chunkSize, localData.size - offset)
-                os.write(intToLittleEndian(0x41544144)) // DATA
-                os.write(intToLittleEndian(len))
-                os.write(localData, offset, len)
+                val packet = ByteBuffer.allocate(8 + len).order(ByteOrder.LITTLE_ENDIAN)
+                packet.putInt(0x41544144) // DATA
+                packet.putInt(len)
+                packet.put(localData, offset, len)
+                os.write(packet.array())
                 offset += len
+                chunkCount++
+                if (chunkCount % 100 == 0) {
+                    android.util.Log.d("AdbRepo", "pushFile(ByteArray): DATA chunk #$chunkCount, sent $offset/${localData.size} bytes")
+                }
             }
+            android.util.Log.d("AdbRepo", "pushFile(ByteArray): all DATA sent, $chunkCount chunks, total $offset bytes")
 
-            // DONE
-            os.write(intToLittleEndian(0x454e4f44)) // DONE
-            os.write(intToLittleEndian((System.currentTimeMillis() / 1000).toInt()))
+            // DONE — single buffer
+            val doneBuf = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
+            doneBuf.putInt(0x454e4f44)
+            doneBuf.putInt((System.currentTimeMillis() / 1000).toInt())
+            os.write(doneBuf.array())
             os.flush()
+            android.util.Log.d("AdbRepo", "pushFile(ByteArray): DONE sent, flushed")
 
             // 读取响应
             val resp = ByteArray(8)
-            inputStream.read(resp)
+            val readBytes = inputStream.read(resp)
             val respCmd = littleEndianToInt(resp, 0)
+            android.util.Log.d("AdbRepo", "pushFile(ByteArray): response readBytes=$readBytes, respCmd=0x${respCmd.toString(16)}, hex=${resp.joinToString("") { "%02x".format(it) }}")
 
             try { stream.close() } catch (_: Exception) {}
+            android.util.Log.d("AdbRepo", "pushFile(ByteArray): stream closed")
 
             when (respCmd) {
                 0x59414b4f -> "推送成功: $remotePath"  // OKAY
@@ -845,30 +905,40 @@ class AdbRepository @Inject constructor(
     }
 
     suspend fun pullFile(remotePath: String): PullResult = withContext(Dispatchers.IO) {
+        android.util.Log.d("AdbRepo", "pullFile: $remotePath")
         try {
             val stream = manager.openStream(LocalServices.SYNC)
+            android.util.Log.d("AdbRepo", "pullFile: SYNC stream opened")
             val os = stream.openOutputStream()
             val inputStream = stream.openInputStream()
 
-            // RECV header
+            // RECV header — single buffer
             val pathBytes = remotePath.toByteArray()
-            os.write(intToLittleEndian(0x56434552)) // RECV
-            os.write(intToLittleEndian(pathBytes.size))
-            os.write(pathBytes)
+            val recvBuf = ByteBuffer.allocate(8 + pathBytes.size).order(ByteOrder.LITTLE_ENDIAN)
+            recvBuf.putInt(0x56434552) // RECV
+            recvBuf.putInt(pathBytes.size)
+            recvBuf.put(pathBytes)
+            os.write(recvBuf.array())
             os.flush()
+            android.util.Log.d("AdbRepo", "pullFile: RECV header sent, ${recvBuf.array().size} bytes")
 
             // 读取 DATA chunks
             val buffer = java.io.ByteArrayOutputStream()
             val headerBuf = ByteArray(8)
             var failed = false
             var failMsg = ""
+            var totalReceived = 0L
 
             while (true) {
                 val read = inputStream.read(headerBuf)
-                if (read < 8) break
+                if (read < 8) {
+                    android.util.Log.d("AdbRepo", "pullFile: header read=$read (< 8), stopping")
+                    break
+                }
 
                 val cmd = littleEndianToInt(headerBuf, 0)
                 val size = littleEndianToInt(headerBuf, 4)
+                android.util.Log.d("AdbRepo", "pullFile: cmd=0x${cmd.toString(16)}, size=$size")
 
                 when (cmd) {
                     0x41544144 -> { // DATA
@@ -876,18 +946,29 @@ class AdbRepository @Inject constructor(
                         var totalRead = 0
                         while (totalRead < size) {
                             val n = inputStream.read(data, totalRead, size - totalRead)
-                            if (n < 0) break
+                            if (n < 0) {
+                                android.util.Log.w("AdbRepo", "pullFile: DATA read returned $n at totalRead=$totalRead")
+                                break
+                            }
                             totalRead += n
                         }
                         buffer.write(data, 0, totalRead)
+                        totalReceived += totalRead
                     }
-                    0x454e4f44 -> break  // DONE
+                    0x454e4f44 -> {
+                        android.util.Log.d("AdbRepo", "pullFile: DONE received, totalReceived=$totalReceived")
+                        break
+                    }
                     0x4c494146 -> {       // FAIL
+                        android.util.Log.w("AdbRepo", "pullFile: FAIL received")
                         failed = true
                         failMsg = "拉取失败"
                         break
                     }
-                    else -> break
+                    else -> {
+                        android.util.Log.w("AdbRepo", "pullFile: unknown cmd=0x${cmd.toString(16)}, breaking")
+                        break
+                    }
                 }
             }
 

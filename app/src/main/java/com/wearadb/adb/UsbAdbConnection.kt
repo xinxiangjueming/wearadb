@@ -173,12 +173,14 @@ class UsbAdbConnection(
         val stream = UsbAdbStream(localId, destination)
         pendingOpens[localId] = stream
         streams[localId] = stream
+        Log.d(TAG, "openStream: localId=$localId dest=$destination, totalStreams=${streams.size}")
 
         sendMessage(UsbAdbProtocol.openMessage(localId, destination))
         log(">>> OPEN id=$localId dest=$destination")
 
         // Wait for OKAY response (with remoteId)
-        stream.waitForOpen(10000)
+        val opened = stream.waitForOpen(10000)
+        Log.d(TAG, "openStream: localId=$localId opened=$opened")
 
         return stream
     }
@@ -199,20 +201,25 @@ class UsbAdbConnection(
     }
 
     fun closeStream(stream: UsbAdbStream) {
+        Log.d(TAG, "closeStream: localId=${stream.localId}, remaining=${streams.size - 1}")
         try {
             sendMessage(stream.createCloseMessage())
             streams.remove(stream.localId)
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "closeStream exception: ${e.message}")
+        }
         stream.close()
     }
 
     fun disconnect() {
+        Log.d(TAG, "disconnect: streams=${streams.size}, connected=$connected")
         closed = true
         connected = false
         streams.values.forEach { it.close() }
         streams.clear()
         pendingOpens.clear()
         transport.close()
+        Log.d(TAG, "disconnect: done")
     }
 
     // ── Message I/O ──
@@ -222,7 +229,7 @@ class UsbAdbConnection(
      * ADB-SafeScan: "writing header+payload as a single buffer produces
      * different results from writing them separately"
      */
-    private fun sendMessage(msg: AdbMessage) {
+    internal fun sendMessage(msg: AdbMessage) {
         val header = msg.toHeaderBytes()
         val payload = if (msg.data.isNotEmpty()) msg.data else null
         transport.writeMessage(header, payload)
@@ -276,20 +283,20 @@ class UsbAdbConnection(
                 try {
                     val msg = readMessage()
                     if (msg == null) {
-                        log("读取线程: EOF")
+                        Log.w(TAG, "读取线程: EOF, connected=$connected closed=$closed")
                         connected = false
                         break
                     }
                     handleMessage(msg)
                 } catch (e: Exception) {
                     if (!closed) {
-                        log("读取线程错误: ${e.message}")
+                        Log.e(TAG, "读取线程错误: ${e.javaClass.simpleName}: ${e.message}", e)
                         connected = false
                     }
                     break
                 }
             }
-            log("读取线程退出")
+            Log.d(TAG, "读取线程退出, connected=$connected closed=$closed")
         }, "UsbAdbReader").apply {
             isDaemon = true
             start()
@@ -304,35 +311,49 @@ class UsbAdbConnection(
                 //   arg1 = host's localId (= localId from host's perspective)
                 val localId = msg.arg1   // host's localId
                 val remoteId = msg.arg0  // device's localId
-                Log.v(TAG, "<<< OKAY localId=$localId remoteId=$remoteId")
+                Log.d(TAG, "<<< OKAY localId=$localId remoteId=$remoteId")
 
                 val pending = pendingOpens.remove(localId)
                 if (pending != null) {
+                    Log.d(TAG, "<<< OKAY for OPEN stream $localId")
                     pending.onOpened(remoteId)
                     return
                 }
 
                 // Otherwise it's an ACK for a WRTE
                 val stream = streams[localId]
-                stream?.onOkay()
+                if (stream != null) {
+                    Log.d(TAG, "<<< OKAY for WRTE stream $localId")
+                    stream.onOkay()
+                } else {
+                    Log.w(TAG, "<<< OKAY for unknown stream $localId, streams=${streams.keys}")
+                }
             }
             UsbAdbProtocol.CMD_WRTE -> {
                 // arg0 = device's localId, arg1 = host's localId
                 val localId = msg.arg1   // host's localId
                 val remoteId = msg.arg0  // device's localId
+                Log.d(TAG, "<<< WRTE localId=$localId remoteId=$remoteId dataLen=${msg.data.size}")
                 val stream = streams[localId]
                 if (stream != null) {
                     stream.onData(msg.data)
                     // Send OKAY to acknowledge the write
                     sendMessage(UsbAdbProtocol.okayMessage(localId, remoteId))
+                    Log.d(TAG, ">>> OKAY sent for WRTE localId=$localId")
+                } else {
+                    Log.w(TAG, "<<< WRTE for unknown stream $localId, streams=${streams.keys}")
                 }
             }
             UsbAdbProtocol.CMD_CLSE -> {
                 // arg0 = device's localId, arg1 = host's localId
                 val localId = msg.arg1   // host's localId
-                Log.v(TAG, "<<< CLSE id=$localId")
+                Log.d(TAG, "<<< CLSE id=$localId, streams=${streams.keys}")
                 val stream = streams.remove(localId)
-                stream?.onClosed()
+                if (stream != null) {
+                    stream.onClosed()
+                } else {
+                    Log.w(TAG, "<<< CLSE for unknown stream $localId")
+                }
             }
             UsbAdbProtocol.CMD_CNXN -> {
                 Log.d(TAG, "<<< CNXN (unexpected reconnection)")

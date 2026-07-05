@@ -3,6 +3,7 @@ package com.wearadb.adb
 import android.util.Log
 import java.io.IOException
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Represents a single ADB stream (e.g., a shell session or sync channel).
@@ -21,6 +22,8 @@ class UsbAdbStream(
     private var remoteId: Int = 0
     private val readQueue = LinkedBlockingQueue<ByteArray>()
     private val openLatch = java.util.concurrent.CountDownLatch(1)
+    private val writeReady = AtomicBoolean(false)
+    private val writeLock: Any = Object()
 
     @Volatile var isClosed = false
         private set
@@ -59,7 +62,38 @@ class UsbAdbStream(
      * Called by the connection when OKAY is received (write acknowledgment).
      */
     fun onOkay() {
-        // Write was acknowledged
+        writeReady.set(true)
+        Log.d(TAG, "Stream $localId onOkay: writeReady=true")
+        synchronized(writeLock) {
+            (writeLock as java.lang.Object).notifyAll()
+        }
+    }
+
+    /**
+     * Wait for write to be ready (OKAY received for previous write).
+     */
+    fun waitForWriteReady(timeoutMs: Long = 10000): Boolean {
+        val endTime = System.currentTimeMillis() + timeoutMs
+        synchronized(writeLock) {
+            while (!writeReady.get() && !isClosed) {
+                val remaining = endTime - System.currentTimeMillis()
+                if (remaining <= 0) {
+                    Log.w(TAG, "Stream $localId waitForWriteReady: TIMEOUT after ${timeoutMs}ms")
+                    return false
+                }
+                (writeLock as java.lang.Object).wait(remaining)
+            }
+        }
+        val result = writeReady.get()
+        Log.d(TAG, "Stream $localId waitForWriteReady: result=$result")
+        return result
+    }
+
+    /**
+     * Mark write as not ready (called before sending data).
+     */
+    fun markWriteNotReady() {
+        writeReady.set(false)
     }
 
     /**
@@ -80,6 +114,16 @@ class UsbAdbStream(
     }
 
     fun getRemoteId(): Int = remoteId
+
+    /**
+     * Read one chunk, blocking until data arrives or stream closes.
+     */
+    fun readBlocking(timeoutMs: Long = 5000): ByteArray? {
+        val data = readQueue.poll(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+        if (data == null) return null
+        if (data.isEmpty()) return null // sentinel
+        return data
+    }
 
     /**
      * Read one chunk of data from this stream.
@@ -159,5 +203,12 @@ class UsbAdbStream(
 
     fun createCloseMessage(): UsbAdbProtocol.AdbMessage {
         return UsbAdbProtocol.closeMessage(localId, remoteId)
+    }
+
+    /**
+     * Write data to this stream via the parent connection.
+     */
+    fun write(data: ByteArray, connection: UsbAdbConnection) {
+        connection.sendMessage(createWriteMessage(data))
     }
 }

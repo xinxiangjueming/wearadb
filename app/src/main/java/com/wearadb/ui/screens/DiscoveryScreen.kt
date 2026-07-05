@@ -216,7 +216,7 @@ private fun ManualConnectCard(
     val c = WearAdbTheme.colors
     val s = LocalStrings.current
     var hostInput by remember(defaultHost) { mutableStateOf(defaultHost) }
-    var portInput by remember(defaultPort) { mutableStateOf(defaultPort.toString()) }
+    var portInput by remember(defaultPort) { mutableStateOf(if (defaultPort > 0) defaultPort.toString() else "") }
 
     WearCard {
         Text(s.manualConnectTitle, style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant)
