@@ -221,36 +221,39 @@ class ConnectionViewModel @Inject constructor(
     fun executeCommands(commands: List<String>) {
         viewModelScope.launch {
             val results = StringBuilder()
-            for (cmd in commands) {
+            if (connectionState.value == ConnectionState.CONNECTED) {
                 try {
-                    val result = if (connectionState.value == ConnectionState.CONNECTED) {
-                        withContext(Dispatchers.IO) {
-                            val stream = repository.openShell(cmd)
-                            val os = stream.openOutputStream()
-                            os.write("$cmd\n".toByteArray())
-                            os.flush()
-                            val reader = java.io.BufferedReader(java.io.InputStreamReader(stream.openInputStream()))
-                            val sb = StringBuilder()
-                            val startTime = System.currentTimeMillis()
-                            while (System.currentTimeMillis() - startTime < 10000) {
-                                if (reader.ready()) {
-                                    val line = reader.readLine() ?: break
-                                    sb.appendLine(line)
-                                } else {
-                                    delay(50)
-                                }
+                    val output = withContext(Dispatchers.IO) {
+                        val combined = commands.joinToString("; ")
+                        val stream = repository.openShell(combined)
+                        val reader = java.io.BufferedReader(java.io.InputStreamReader(stream.openInputStream()))
+                        val sb = StringBuilder()
+                        val startTime = System.currentTimeMillis()
+                        while (System.currentTimeMillis() - startTime < 8000) {
+                            if (reader.ready()) {
+                                val line = reader.readLine() ?: break
+                                sb.appendLine(line)
+                            } else {
+                                delay(30)
                             }
-                            sb.toString().ifEmpty { "(无输出)" }
                         }
-                    } else if (isUsbAdbActive) {
-                        usbAdbRepository.executeCommand(cmd)
-                    } else {
-                        "未连接"
+                        try { stream.close() } catch (_: Exception) {}
+                        sb.toString()
                     }
-                    results.appendLine(result)
+                    results.appendLine(output.ifEmpty { "(无输出)" })
                 } catch (e: Exception) {
                     results.appendLine("Error: ${e.message}")
                 }
+            } else if (isUsbAdbActive) {
+                try {
+                    val combined = commands.joinToString("; ")
+                    val output = usbAdbRepository.executeCommand(combined)
+                    results.appendLine(output.ifEmpty { "(无输出)" })
+                } catch (e: Exception) {
+                    results.appendLine("Error: ${e.message}")
+                }
+            } else {
+                results.appendLine("未连接")
             }
             _shellOutput.value = results.toString()
         }
