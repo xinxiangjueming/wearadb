@@ -222,3 +222,25 @@ fun AlignedInputColumn(
         )
     }
 }
+
+@Composable
+fun WearSnackbarHost(
+    snackbarHostState: SnackbarHostState,
+    modifier: Modifier = Modifier
+) {
+    val c = WearAdbTheme.colors
+    val cr = WearAdbTheme.shape.cornerRadius
+    SnackbarHost(
+        hostState = snackbarHostState,
+        modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        snackbar = { data ->
+            Snackbar(
+                snackbarData = data,
+                shape = RoundedCornerShape(cr),
+                containerColor = c.surfaceVariant,
+                contentColor = c.onSurface,
+                actionColor = c.accent
+            )
+        }
+    )
+}

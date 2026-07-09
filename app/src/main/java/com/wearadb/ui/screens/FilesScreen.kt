@@ -113,7 +113,7 @@ fun FilesScreen(
     val expanded = useDualPane()
     val hPadding = adaptiveHorizontalPadding()
 
-    Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }, containerColor = c.background, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
+    Scaffold(snackbarHost = { WearSnackbarHost(snackbarHostState) }, containerColor = c.background, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(horizontal = hPadding).padding(padding)
         ) {

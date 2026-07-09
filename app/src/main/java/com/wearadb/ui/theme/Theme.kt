@@ -219,8 +219,8 @@ private fun WearAdbColors.toMaterialLight() = lightColorScheme(
     outlineVariant     = outlineVariant,
     error              = error,
     onError            = onError,
-    inverseSurface     = Gray800,
-    inverseOnSurface   = Gray100,
+    inverseSurface     = Gray200,
+    inverseOnSurface   = Gray800,
 )
 
 private fun WearAdbColors.toMaterialDark() = darkColorScheme(
@@ -243,8 +243,8 @@ private fun WearAdbColors.toMaterialDark() = darkColorScheme(
     outlineVariant     = outlineVariant,
     error              = error,
     onError            = onError,
-    inverseSurface     = Gray200,
-    inverseOnSurface   = Gray800,
+    inverseSurface     = Gray800,
+    inverseOnSurface   = Gray100,
 )
 
 // ── Theme Composable ──

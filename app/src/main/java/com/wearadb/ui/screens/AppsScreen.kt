@@ -172,7 +172,7 @@ fun AppsScreen(
 
     val hPadding = adaptiveHorizontalPadding()
 
-    Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }, containerColor = c.background, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
+    Scaffold(snackbarHost = { WearSnackbarHost(snackbarHostState) }, containerColor = c.background, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
         LazyVerticalGrid(
             columns = GridCells.Adaptive(280.dp),
             modifier = Modifier.fillMaxSize().padding(horizontal = hPadding).padding(padding),
