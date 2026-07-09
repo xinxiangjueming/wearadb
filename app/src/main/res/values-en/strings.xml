@@ -64,6 +64,8 @@
     <string name="shell_shizuku">Activate Shizuku</string>
     <string name="shell_scene">Activate Scene</string>
     <string name="shell_brevent">Activate Brevent</string>
+    <string name="shell_icebox">Activate IceBox</string>
+    <string name="shell_thanox">Activate Thanox</string>
     <string name="shell_hint">Type a command to start…\nExample: ls -la, getprop ro.product.model</string>
     <string name="shell_input_hint">Enter command…</string>
 

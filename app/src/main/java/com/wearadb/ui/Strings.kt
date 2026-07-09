@@ -60,6 +60,8 @@ data class Strings(
     val shellShizuku: String,
     val shellScene: String,
     val shellBrevent: String,
+    val shellIceBox: String,
+    val shellThanox: String,
     val shellHint: String,
     val shellInputHint: String,
     // DeviceInfoScreen
@@ -301,6 +303,8 @@ fun rememberStrings(): Strings = Strings(
     shellShizuku = stringResource(R.string.shell_shizuku),
     shellScene = stringResource(R.string.shell_scene),
     shellBrevent = stringResource(R.string.shell_brevent),
+    shellIceBox = stringResource(R.string.shell_icebox),
+    shellThanox = stringResource(R.string.shell_thanox),
     shellHint = stringResource(R.string.shell_hint),
     shellInputHint = stringResource(R.string.shell_input_hint),
     deviceInfoTitle = stringResource(R.string.device_info_title),

@@ -127,6 +127,31 @@ fun ShellScreen(
                     }
                 )
             }
+            item {
+                QuickCommandChip(
+                    label = s.shellIceBox,
+                    onClick = {
+                        val cmd = "appops set com.catchers.grace allow"
+                        lines.add(TerminalLine(cmd, isCommand = true))
+                        viewModel.executeCommand(cmd)
+                    }
+                )
+            }
+            item {
+                QuickCommandChip(
+                    label = s.shellThanox,
+                    onClick = {
+                        val cmds = listOf(
+                            "pm grant cn.xiaoad.thanos android.permission.WRITE_SECURE_SETTINGS",
+                            "pm grant cn.xiaoad.thanos android.permission.WRITE_SETTINGS"
+                        )
+                        cmds.forEach { cmd ->
+                            lines.add(TerminalLine(cmd, isCommand = true))
+                        }
+                        viewModel.executeCommands(cmds)
+                    }
+                )
+            }
         }
 
         // ── Terminal Output ──

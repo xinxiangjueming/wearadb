@@ -64,6 +64,8 @@
     <string name="shell_shizuku">Shizuku激活</string>
     <string name="shell_scene">Scene激活</string>
     <string name="shell_brevent">黑阈激活</string>
+    <string name="shell_icebox">冰箱激活</string>
+    <string name="shell_thanox">Thanox激活</string>
     <string name="shell_hint">输入命令开始交互…\n例如: ls -la, getprop ro.product.model</string>
     <string name="shell_input_hint">输入命令…</string>
 
