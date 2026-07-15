@@ -40,10 +40,13 @@ fun DiscoveryScreen(
     val lastPort by viewModel.lastPort.collectAsState()
 
     LaunchedEffect(Unit) { viewModel.startDiscovery() }
-    DisposableEffect(Unit) { onDispose { viewModel.stopDiscovery() } }
 
     LaunchedEffect(connectionState) {
-        if (connectionState == com.wearadb.data.repository.ConnectionState.CONNECTED) onBack()
+        android.util.Log.d("Discovery", "LaunchedEffect: connectionState=$connectionState")
+        if (connectionState == com.wearadb.data.repository.ConnectionState.CONNECTED) {
+            android.util.Log.d("Discovery", "CONNECTED -> onBack()")
+            onBack()
+        }
     }
 
     val statusBarPad = WindowInsets.statusBars.union(WindowInsets.displayCutout)
@@ -67,15 +70,13 @@ fun DiscoveryScreen(
             if (isDiscovering) {
                 CircularProgressIndicator(color = c.accent, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(12.dp))
-            }
-            IconButton(onClick = {
-                if (isDiscovering) viewModel.stopDiscovery() else viewModel.startDiscovery()
-            }) {
-                Icon(
-                    if (isDiscovering) Icons.Outlined.Stop else Icons.Outlined.Refresh,
-                    if (isDiscovering) s.btnStop else s.btnScan,
-                    tint = c.onSurfaceVariant, modifier = Modifier.size(20.dp)
-                )
+                IconButton(onClick = { viewModel.stopDiscovery() }) {
+                    Icon(Icons.Outlined.Stop, s.btnStop, tint = c.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                }
+            } else {
+                IconButton(onClick = { viewModel.startDiscovery() }) {
+                    Icon(Icons.Outlined.Refresh, s.btnScan, tint = c.accent, modifier = Modifier.size(20.dp))
+                }
             }
         }
     }
@@ -237,14 +238,14 @@ private fun ManualConnectCard(
                 value = portInput,
                 onValueChange = { portInput = it.filter { ch -> ch.isDigit() } },
                 label = s.labelPort,
-                placeholder = "5555",
+                placeholder = "55555",
                 modifier = Modifier.fillMaxWidth(0.5f)
             )
         }
         Spacer(Modifier.height(12.dp))
         WearButton(
             text = s.btnConnect,
-            onClick = { onConnect(hostInput.trim(), portInput.toIntOrNull() ?: 5555) },
+            onClick = { onConnect(hostInput.trim(), portInput.toIntOrNull() ?: 55555) },
             enabled = hostInput.isNotBlank()
         )
     }

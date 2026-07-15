@@ -88,7 +88,7 @@ fun HomeScreen(
                             Text(s.homeSubtitle, style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant)
                         }
                     }
-                    item { WirelessConnectionCard(connectionState, isConnecting, isConnected, deviceBanner, hostInput, portInput, lastHost, lastPort, onHostChange = { hostInput = it }, onPortChange = { portInput = it }, onConnect = { viewModel.connect(hostInput.trim(), portInput.toIntOrNull() ?: 5555) }, onDisconnect = { viewModel.disconnect() }, onNavigateToDiscovery, onNavigateToPairing) }
+                    item { WirelessConnectionCard(connectionState, isConnecting, isConnected, deviceBanner, hostInput, portInput, lastHost, lastPort, onHostChange = { hostInput = it }, onPortChange = { portInput = it }, onConnect = { viewModel.connect(hostInput.trim(), portInput.toIntOrNull() ?: 55555) }, onDisconnect = { viewModel.disconnect() }, onNavigateToDiscovery, onNavigateToPairing) }
                     if (isConnected) {
                         item { SectionHeader(s.sectionTools) }
                         item {
@@ -114,8 +114,7 @@ fun HomeScreen(
                                 device = device,
                                 onConnect = {
                                     hostInput = device.host
-                                    portInput = device.port.toString()
-                                    viewModel.connect(device.host, device.port)
+                                    viewModel.connect(device.host, portInput.toIntOrNull() ?: 55555)
                                 },
                                 onToggleFavorite = { viewModel.toggleFavorite(device.address) },
                                 onRemove = { viewModel.removeDevice(device.address) }
@@ -165,7 +164,7 @@ fun HomeScreen(
                         Text(s.homeSubtitle, style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant)
                     }
                 }
-                item { WirelessConnectionCard(connectionState, isConnecting, isConnected, deviceBanner, hostInput, portInput, lastHost, lastPort, onHostChange = { hostInput = it }, onPortChange = { portInput = it }, onConnect = { viewModel.connect(hostInput.trim(), portInput.toIntOrNull() ?: 5555) }, onDisconnect = { viewModel.disconnect() }, onNavigateToDiscovery, onNavigateToPairing) }
+                item { WirelessConnectionCard(connectionState, isConnecting, isConnected, deviceBanner, hostInput, portInput, lastHost, lastPort, onHostChange = { hostInput = it }, onPortChange = { portInput = it }, onConnect = { viewModel.connect(hostInput.trim(), portInput.toIntOrNull() ?: 55555) }, onDisconnect = { viewModel.disconnect() }, onNavigateToDiscovery, onNavigateToPairing) }
                 if (isConnected) {
                     item { SectionHeader(s.sectionTools) }
                     item {
@@ -204,8 +203,7 @@ fun HomeScreen(
                             device = device,
                             onConnect = {
                                 hostInput = device.host
-                                portInput = device.port.toString()
-                                viewModel.connect(device.host, device.port)
+                                viewModel.connect(device.host, portInput.toIntOrNull() ?: 55555)
                             },
                             onToggleFavorite = { viewModel.toggleFavorite(device.address) },
                             onRemove = { viewModel.removeDevice(device.address) }
@@ -217,6 +215,7 @@ fun HomeScreen(
     }
 
     if (showBluetoothDialog) {
+        android.util.Log.d("Home", "Showing bluetooth dialog")
         val cr = WearAdbTheme.shape.cornerRadius
         AlertDialog(
             onDismissRequest = { viewModel.dismissBluetoothDialog() },
@@ -286,7 +285,7 @@ private fun WirelessConnectionCard(
                 value = portInput,
                 onValueChange = { onPortChange(it.filter { ch -> ch.isDigit() }) },
                 label = s.labelPort,
-                placeholder = "5555",
+                placeholder = "55555",
                 modifier = Modifier.fillMaxWidth(0.5f)
             )
         }

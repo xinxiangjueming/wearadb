@@ -68,8 +68,17 @@ fun AppsScreen(
             AppFilter.ALL -> apps
             AppFilter.SYSTEM -> apps.filter { it.isSystem }
             AppFilter.THIRD_PARTY -> apps.filter { !it.isSystem }
+            AppFilter.DISABLED -> apps.filter { !it.isEnabled }
         }
-        if (searchQuery.isBlank()) base else base.filter { it.packageName.contains(searchQuery, ignoreCase = true) }
+        val result = if (searchQuery.isBlank()) base else base.filter { it.packageName.contains(searchQuery, ignoreCase = true) }
+        val totalEnabled = apps.count { it.isEnabled }
+        val totalDisabled = apps.count { !it.isEnabled }
+        android.util.Log.d("Apps", "filteredApps: filter=$filter, total=${apps.size}, enabled=$totalEnabled, disabled=$totalDisabled, filtered=${result.size}")
+        if (filter == AppFilter.DISABLED) {
+            val disabledList = apps.filter { !it.isEnabled }.take(10).map { "${it.packageName}(isEnabled=${it.isEnabled})" }
+            android.util.Log.d("Apps", "DISABLED filter: found ${apps.count { !it.isEnabled }} disabled apps, first10=$disabledList")
+        }
+        result
     }
 
     // 分组数据（仅"全部"模式使用）
@@ -202,6 +211,7 @@ fun AppsScreen(
                     FilterChipItem(s.appsFilterAll, filter == AppFilter.ALL) { viewModel.setAppsFilter(AppFilter.ALL) }
                     FilterChipItem(s.appsFilterSystem, filter == AppFilter.SYSTEM) { viewModel.setAppsFilter(AppFilter.SYSTEM) }
                     FilterChipItem(s.appsFilterThird, filter == AppFilter.THIRD_PARTY) { viewModel.setAppsFilter(AppFilter.THIRD_PARTY) }
+                    FilterChipItem(s.appsFilterDisabled, filter == AppFilter.DISABLED) { viewModel.setAppsFilter(AppFilter.DISABLED) }
                 }
             }
             if (loading) {
@@ -219,11 +229,8 @@ fun AppsScreen(
                             onUninstall = { viewModel.uninstallApp(app.packageName) { snackbarMessage = it } },
                             onClearData = { viewModel.clearAppData(app.packageName) { snackbarMessage = it } },
                             onForceStop = { viewModel.forceStopApp(app.packageName) { snackbarMessage = it } },
-                            onToggleEnabled = {
-                                if (app.isEnabled) viewModel.disableApp(app.packageName) { snackbarMessage = it }
-                                else viewModel.enableApp(app.packageName) { snackbarMessage = it }
-                                viewModel.loadApps(force = true)
-                            })
+                            onDisable = { viewModel.disableApp(app.packageName) { snackbarMessage = it; viewModel.loadApps(force = true) } },
+                            onEnable = { viewModel.enableApp(app.packageName) { snackbarMessage = it; viewModel.loadApps(force = true) } })
                     }
                 }
                 if (thirdPartyApps.isNotEmpty()) {
@@ -233,11 +240,8 @@ fun AppsScreen(
                             onUninstall = { viewModel.uninstallApp(app.packageName) { snackbarMessage = it } },
                             onClearData = { viewModel.clearAppData(app.packageName) { snackbarMessage = it } },
                             onForceStop = { viewModel.forceStopApp(app.packageName) { snackbarMessage = it } },
-                            onToggleEnabled = {
-                                if (app.isEnabled) viewModel.disableApp(app.packageName) { snackbarMessage = it }
-                                else viewModel.enableApp(app.packageName) { snackbarMessage = it }
-                                viewModel.loadApps(force = true)
-                            })
+                            onDisable = { viewModel.disableApp(app.packageName) { snackbarMessage = it; viewModel.loadApps(force = true) } },
+                            onEnable = { viewModel.enableApp(app.packageName) { snackbarMessage = it; viewModel.loadApps(force = true) } })
                     }
                 }
             } else {
@@ -246,11 +250,8 @@ fun AppsScreen(
                         onUninstall = { viewModel.uninstallApp(app.packageName) { snackbarMessage = it } },
                         onClearData = { viewModel.clearAppData(app.packageName) { snackbarMessage = it } },
                         onForceStop = { viewModel.forceStopApp(app.packageName) { snackbarMessage = it } },
-                        onToggleEnabled = {
-                            if (app.isEnabled) viewModel.disableApp(app.packageName) { snackbarMessage = it }
-                            else viewModel.enableApp(app.packageName) { snackbarMessage = it }
-                            viewModel.loadApps(force = true)
-                        })
+                        onDisable = { viewModel.disableApp(app.packageName) { snackbarMessage = it; viewModel.loadApps(force = true) } },
+                        onEnable = { viewModel.enableApp(app.packageName) { snackbarMessage = it; viewModel.loadApps(force = true) } })
                 }
             }
         }
@@ -265,7 +266,8 @@ private fun AppListItem(
     onUninstall: () -> Unit,
     onClearData: () -> Unit,
     onForceStop: () -> Unit,
-    onToggleEnabled: () -> Unit
+    onDisable: () -> Unit,
+    onEnable: () -> Unit
 ) {
     val isExpanded = expandedPkg == app.packageName
     AppCard(
@@ -274,7 +276,8 @@ private fun AppListItem(
         onUninstall = onUninstall,
         onClearData = onClearData,
         onForceStop = onForceStop,
-        onToggleEnabled = onToggleEnabled
+        onDisable = onDisable,
+        onEnable = onEnable
     )
 }
 
@@ -298,7 +301,7 @@ private fun FilterChipItem(text: String, selected: Boolean, onClick: () -> Unit)
 @Composable
 private fun AppCard(
     app: AppEntry, expanded: Boolean, onToggleExpand: () -> Unit,
-    onUninstall: () -> Unit, onClearData: () -> Unit, onForceStop: () -> Unit, onToggleEnabled: () -> Unit
+    onUninstall: () -> Unit, onClearData: () -> Unit, onForceStop: () -> Unit, onDisable: () -> Unit, onEnable: () -> Unit
 ) {
     val c = WearAdbTheme.colors
     val s = LocalStrings.current
@@ -329,7 +332,11 @@ private fun AppCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AppActionButton(s.appsActionStop, c.buttonSecondary, c.buttonSecondaryText) { onForceStop() }
                     AppActionButton(s.appsActionClear, c.info, c.onSurface) { onClearData() }
-                    AppActionButton(if (app.isEnabled) s.appsActionDisable else s.appsActionEnable, c.buttonSecondary, c.buttonSecondaryText) { onToggleEnabled() }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (app.isEnabled) AppActionButton(s.appsActionDisable, c.buttonSecondary, c.buttonSecondaryText) { onDisable() }
+                    AppActionButton(s.appsActionEnable, c.buttonSecondary, c.buttonSecondaryText) { onEnable() }
                 }
                 Spacer(Modifier.height(8.dp))
                 if (!app.isSystem) AppActionButton(s.appsActionUninstall, c.buttonDanger, c.buttonDangerText) { onUninstall() }

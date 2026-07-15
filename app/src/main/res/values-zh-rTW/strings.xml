@@ -157,8 +157,10 @@
     <string name="apps_filter_all">全部</string>
     <string name="apps_filter_system">系統</string>
     <string name="apps_filter_third">第三方</string>
+    <string name="apps_filter_disabled">已停用</string>
     <string name="apps_system_count">系統應用程式 (%1$d)</string>
     <string name="apps_third_count">第三方應用程式 (%1$d)</string>
+    <string name="apps_disabled_count">已停用 (%1$d)</string>
     <string name="apps_disabled">已停用</string>
     <string name="apps_action_stop">強制停止</string>
     <string name="apps_action_clear">清除資料</string>

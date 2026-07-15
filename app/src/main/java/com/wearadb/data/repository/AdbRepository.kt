@@ -104,7 +104,9 @@ class AdbRepository @Inject constructor(
     }
 
     fun startDiscovery() {
-        if (_isDiscovering.value) return
+        // 先停掉旧的 NSD 扫描，再重新启动
+        try { discoveryListener?.let { nsdManager.stopServiceDiscovery(it) } } catch (_: Exception) {}
+        try { pairingListener?.let { nsdManager.stopServiceDiscovery(it) } } catch (_: Exception) {}
         _isDiscovering.value = true
         discovered.clear()
         _discoveredDevices.value = emptyList()
@@ -183,7 +185,7 @@ class AdbRepository @Inject constructor(
             manager.setHostAddress(host)
             android.util.Log.d("AdbRepo", "Calling manager.pair($port, code)...")
             val success = manager.pair(port, code)
-            android.util.Log.d("AdbRepo", "pair() result: success=$success")
+            android.util.Log.d("AdbRepo", "pair() result: success=$success, returning port=$port (same as input)")
             _connectionState.value = ConnectionState.DISCONNECTED
             if (success) {
                 PairingResult(true, host, port, "配对成功")
@@ -198,7 +200,7 @@ class AdbRepository @Inject constructor(
     }
 
     // ── 连接 ──
-    suspend fun connect(host: String, port: Int = 5555, useTls: Boolean = false) = withContext(Dispatchers.IO) {
+    suspend fun connect(host: String, port: Int = 55555, useTls: Boolean = false) = withContext(Dispatchers.IO) {
         try {
             android.util.Log.d("AdbRepo", "connect() called: host=$host, port=$port, useTls=$useTls")
             _connectionState.value = ConnectionState.CONNECTING
@@ -208,11 +210,12 @@ class AdbRepository @Inject constructor(
             // 尝试 TLS 连接
             if (useTls) {
                 try {
-                    android.util.Log.d("AdbRepo", "Connecting via TLS...")
+                    android.util.Log.d("AdbRepo", "Connecting via TLS... host=$host")
                     manager.setHostAddress(host)
                     success = manager.connectTls(appContext, 5000)
+                    android.util.Log.d("AdbRepo", "TLS result: $success")
                 } catch (e: Exception) {
-                    android.util.Log.w("AdbRepo", "TLS failed, falling back to TCP: ${e.message}")
+                    android.util.Log.w("AdbRepo", "TLS exception: ${e.javaClass.simpleName}: ${e.message}")
                     success = false
                 }
             }
@@ -221,16 +224,17 @@ class AdbRepository @Inject constructor(
             if (!success) {
                 android.util.Log.d("AdbRepo", "Connecting via TCP to $host:$port ...")
                 success = manager.connect(host, port)
+                android.util.Log.d("AdbRepo", "TCP result: $success")
             }
 
-            android.util.Log.d("AdbRepo", "connect() result: success=$success")
+            android.util.Log.d("AdbRepo", "connect() final success=$success, manager.isConnected=${manager.isConnected}, setting state")
             if (success) {
                 _connectionState.value = ConnectionState.CONNECTED
                 _deviceBanner.value = "Connected to $host:$port"
 
                 deviceRepository.saveDevice(
                     SavedDevice(
-                        host = host, port = port,
+                        host = host,
                         name = _deviceBanner.value,
                         lastConnected = System.currentTimeMillis()
                     )
@@ -274,6 +278,17 @@ class AdbRepository @Inject constructor(
     suspend fun getLastHost(): String = deviceRepository.getLastHost()
     suspend fun getLastPort(): Int = deviceRepository.getLastPort()
 
+    suspend fun isWearOs(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val chars = runSingleCommand("getprop ro.build.characteristics", 5000)
+            android.util.Log.d("AdbRepo", "isWearOs() characteristics=$chars")
+            chars.contains("watch", ignoreCase = true)
+        } catch (e: Exception) {
+            android.util.Log.w("AdbRepo", "isWearOs() check failed: ${e.message}")
+            false
+        }
+    }
+
     suspend fun disableBluetoothAfterConnect() {
         try { runSingleCommand("svc bluetooth disable", 5000) } catch (_: Exception) {}
     }
@@ -288,6 +303,7 @@ class AdbRepository @Inject constructor(
         withContext(Dispatchers.IO) {
             val maxRetries = 3
             var lastException: Exception? = null
+            android.util.Log.d("AdbRepo", "runSingleCommand START: cmd=${command.take(80)} manager.isConnected=${manager.isConnected}")
             for (attempt in 1..maxRetries) {
                 try {
                     android.util.Log.d("AdbRepo", "runSingleCommand: cmd=${command.take(80)}")
@@ -345,7 +361,14 @@ class AdbRepository @Inject constructor(
         command: String = "",
         timeoutMs: Long = 15000
     ): String {
-        val stream = openStream()
+        val stream = try {
+            android.util.Log.d("AdbRepo", "readUntilMarker: opening stream...")
+            openStream()
+        } catch (e: Exception) {
+            android.util.Log.e("AdbRepo", "readUntilMarker: FAILED to open stream: ${e.javaClass.simpleName}: ${e.message}")
+            throw e
+        }
+        android.util.Log.d("AdbRepo", "readUntilMarker: stream opened, writeCommand=$writeCommand")
         try {
             return kotlinx.coroutines.withTimeout(timeoutMs) {
                 if (writeCommand) {
@@ -432,13 +455,17 @@ class AdbRepository @Inject constructor(
     // ── 应用管理 ──
     suspend fun getInstalledPackages(): List<AppEntry> = withContext(Dispatchers.IO) {
         // 合并为单条命令，避免多次开流导致输出截断（8KB限制）
+        // -d = disabled packages，用于标记 isEnabled
+        android.util.Log.d("AdbRepo", "getInstalledPackages() START")
         val combined = runSingleCommand(
-            "echo ==FULL==; pm list packages -f; echo ==SYSTEM==; pm list packages -s; echo ==THIRD==; pm list packages -3"
+            "echo ==FULL==; pm list packages -f; echo ==SYSTEM==; pm list packages -s; echo ==THIRD==; pm list packages -3; echo ==DISABLED==; pm list packages -d"
         )
-        val sections = combined.split(Regex("==FULL==|==SYSTEM==|==THIRD=="))
+        android.util.Log.d("AdbRepo", "getInstalledPackages() raw length=${combined.length}, first500=${combined.take(500)}")
+        val sections = combined.split(Regex("==FULL==|==SYSTEM==|==THIRD==|==DISABLED=="))
         val fullOutput = sections.getOrElse(1) { "" }.trim()
         val systemOutput = sections.getOrElse(2) { "" }.trim()
         val thirdPartyOutput = sections.getOrElse(3) { "" }.trim()
+        val disabledOutput = sections.getOrElse(4) { "" }.trim()
         val systemPkgs = systemOutput.lines()
             .filter { it.startsWith("package:") }
             .map { it.removePrefix("package:").trim() }
@@ -447,9 +474,15 @@ class AdbRepository @Inject constructor(
             .filter { it.startsWith("package:") }
             .map { it.removePrefix("package:").trim() }
             .toSet()
-        android.util.Log.d("AdbRepo", "getInstalledPackages() full=${fullOutput.length}, system=${systemPkgs.size}, thirdParty=${thirdPartyPkgs.size}")
-        val result = AdbOutputParser.parsePackageListWithFilter(fullOutput, systemPkgs, thirdPartyPkgs)
-        android.util.Log.d("AdbRepo", "getInstalledPackages() parsed ${result.size} apps, system=${result.count { it.isSystem }}")
+        val disabledPkgs = disabledOutput.lines()
+            .filter { it.startsWith("package:") }
+            .map { it.removePrefix("package:").trim() }
+            .toSet()
+        android.util.Log.d("AdbRepo", "getInstalledPackages() full=${fullOutput.length}, system=${systemPkgs.size}, thirdParty=${thirdPartyPkgs.size}, disabled=${disabledPkgs.size}")
+        val result = AdbOutputParser.parsePackageListWithFilter(fullOutput, systemPkgs, thirdPartyPkgs, disabledPkgs)
+        val enabledCount = result.count { it.isEnabled }
+        val disabledCount = result.count { !it.isEnabled }
+        android.util.Log.d("AdbRepo", "getInstalledPackages() parsed ${result.size} apps, system=${result.count { it.isSystem }}, enabled=$enabledCount, disabled=$disabledCount")
         result
     }
 
@@ -466,11 +499,17 @@ class AdbRepository @Inject constructor(
     }
 
     suspend fun disableApp(pkg: String): String = withContext(Dispatchers.IO) {
-        runSingleCommand("pm disable-user $pkg")
+        android.util.Log.d("AdbRepo", "disableApp() pkg=$pkg")
+        val result = runSingleCommand("pm disable-user $pkg")
+        android.util.Log.d("AdbRepo", "disableApp() result: $result")
+        result
     }
 
     suspend fun enableApp(pkg: String): String = withContext(Dispatchers.IO) {
-        runSingleCommand("pm enable $pkg")
+        android.util.Log.d("AdbRepo", "enableApp() pkg=$pkg")
+        val result = runSingleCommand("pm enable $pkg")
+        android.util.Log.d("AdbRepo", "enableApp() result: $result")
+        result
     }
 
     // ── 安装 APK ──

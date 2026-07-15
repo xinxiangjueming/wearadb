@@ -37,8 +37,11 @@ fun PairingScreen(
     var codeInput by remember { mutableStateOf("") }
 
     LaunchedEffect(pairingState) {
+        android.util.Log.d("Pairing", "LaunchedEffect: pairingState=$pairingState")
         if (pairingState is PairingState.Success) {
+            android.util.Log.d("Pairing", "Pairing success, waiting 1500ms then onPaired()")
             kotlinx.coroutines.delay(1500)
+            android.util.Log.d("Pairing", "Calling onPaired() -> popBackStack")
             onPaired()
         }
     }

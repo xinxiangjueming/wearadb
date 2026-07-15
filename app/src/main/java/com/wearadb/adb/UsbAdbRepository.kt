@@ -3,6 +3,7 @@ package com.wearadb.adb
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -28,6 +29,7 @@ import javax.inject.Singleton
  * Integrates UsbAdbManager with the rest of the app.
  */
 @Singleton
+@OptIn(ExperimentalCoroutinesApi::class)
 class UsbAdbRepository @Inject constructor(
     @ApplicationContext private val appContext: Context
 ) {
@@ -175,12 +177,13 @@ class UsbAdbRepository @Inject constructor(
         val conn = awaitManager().getConnection() ?: return@withContext emptyList()
         try {
             val combined = conn.openShell(
-                "echo ==FULL==; pm list packages -f; echo ==SYSTEM==; pm list packages -s; echo ==THIRD==; pm list packages -3"
+                "echo ==FULL==; pm list packages -f; echo ==SYSTEM==; pm list packages -s; echo ==THIRD==; pm list packages -3; echo ==DISABLED==; pm list packages -d"
             ).readAll(15000)
-            val sections = combined.split(Regex("==FULL==|==SYSTEM==|==THIRD=="))
+            val sections = combined.split(Regex("==FULL==|==SYSTEM==|==THIRD==|==DISABLED=="))
             val fullOutput = sections.getOrElse(1) { "" }.trim()
             val systemOutput = sections.getOrElse(2) { "" }.trim()
             val thirdPartyOutput = sections.getOrElse(3) { "" }.trim()
+            val disabledOutput = sections.getOrElse(4) { "" }.trim()
             val systemPkgs = systemOutput.lines()
                 .filter { it.startsWith("package:") }
                 .map { it.removePrefix("package:").trim() }
@@ -189,7 +192,11 @@ class UsbAdbRepository @Inject constructor(
                 .filter { it.startsWith("package:") }
                 .map { it.removePrefix("package:").trim() }
                 .toSet()
-            AdbOutputParser.parsePackageListWithFilter(fullOutput, systemPkgs, thirdPartyPkgs)
+            val disabledPkgs = disabledOutput.lines()
+                .filter { it.startsWith("package:") }
+                .map { it.removePrefix("package:").trim() }
+                .toSet()
+            AdbOutputParser.parsePackageListWithFilter(fullOutput, systemPkgs, thirdPartyPkgs, disabledPkgs)
         } catch (e: Exception) {
             android.util.Log.e(TAG, "getInstalledPackages failed: ${e.message}")
             emptyList()

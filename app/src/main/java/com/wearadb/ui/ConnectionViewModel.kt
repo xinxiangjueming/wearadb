@@ -89,11 +89,13 @@ class ConnectionViewModel @Inject constructor(
     // ── Bluetooth dialog ──
     private val _showBluetoothDialog = MutableStateFlow(false)
     val showBluetoothDialog: StateFlow<Boolean> = _showBluetoothDialog.asStateFlow()
+    // 追踪是否刚发起过连接请求，用于在 init 中判断 CONNECTED 是否需要弹蓝牙对话框
+    private var pendingConnectRequest = false
 
     // ── Last IP ──
     private val _lastHost = MutableStateFlow("")
     val lastHost: StateFlow<String> = _lastHost.asStateFlow()
-    private val _lastPort = MutableStateFlow(5555)
+    private val _lastPort = MutableStateFlow(55555)
     val lastPort: StateFlow<Int> = _lastPort.asStateFlow()
 
     // ── Operation result ──
@@ -105,7 +107,7 @@ class ConnectionViewModel @Inject constructor(
             _lastHost.value = repository.getLastHost()
             _lastPort.value = repository.getLastPort()
         }
-        // Clear loaded data when connection drops
+        // Clear loaded data when connection drops; show bluetooth dialog when connection succeeds
         viewModelScope.launch {
             repository.connectionState.collect { state ->
                 if (state == ConnectionState.DISCONNECTED || state == ConnectionState.ERROR) {
@@ -113,6 +115,17 @@ class ConnectionViewModel @Inject constructor(
                     _files.value = emptyList()
                     _deviceInfo.value = null
                     _currentPath.value = "/sdcard"
+                }
+                // 连接成功且之前发起过连接请求 → 弹蓝牙对话框（仅限 Wear OS 设备）
+                if (state == ConnectionState.CONNECTED && pendingConnectRequest) {
+                    pendingConnectRequest = false
+                    viewModelScope.launch {
+                        val wearOs = repository.isWearOs()
+                        android.util.Log.d("VM", "init: CONNECTED after connect request, isWearOs=$wearOs")
+                        if (wearOs) {
+                            _showBluetoothDialog.value = true
+                        }
+                    }
                 }
             }
         }
@@ -127,14 +140,17 @@ class ConnectionViewModel @Inject constructor(
     }
 
     // ── Connection ──
-    fun connect(host: String, port: Int = 5555, useTls: Boolean = false) {
+    fun connect(host: String, port: Int = 55555, useTls: Boolean = false) {
+        android.util.Log.d("VM", "connect() START host=$host port=$port useTls=$useTls current=${connectionState.value}")
+        pendingConnectRequest = true
         viewModelScope.launch {
             try {
                 repository.connect(host, port, useTls)
-                if (repository.connectionState.value == ConnectionState.CONNECTED) {
-                    _showBluetoothDialog.value = true
-                }
-            } catch (_: Exception) {}
+                android.util.Log.d("VM", "connect() AFTER repository.connect, state=${repository.connectionState.value}")
+            } catch (e: Exception) {
+                android.util.Log.e("VM", "connect() EXCEPTION: ${e.javaClass.simpleName}: ${e.message}", e)
+                pendingConnectRequest = false
+            }
         }
     }
 
@@ -158,19 +174,26 @@ class ConnectionViewModel @Inject constructor(
     fun stopDiscovery() = repository.stopDiscovery()
 
     fun connectFromDiscovered(device: DiscoveredDevice) {
+        android.util.Log.d("VM", "connectFromDiscovered() name=${device.name} host=${device.host} port=${device.port} isPairing=${device.isPairing} -> useTls=${!device.isPairing}")
         connect(device.host, device.port, useTls = !device.isPairing)
     }
 
     // ── Pairing ──
     fun pair(host: String, port: Int, code: String) {
+        android.util.Log.d("VM", "pair() START host=$host port=$port")
         viewModelScope.launch {
             _pairingState.value = PairingState.Pairing
             val result = repository.pair(host, port, code)
+            android.util.Log.d("VM", "pair() result: success=${result.success} host=${result.host} port=${result.port} msg=${result.message}")
             if (result.success) {
                 _pairingState.value = PairingState.Success(result.message)
+                android.util.Log.d("VM", "pair() result.port=${result.port} input port=$port willAutoConnect=${result.port > 0 && result.port != port}")
                 if (result.port > 0 && result.port != port) {
                     delay(500)
+                    android.util.Log.d("VM", "pair() auto-connecting to ${result.host}:${result.port}")
                     connect(result.host, result.port, useTls = true)
+                } else {
+                    android.util.Log.w("VM", "pair() NO auto-connect: result.port=${result.port} == input port=$port")
                 }
             } else {
                 _pairingState.value = PairingState.Error(result.message)
@@ -261,24 +284,39 @@ class ConnectionViewModel @Inject constructor(
 
     // ── Device Info ──
     fun loadDeviceInfo(force: Boolean = false) {
+        android.util.Log.d("VM", "loadDeviceInfo() force=$force wirelessState=${connectionState.value} usbState=${usbAdbConnectionState.value} existingInfo=${_deviceInfo.value != null}")
         viewModelScope.launch {
-            if (!force && _deviceInfo.value != null) return@launch
+            if (!force && _deviceInfo.value != null) {
+                android.util.Log.d("VM", "loadDeviceInfo() SKIPPED: already have data and not forced")
+                return@launch
+            }
             _deviceInfoLoading.value = true
             try {
                 if (connectionState.value == ConnectionState.CONNECTED) {
+                    android.util.Log.d("VM", "loadDeviceInfo() calling repository.getDeviceInfo()")
                     _deviceInfo.value = repository.getDeviceInfo()
+                    android.util.Log.d("VM", "loadDeviceInfo() got info: model=${_deviceInfo.value?.model}")
                 } else if (isUsbAdbActive) {
+                    android.util.Log.d("VM", "loadDeviceInfo() calling usbAdbRepository.getDeviceInfo()")
                     _deviceInfo.value = usbAdbRepository.getDeviceInfo()
+                } else {
+                    android.util.Log.w("VM", "loadDeviceInfo() NO connection active, cannot load")
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                android.util.Log.e("VM", "loadDeviceInfo() EXCEPTION: ${e.javaClass.simpleName}: ${e.message}", e)
+            }
             _deviceInfoLoading.value = false
         }
     }
 
     // ── Apps ──
     fun loadApps(force: Boolean = false) {
+        android.util.Log.d("VM", "loadApps() force=$force appsLoadedOnce=$appsLoadedOnce existingCount=${_apps.value.size}")
         viewModelScope.launch {
-            if (!force && appsLoadedOnce && _apps.value.isNotEmpty()) return@launch
+            if (!force && appsLoadedOnce && _apps.value.isNotEmpty()) {
+                android.util.Log.d("VM", "loadApps() SKIPPED: already loaded ${_apps.value.size} apps")
+                return@launch
+            }
             _appsLoading.value = true
             try {
                 _apps.value = if (connectionState.value == ConnectionState.CONNECTED) {
@@ -289,7 +327,12 @@ class ConnectionViewModel @Inject constructor(
                     emptyList()
                 }
                 appsLoadedOnce = true
-            } catch (_: Exception) {}
+                val enabledCount = _apps.value.count { it.isEnabled }
+                val disabledCount = _apps.value.count { !it.isEnabled }
+                android.util.Log.d("VM", "loadApps() loaded ${_apps.value.size} apps, enabled=$enabledCount, disabled=$disabledCount")
+            } catch (e: Exception) {
+                android.util.Log.e("VM", "loadApps() EXCEPTION: ${e.javaClass.simpleName}: ${e.message}", e)
+            }
             _appsLoading.value = false
         }
     }
@@ -309,11 +352,21 @@ class ConnectionViewModel @Inject constructor(
     }
 
     fun disableApp(pkg: String, onResult: (String) -> Unit) {
-        viewModelScope.launch { onResult(repository.disableApp(pkg).trim()) }
+        android.util.Log.d("VM", "disableApp() pkg=$pkg")
+        viewModelScope.launch {
+            val result = repository.disableApp(pkg).trim()
+            android.util.Log.d("VM", "disableApp() result: $result")
+            onResult(result)
+        }
     }
 
     fun enableApp(pkg: String, onResult: (String) -> Unit) {
-        viewModelScope.launch { onResult(repository.enableApp(pkg).trim()) }
+        android.util.Log.d("VM", "enableApp() pkg=$pkg")
+        viewModelScope.launch {
+            val result = repository.enableApp(pkg).trim()
+            android.util.Log.d("VM", "enableApp() result: $result")
+            onResult(result)
+        }
     }
 
     fun installApk(apkData: ByteArray, onResult: (String) -> Unit) {
@@ -578,7 +631,7 @@ class ConnectionViewModel @Inject constructor(
     }
 }
 
-enum class AppFilter { ALL, SYSTEM, THIRD_PARTY }
+enum class AppFilter { ALL, SYSTEM, THIRD_PARTY, DISABLED }
 
 sealed class PairingState {
     data object Idle : PairingState()

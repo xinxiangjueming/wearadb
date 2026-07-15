@@ -34,7 +34,7 @@ class DeviceRepository @Inject constructor(
     }
 
     suspend fun getLastPort(): Int {
-        return context.deviceStore.data.first()[lastPortKey] ?: 5555
+        return context.deviceStore.data.first()[lastPortKey] ?: 0
     }
 
     suspend fun saveLastPort(port: Int) {
@@ -57,7 +57,8 @@ class DeviceRepository @Inject constructor(
             } catch (_: Exception) {
                 emptyList()
             }
-            val updated = (current.filter { it.address != device.address } + device)
+            // 按 host 去重，只保留同一台设备
+            val updated = (current.filter { it.host != device.host } + device)
                 .sortedByDescending { it.lastConnected }
             prefs[devicesKey] = json.encodeToString(updated)
         }
@@ -70,7 +71,8 @@ class DeviceRepository @Inject constructor(
             } catch (_: Exception) {
                 emptyList()
             }
-            prefs[devicesKey] = json.encodeToString(current.filter { it.address != address })
+            // address 现在就是 host
+            prefs[devicesKey] = json.encodeToString(current.filter { it.host != address })
         }
     }
 
@@ -82,7 +84,7 @@ class DeviceRepository @Inject constructor(
                 emptyList()
             }
             val updated = current.map {
-                if (it.address == address) it.copy(isFavorite = !it.isFavorite) else it
+                if (it.host == address) it.copy(isFavorite = !it.isFavorite) else it
             }
             prefs[devicesKey] = json.encodeToString(updated)
         }

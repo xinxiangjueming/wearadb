@@ -157,8 +157,10 @@
     <string name="apps_filter_all">All</string>
     <string name="apps_filter_system">System</string>
     <string name="apps_filter_third">Third-party</string>
+    <string name="apps_filter_disabled">Disabled</string>
     <string name="apps_system_count">System Apps (%1$d)</string>
     <string name="apps_third_count">Third-party Apps (%1$d)</string>
+    <string name="apps_disabled_count">Disabled (%1$d)</string>
     <string name="apps_disabled">Disabled</string>
     <string name="apps_action_stop">Force Stop</string>
     <string name="apps_action_clear">Clear Data</string>

@@ -148,7 +148,8 @@ object AdbOutputParser {
     fun parsePackageListWithFilter(
         output: String,
         systemPkgs: Set<String>,
-        thirdPartyPkgs: Set<String>
+        thirdPartyPkgs: Set<String>,
+        disabledPkgs: Set<String> = emptySet()
     ): List<AppEntry> {
         return output.lines()
             .filter { it.startsWith("package:") }
@@ -168,7 +169,8 @@ object AdbOutputParser {
                 AppEntry(
                     packageName = pkgName,
                     versionName = versionName,
-                    isSystem = isSystem
+                    isSystem = isSystem,
+                    isEnabled = pkgName !in disabledPkgs
                 )
             }
             .sortedWith(compareBy<AppEntry> { it.isSystem }.thenBy { it.packageName })
@@ -225,8 +227,13 @@ object AdbOutputParser {
                 val isDir = perms.startsWith("d")
                 val size = parts[4].toLongOrNull() ?: 0
                 val date = "${parts[5]} ${parts[6]}"
-                val name = parts.drop(7).joinToString(" ")
+                var name = parts.drop(7).joinToString(" ")
                 if (name == "." || name == ".." || name.isBlank()) return@mapNotNull null
+                // 符号链接：只取 -> 前面的文件名，忽略链接目标
+                if (perms.startsWith("l")) {
+                    val arrowIdx = name.indexOf(" -> ")
+                    if (arrowIdx > 0) name = name.substring(0, arrowIdx)
+                }
                 FileEntry(
                     name = name,
                     path = if (basePath.endsWith("/")) "$basePath$name" else "$basePath/$name",
