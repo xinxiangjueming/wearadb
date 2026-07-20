@@ -231,6 +231,7 @@ private fun ManualConnectCard(
                 onValueChange = { hostInput = it },
                 label = s.labelIp,
                 placeholder = "192.168.1.100",
+                keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal,
                 modifier = Modifier.fillMaxWidth(),
                 imeAction = androidx.compose.ui.text.input.ImeAction.Next
             )
@@ -239,6 +240,7 @@ private fun ManualConnectCard(
                 onValueChange = { portInput = it.filter { ch -> ch.isDigit() } },
                 label = s.labelPort,
                 placeholder = "55555",
+                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
                 modifier = Modifier.fillMaxWidth(0.5f)
             )
         }

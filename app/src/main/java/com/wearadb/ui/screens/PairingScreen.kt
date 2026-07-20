@@ -88,6 +88,7 @@ fun PairingScreen(
                 value = hostInput, onValueChange = { hostInput = it },
                 label = s.labelIp,
                 placeholder = "192.168.1.100",
+                keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal,
                 modifier = Modifier.fillMaxWidth(),
                 imeAction = androidx.compose.ui.text.input.ImeAction.Next
             )
@@ -95,6 +96,7 @@ fun PairingScreen(
                 value = portInput, onValueChange = { portInput = it.filter { ch -> ch.isDigit() } },
                 label = s.labelPort,
                 placeholder = "37123",
+                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
                 modifier = Modifier.fillMaxWidth(0.5f),
                 imeAction = androidx.compose.ui.text.input.ImeAction.Next
             )
@@ -130,6 +132,17 @@ fun PairingScreen(
                 }
             }
             is PairingState.Error -> {
+                val specificTip = when {
+                    state.message.contains("ECONNABORTED") ->
+                        "连接被目标设备中断，通常是以下原因：\n• 端口不是「配对用配对码」弹窗中的端口\n• 配对码已过期（需重新打开配对弹窗获取新码）\n• 目标设备无线调试服务已重启"
+                    state.message.contains("ECONNREFUSED") ->
+                        "目标设备拒绝连接，请确认无线调试已开启"
+                    state.message.contains("ETIMEDOUT") || state.message.contains("timed out") ->
+                        "连接超时，请确认手机和目标设备在同一 WiFi 网络下"
+                    state.message.contains("ENETUNREACH") || state.message.contains("Host is unreachable") ->
+                        "无法到达目标设备，请确认 IP 地址正确且在同一局域网"
+                    else -> null
+                }
                 WearCard {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Outlined.Error, null, tint = c.error, modifier = Modifier.size(28.dp))
@@ -137,6 +150,10 @@ fun PairingScreen(
                         Column {
                             Text(s.pairFailed, style = MaterialTheme.typography.titleMedium, color = c.error)
                             Text(state.message, style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
+                            if (specificTip != null) {
+                                Spacer(Modifier.height(6.dp))
+                                Text(specificTip, style = MaterialTheme.typography.bodySmall, color = c.accent)
+                            }
                         }
                     }
                 }

@@ -7,6 +7,7 @@ import com.wearadb.adb.AdbOutputParser
 import com.wearadb.adb.AdvancedOps
 import com.wearadb.adb.WearAdbConnectionManager
 import com.wearadb.data.model.*
+import com.wearadb.log.WearAdbLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.muntashirakon.adb.AdbStream
 import io.github.muntashirakon.adb.LocalServices
@@ -104,6 +105,7 @@ class AdbRepository @Inject constructor(
     }
 
     fun startDiscovery() {
+        WearAdbLogger.i("AdbRepo", "开始NSD设备发现")
         // 先停掉旧的 NSD 扫描，再重新启动
         try { discoveryListener?.let { nsdManager.stopServiceDiscovery(it) } } catch (_: Exception) {}
         try { pairingListener?.let { nsdManager.stopServiceDiscovery(it) } } catch (_: Exception) {}
@@ -127,6 +129,7 @@ class AdbRepository @Inject constructor(
     }
 
     fun stopDiscovery() {
+        WearAdbLogger.i("AdbRepo", "停止NSD设备发现")
         _isDiscovering.value = false
         try { discoveryListener?.let { nsdManager.stopServiceDiscovery(it) } } catch (_: Exception) {}
         try { pairingListener?.let { nsdManager.stopServiceDiscovery(it) } } catch (_: Exception) {}
@@ -179,29 +182,40 @@ class AdbRepository @Inject constructor(
 
     // ── 配对 ──
     suspend fun pair(host: String, port: Int, code: String): PairingResult = withContext(Dispatchers.IO) {
-        try {
-            android.util.Log.d("AdbRepo", "pair() called: host=$host, port=$port, code=${code.length}chars")
-            _connectionState.value = ConnectionState.AUTHENTICATING
-            manager.setHostAddress(host)
-            android.util.Log.d("AdbRepo", "Calling manager.pair($port, code)...")
-            val success = manager.pair(port, code)
-            android.util.Log.d("AdbRepo", "pair() result: success=$success, returning port=$port (same as input)")
-            _connectionState.value = ConnectionState.DISCONNECTED
-            if (success) {
-                PairingResult(true, host, port, "配对成功")
-            } else {
-                PairingResult(false, host, port, "配对失败")
+        val maxRetries = 3
+        var lastException: Exception? = null
+        WearAdbLogger.i("AdbRepo", "配对开始: host=$host, port=$port")
+        for (attempt in 1..maxRetries) {
+            try {
+                android.util.Log.d("AdbRepo", "pair() attempt $attempt/$maxRetries: host=$host, port=$port, code=${code.length}chars")
+                _connectionState.value = ConnectionState.AUTHENTICATING
+                manager.setHostAddress(host)
+                val success = manager.pair(port, code)
+                android.util.Log.d("AdbRepo", "pair() attempt $attempt result: success=$success")
+                _connectionState.value = ConnectionState.DISCONNECTED
+                if (success) {
+                    WearAdbLogger.i("AdbRepo", "配对成功: host=$host, port=$port")
+                    return@withContext PairingResult(true, host, port, "配对成功")
+                }
+                WearAdbLogger.w("AdbRepo", "配对失败: host=$host, port=$port")
+                return@withContext PairingResult(false, host, port, "配对失败")
+            } catch (e: Exception) {
+                lastException = e
+                android.util.Log.w("AdbRepo", "pair() attempt $attempt/$maxRetries failed: ${e.javaClass.simpleName}: ${e.message}")
+                if (attempt < maxRetries) {
+                    kotlinx.coroutines.delay(500L * attempt)
+                }
             }
-        } catch (e: Exception) {
-            android.util.Log.e("AdbRepo", "pair() exception: ${e.javaClass.simpleName}: ${e.message}", e)
-            _connectionState.value = ConnectionState.ERROR
-            PairingResult(false, host, port, "配对异常: ${e.message}")
         }
+        _connectionState.value = ConnectionState.ERROR
+        WearAdbLogger.e("AdbRepo", "配对异常: ${lastException?.message}", lastException)
+        PairingResult(false, host, port, "配对异常: ${lastException?.message ?: "未知错误"}")
     }
 
     // ── 连接 ──
     suspend fun connect(host: String, port: Int = 55555, useTls: Boolean = false) = withContext(Dispatchers.IO) {
         try {
+            WearAdbLogger.i("AdbRepo", "连接开始: host=$host, port=$port, tls=$useTls")
             android.util.Log.d("AdbRepo", "connect() called: host=$host, port=$port, useTls=$useTls")
             _connectionState.value = ConnectionState.CONNECTING
 
@@ -220,15 +234,29 @@ class AdbRepository @Inject constructor(
                 }
             }
 
-            // TLS 未成功则降级为普通 TCP
+            // TLS 未成功则降级为普通 TCP（最多重试 3 次）
             if (!success) {
-                android.util.Log.d("AdbRepo", "Connecting via TCP to $host:$port ...")
-                success = manager.connect(host, port)
-                android.util.Log.d("AdbRepo", "TCP result: $success")
+                val maxRetries = 3
+                for (attempt in 1..maxRetries) {
+                    try {
+                        android.util.Log.d("AdbRepo", "Connecting via TCP attempt $attempt/$maxRetries to $host:$port ...")
+                        success = manager.connect(host, port)
+                        android.util.Log.d("AdbRepo", "TCP attempt $attempt result: $success")
+                        if (success) break
+                    } catch (e: Exception) {
+                        android.util.Log.w("AdbRepo", "TCP attempt $attempt/$maxRetries failed: ${e.javaClass.simpleName}: ${e.message}")
+                        if (attempt < maxRetries) {
+                            kotlinx.coroutines.delay(500L * attempt)
+                        } else {
+                            throw e
+                        }
+                    }
+                }
             }
 
             android.util.Log.d("AdbRepo", "connect() final success=$success, manager.isConnected=${manager.isConnected}, setting state")
             if (success) {
+                WearAdbLogger.i("AdbRepo", "连接成功: $host:$port")
                 _connectionState.value = ConnectionState.CONNECTED
                 _deviceBanner.value = "Connected to $host:$port"
 
@@ -242,10 +270,12 @@ class AdbRepository @Inject constructor(
                 deviceRepository.saveLastHost(host)
                 deviceRepository.saveLastPort(port)
             } else {
+                WearAdbLogger.w("AdbRepo", "连接失败: $host:$port")
                 android.util.Log.w("AdbRepo", "connect() returned false")
                 _connectionState.value = ConnectionState.ERROR
             }
         } catch (e: Exception) {
+            WearAdbLogger.e("AdbRepo", "连接异常: $host:$port - ${e.message}", e)
             android.util.Log.e("AdbRepo", "connect() exception: ${e.javaClass.simpleName}: ${e.message}", e)
             _connectionState.value = ConnectionState.ERROR
             throw e
@@ -254,20 +284,25 @@ class AdbRepository @Inject constructor(
 
     suspend fun autoConnect() = withContext(Dispatchers.IO) {
         try {
+            WearAdbLogger.i("AdbRepo", "自动连接开始")
             _connectionState.value = ConnectionState.CONNECTING
             val success = manager.autoConnect(appContext, 5000)
             if (success) {
+                WearAdbLogger.i("AdbRepo", "自动连接成功")
                 _connectionState.value = ConnectionState.CONNECTED
                 _deviceBanner.value = "Auto-connected"
             } else {
+                WearAdbLogger.w("AdbRepo", "自动连接失败")
                 _connectionState.value = ConnectionState.ERROR
             }
         } catch (e: Exception) {
+            WearAdbLogger.e("AdbRepo", "自动连接异常: ${e.message}", e)
             _connectionState.value = ConnectionState.ERROR
         }
     }
 
     fun disconnect() {
+        WearAdbLogger.i("AdbRepo", "断开连接")
         try { manager.disconnect() } catch (_: Exception) {}
         _connectionState.value = ConnectionState.DISCONNECTED
         _deviceBanner.value = ""
@@ -487,15 +522,24 @@ class AdbRepository @Inject constructor(
     }
 
     suspend fun uninstallApp(pkg: String): String = withContext(Dispatchers.IO) {
-        runSingleCommand("pm uninstall $pkg")
+        WearAdbLogger.i("AdbRepo", "卸载应用: pkg=$pkg")
+        val result = runSingleCommand("pm uninstall $pkg")
+        WearAdbLogger.i("AdbRepo", "卸载结果: $pkg - $result")
+        result
     }
 
     suspend fun clearAppData(pkg: String): String = withContext(Dispatchers.IO) {
-        runSingleCommand("pm clear $pkg")
+        WearAdbLogger.i("AdbRepo", "清除应用数据: pkg=$pkg")
+        val result = runSingleCommand("pm clear $pkg")
+        WearAdbLogger.i("AdbRepo", "清除数据结果: $pkg - $result")
+        result
     }
 
     suspend fun forceStopApp(pkg: String): String = withContext(Dispatchers.IO) {
-        runSingleCommand("am force-stop $pkg")
+        WearAdbLogger.i("AdbRepo", "强制停止应用: pkg=$pkg")
+        val result = runSingleCommand("am force-stop $pkg")
+        WearAdbLogger.i("AdbRepo", "强制停止结果: $pkg - $result")
+        result
     }
 
     suspend fun disableApp(pkg: String): String = withContext(Dispatchers.IO) {
@@ -514,6 +558,7 @@ class AdbRepository @Inject constructor(
 
     // ── 安装 APK ──
     suspend fun installApk(apkData: ByteArray): String = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("AdbRepo", "安装APK(ByteArray): size=${apkData.size}")
         android.util.Log.d("AdbRepo", "installApk(ByteArray): size=${apkData.size}")
         try {
             val tmpPath = "/data/local/tmp/_wearadb_install_${System.currentTimeMillis()}.apk"
@@ -531,11 +576,15 @@ class AdbRepository @Inject constructor(
             // 4. 返回结果
             val clean = installResult.trim()
             when {
-                clean.contains("Success") -> "安装成功"
+                clean.contains("Success") -> {
+                    WearAdbLogger.i("AdbRepo", "APK安装成功(ByteArray)")
+                    "安装成功"
+                }
                 clean.isEmpty() -> "安装失败: 无响应"
                 else -> "安装失败: $clean"
             }
         } catch (e: Exception) {
+            WearAdbLogger.e("AdbRepo", "APK安装异常(ByteArray): ${e.message}", e)
             android.util.Log.e("AdbRepo", "installApk(ByteArray) exception", e)
             "安装异常: ${e.message}"
         }
@@ -604,6 +653,7 @@ class AdbRepository @Inject constructor(
     }
     // ── 安装 APK（File 版，避免 OOM）──
     suspend fun installApk(apkFile: File): String = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("AdbRepo", "安装APK(File): ${apkFile.name}, size=${apkFile.length()}")
         android.util.Log.d("AdbRepo", "installApk(File): ${apkFile.name}, size=${apkFile.length()}")
         try {
             val tmpPath = "/data/local/tmp/_wearadb_install_${System.currentTimeMillis()}.apk"
@@ -617,11 +667,15 @@ class AdbRepository @Inject constructor(
             runSingleCommand("rm -f $tmpPath", 5000)
             val clean = installResult.trim()
             when {
-                clean.contains("Success") -> "安装成功"
+                clean.contains("Success") -> {
+                    WearAdbLogger.i("AdbRepo", "APK安装成功(File): ${apkFile.name}")
+                    "安装成功"
+                }
                 clean.isEmpty() -> "安装失败: 无响应"
                 else -> "安装失败: $clean"
             }
         } catch (e: Exception) {
+            WearAdbLogger.e("AdbRepo", "APK安装异常(File): ${apkFile.name} - ${e.message}", e)
             android.util.Log.e("AdbRepo", "installApk(File) exception", e)
             "安装异常: ${e.message}"
         }
@@ -778,6 +832,7 @@ class AdbRepository @Inject constructor(
 
     // ── 推送文件（File 版，流式传输，避免 OOM，带重试）──
     suspend fun pushFile(localFile: File, remotePath: String): String = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("AdbRepo", "推送文件: ${localFile.name} -> $remotePath, size=${localFile.length()}")
         android.util.Log.d("AdbRepo", "pushFile(File): ${localFile.name} -> $remotePath, size=${localFile.length()}")
         val maxRetries = 3
         var lastException: Exception? = null
@@ -844,6 +899,7 @@ class AdbRepository @Inject constructor(
                     0x4c494146 -> "推送失败"
                     else -> "推送完成"
                 }
+                WearAdbLogger.i("AdbRepo", "推送文件结果: ${localFile.name} -> $remotePath: $result")
                 android.util.Log.d("AdbRepo", "pushFile(File): $result")
                 return@withContext result
             } catch (e: java.net.ConnectException) {
@@ -851,15 +907,18 @@ class AdbRepository @Inject constructor(
                 android.util.Log.w("AdbRepo", "pushFile(File): attempt $attempt/$maxRetries ConnectException: ${e.message}")
                 if (attempt < maxRetries) kotlinx.coroutines.delay(500L * attempt)
             } catch (e: Exception) {
+                WearAdbLogger.e("AdbRepo", "推送文件异常: ${localFile.name} -> $remotePath: ${e.message}", e)
                 android.util.Log.e("AdbRepo", "pushFile(File): exception: ${e.javaClass.simpleName}: ${e.message}", e)
                 return@withContext "推送异常: ${e.message}"
             }
         }
+        WearAdbLogger.e("AdbRepo", "推送文件全部重试失败: ${localFile.name} -> $remotePath")
         android.util.Log.e("AdbRepo", "pushFile(File): all $maxRetries attempts failed", lastException)
         "推送异常: ${lastException?.message}"
     }
 
     suspend fun listFiles(path: String): List<FileEntry> = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("AdbRepo", "列目录: path=$path")
         val output = runSingleCommand("ls -Lla $path 2>&1")
         android.util.Log.d("AdbRepo", "listFiles($path) output length=${output.length}, first300=${output.take(300)}")
         val result = AdbOutputParser.parseFileListing(output, path)
@@ -868,19 +927,27 @@ class AdbRepository @Inject constructor(
     }
 
     suspend fun deleteFile(path: String): String = withContext(Dispatchers.IO) {
-        runSingleCommand("rm -rf $path")
+        WearAdbLogger.i("AdbRepo", "删除文件: path=$path")
+        val result = runSingleCommand("rm -rf $path")
+        WearAdbLogger.i("AdbRepo", "删除文件结果: $path - $result")
+        result
     }
 
     suspend fun createDirectory(path: String): String = withContext(Dispatchers.IO) {
-        runSingleCommand("mkdir -p $path")
+        WearAdbLogger.i("AdbRepo", "创建目录: path=$path")
+        val result = runSingleCommand("mkdir -p $path")
+        WearAdbLogger.i("AdbRepo", "创建目录结果: $path - $result")
+        result
     }
 
     suspend fun readFile(path: String): String = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("AdbRepo", "读取文件: path=$path")
         runSingleCommand("cat $path")
     }
 
     // ── 文件传输 ──
     suspend fun pushFile(localData: ByteArray, remotePath: String): String = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("AdbRepo", "推送文件(ByteArray): ${localData.size} bytes -> $remotePath")
         android.util.Log.d("AdbRepo", "pushFile(ByteArray): ${localData.size} bytes -> $remotePath")
         try {
             val stream = manager.openStream(LocalServices.SYNC)
@@ -944,6 +1011,7 @@ class AdbRepository @Inject constructor(
     }
 
     suspend fun pullFile(remotePath: String): PullResult = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("AdbRepo", "拉取文件: remotePath=$remotePath")
         android.util.Log.d("AdbRepo", "pullFile: $remotePath")
         try {
             val stream = manager.openStream(LocalServices.SYNC)
@@ -1013,28 +1081,34 @@ class AdbRepository @Inject constructor(
 
             try { stream.close() } catch (_: Exception) {}
 
-            if (failed) PullResult(false, null, failMsg)
-            else PullResult(true, buffer.toByteArray(), "拉取成功: $remotePath")
+            if (failed) {
+                WearAdbLogger.w("AdbRepo", "拉取文件失败: $remotePath - $failMsg")
+                PullResult(false, null, failMsg)
+            } else {
+                WearAdbLogger.i("AdbRepo", "拉取文件成功: $remotePath, size=${buffer.size()}")
+                PullResult(true, buffer.toByteArray(), "拉取成功: $remotePath")
+            }
         } catch (e: Exception) {
+            WearAdbLogger.e("AdbRepo", "拉取文件异常: $remotePath - ${e.message}", e)
             PullResult(false, null, "拉取异常: ${e.message}")
         }
     }
 
     // ── 高级操作 ──
-    suspend fun reboot() = withContext(Dispatchers.IO) { runSingleCommand("reboot") }
-    suspend fun rebootRecovery() = withContext(Dispatchers.IO) { runSingleCommand("reboot recovery") }
-    suspend fun rebootBootloader() = withContext(Dispatchers.IO) { runSingleCommand("reboot bootloader") }
-    suspend fun shutdown() = withContext(Dispatchers.IO) { runSingleCommand("reboot -p") }
-    suspend fun screenshot(): ByteArray? = withContext(Dispatchers.IO) { AdvancedOps.screenshot(manager) }
+    suspend fun reboot() = withContext(Dispatchers.IO) { WearAdbLogger.i("AdbRepo", "重启设备"); runSingleCommand("reboot") }
+    suspend fun rebootRecovery() = withContext(Dispatchers.IO) { WearAdbLogger.i("AdbRepo", "重启到Recovery"); runSingleCommand("reboot recovery") }
+    suspend fun rebootBootloader() = withContext(Dispatchers.IO) { WearAdbLogger.i("AdbRepo", "重启到Bootloader"); runSingleCommand("reboot bootloader") }
+    suspend fun shutdown() = withContext(Dispatchers.IO) { WearAdbLogger.i("AdbRepo", "关机"); runSingleCommand("reboot -p") }
+    suspend fun screenshot(): ByteArray? = withContext(Dispatchers.IO) { WearAdbLogger.i("AdbRepo", "截屏"); AdvancedOps.screenshot(manager) }
     suspend fun tap(x: Int, y: Int) = withContext(Dispatchers.IO) { runSingleCommand("input tap $x $y") }
     suspend fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, dur: Int = 300) = withContext(Dispatchers.IO) {
         runSingleCommand("input swipe $x1 $y1 $x2 $y2 $dur")
     }
     suspend fun keyEvent(code: Int) = withContext(Dispatchers.IO) { runSingleCommand("input keyevent $code") }
-    suspend fun enableWifi() = withContext(Dispatchers.IO) { runSingleCommand("svc wifi enable") }
-    suspend fun disableWifi() = withContext(Dispatchers.IO) { runSingleCommand("svc wifi disable") }
-    suspend fun enableBluetooth() = withContext(Dispatchers.IO) { runSingleCommand("svc bluetooth enable") }
-    suspend fun disableBluetooth() = withContext(Dispatchers.IO) { runSingleCommand("svc bluetooth disable") }
+    suspend fun enableWifi() = withContext(Dispatchers.IO) { WearAdbLogger.i("AdbRepo", "开启WiFi"); runSingleCommand("svc wifi enable") }
+    suspend fun disableWifi() = withContext(Dispatchers.IO) { WearAdbLogger.i("AdbRepo", "关闭WiFi"); runSingleCommand("svc wifi disable") }
+    suspend fun enableBluetooth() = withContext(Dispatchers.IO) { WearAdbLogger.i("AdbRepo", "开启蓝牙"); runSingleCommand("svc bluetooth enable") }
+    suspend fun disableBluetooth() = withContext(Dispatchers.IO) { WearAdbLogger.i("AdbRepo", "关闭蓝牙"); runSingleCommand("svc bluetooth disable") }
     suspend fun volumeUp() = withContext(Dispatchers.IO) { runSingleCommand("input keyevent 24") }
     suspend fun volumeDown() = withContext(Dispatchers.IO) { runSingleCommand("input keyevent 25") }
     suspend fun volumeMute() = withContext(Dispatchers.IO) { runSingleCommand("input keyevent 164") }
@@ -1044,6 +1118,7 @@ class AdbRepository @Inject constructor(
 
     // ── 交互式 Shell ──
     suspend fun openShell(command: String = ""): AdbStream = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("AdbRepo", "打开Shell: command=${command.take(100)}")
         if (command.isEmpty()) manager.openStream(LocalServices.SHELL)
         else manager.openStream(LocalServices.SHELL, command)
     }

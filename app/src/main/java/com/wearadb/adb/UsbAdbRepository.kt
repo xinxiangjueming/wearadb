@@ -1,6 +1,7 @@
 package com.wearadb.adb
 
 import android.content.Context
+import com.wearadb.log.WearAdbLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -89,15 +90,18 @@ class UsbAdbRepository @Inject constructor(
     // ── Connection ──
 
     suspend fun connect(deviceInfo: UsbAdbDeviceInfo): Boolean = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("UsbAdb", "USB连接: ${deviceInfo.displayName}")
         synchronized(logLines) { logLines.clear(); _connectLog.value = "" }
         _connectionState.value = UsbAdbConnectionState.CONNECTING
 
         val mgr = awaitManager()
         val success = mgr.connect(deviceInfo)
         if (success) {
+            WearAdbLogger.i("UsbAdb", "USB连接成功: ${deviceInfo.displayName}")
             _connectionState.value = UsbAdbConnectionState.CONNECTED
             _connectedDevice.value = deviceInfo
         } else {
+            WearAdbLogger.w("UsbAdb", "USB连接失败: ${deviceInfo.displayName}")
             _connectionState.value = UsbAdbConnectionState.ERROR
             _connectedDevice.value = null
         }
@@ -105,6 +109,7 @@ class UsbAdbRepository @Inject constructor(
     }
 
     suspend fun disconnect() {
+        WearAdbLogger.i("UsbAdb", "USB断开连接")
         try {
             awaitManager().disconnect()
         } catch (_: Exception) {}
@@ -265,6 +270,7 @@ class UsbAdbRepository @Inject constructor(
     // ── 文件推送 ──
 
     suspend fun pushFile(localFile: File, remotePath: String): String = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("UsbAdb", "USB推送文件: ${localFile.name} -> $remotePath, size=${localFile.length()}")
         android.util.Log.d(TAG, "pushFile: ${localFile.name} (${localFile.length()} bytes) -> $remotePath")
         val conn = awaitManager().getConnection() ?: return@withContext "未连接"
         try {
@@ -336,6 +342,7 @@ class UsbAdbRepository @Inject constructor(
     // ── 安装 APK ──
 
     suspend fun installApk(apkData: ByteArray): String = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("UsbAdb", "USB安装APK(ByteArray): size=${apkData.size}")
         android.util.Log.d(TAG, "installApk(ByteArray): size=${apkData.size}")
         try {
             val tmpPath = "/data/local/tmp/_wearadb_install_${System.currentTimeMillis()}.apk"
@@ -364,6 +371,7 @@ class UsbAdbRepository @Inject constructor(
     }
 
     suspend fun installApk(apkFile: File): String = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("UsbAdb", "USB安装APK(File): ${apkFile.name}, size=${apkFile.length()}")
         android.util.Log.d(TAG, "installApk: ${apkFile.name}, size=${apkFile.length()}")
         try {
             val tmpPath = "/data/local/tmp/_wearadb_install_${System.currentTimeMillis()}.apk"
@@ -408,6 +416,7 @@ class UsbAdbRepository @Inject constructor(
     }
 
     suspend fun pullFile(remotePath: String): Pair<Boolean, ByteArray?> = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("UsbAdb", "USB拉取文件: remotePath=$remotePath")
         android.util.Log.d(TAG, "pullFile: $remotePath")
         val conn = awaitManager().getConnection() ?: return@withContext false to null
         try {
