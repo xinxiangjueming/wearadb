@@ -141,7 +141,13 @@ class ConnectionViewModel @Inject constructor(
 
     // ── Connection ──
     fun connect(host: String, port: Int = 55555, useTls: Boolean = false) {
-        android.util.Log.d("VM", "connect() START host=$host port=$port useTls=$useTls current=${connectionState.value}")
+        // 防止 UI 快速点击产生并发连接
+        val current = connectionState.value
+        if (current == ConnectionState.CONNECTING || current == ConnectionState.CONNECTED) {
+            android.util.Log.w("VM", "connect() skipped: state=$current")
+            return
+        }
+        android.util.Log.d("VM", "connect() START host=$host port=$port useTls=$useTls current=$current")
         pendingConnectRequest = true
         viewModelScope.launch {
             try {

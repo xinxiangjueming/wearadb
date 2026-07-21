@@ -11,11 +11,14 @@ import com.wearadb.log.WearAdbLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.muntashirakon.adb.AdbStream
 import io.github.muntashirakon.adb.LocalServices
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.File
@@ -24,6 +27,7 @@ import java.io.InputStreamReader
 import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.random.Random
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -102,7 +106,17 @@ class AdbRepository @Inject constructor(
     companion object {
         private const val SERVICE_TYPE_CONNECT = "_adb-tls-connect._tcp."
         private const val SERVICE_TYPE_PAIRING = "_adb-tls-pairing._tcp."
+
+        /** 指数退避：baseMs * 2^attempt + jitter */
+        private fun exponentialBackoff(attempt: Int, baseMs: Long = 500L, maxMs: Long = 10_000L): Long {
+            val exp = baseMs * (1L shl (attempt - 1))
+            val jitter = Random.nextLong(0, exp / 4 + 1)
+            return (exp + jitter).coerceAtMost(maxMs)
+        }
     }
+
+    // ── 连接互斥锁，防止并发 connect 调用产生连接风暴 ──
+    private val connectMutex = Mutex()
 
     fun startDiscovery() {
         WearAdbLogger.i("AdbRepo", "开始NSD设备发现")
@@ -199,11 +213,15 @@ class AdbRepository @Inject constructor(
                 }
                 WearAdbLogger.w("AdbRepo", "配对失败: host=$host, port=$port")
                 return@withContext PairingResult(false, host, port, "配对失败")
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 lastException = e
                 android.util.Log.w("AdbRepo", "pair() attempt $attempt/$maxRetries failed: ${e.javaClass.simpleName}: ${e.message}")
                 if (attempt < maxRetries) {
-                    kotlinx.coroutines.delay(500L * attempt)
+                    val backoff = exponentialBackoff(attempt)
+                    android.util.Log.d("AdbRepo", "pair() retry waiting ${backoff}ms")
+                    kotlinx.coroutines.delay(backoff)
                 }
             }
         }
@@ -214,71 +232,89 @@ class AdbRepository @Inject constructor(
 
     // ── 连接 ──
     suspend fun connect(host: String, port: Int = 55555, useTls: Boolean = false) = withContext(Dispatchers.IO) {
-        try {
-            WearAdbLogger.i("AdbRepo", "连接开始: host=$host, port=$port, tls=$useTls")
-            android.util.Log.d("AdbRepo", "connect() called: host=$host, port=$port, useTls=$useTls")
-            _connectionState.value = ConnectionState.CONNECTING
-
-            var success = false
-
-            // 尝试 TLS 连接
-            if (useTls) {
-                try {
-                    android.util.Log.d("AdbRepo", "Connecting via TLS... host=$host")
-                    manager.setHostAddress(host)
-                    success = manager.connectTls(appContext, 5000)
-                    android.util.Log.d("AdbRepo", "TLS result: $success")
-                } catch (e: Exception) {
-                    android.util.Log.w("AdbRepo", "TLS exception: ${e.javaClass.simpleName}: ${e.message}")
-                    success = false
-                }
+        // 互斥锁：防止并发连接请求堆叠产生连接风暴
+        connectMutex.withLock {
+            // 如果已经在连接或已连接，直接跳过
+            if (_connectionState.value == ConnectionState.CONNECTING) {
+                android.util.Log.w("AdbRepo", "connect() skipped: already CONNECTING to another target")
+                return@withContext
+            }
+            if (_connectionState.value == ConnectionState.CONNECTED && manager.isConnected) {
+                android.util.Log.w("AdbRepo", "connect() skipped: already CONNECTED")
+                return@withContext
             }
 
-            // TLS 未成功则降级为普通 TCP（最多重试 3 次）
-            if (!success) {
-                val maxRetries = 3
-                for (attempt in 1..maxRetries) {
+            try {
+                WearAdbLogger.i("AdbRepo", "连接开始: host=$host, port=$port, tls=$useTls")
+                android.util.Log.d("AdbRepo", "connect() called: host=$host, port=$port, useTls=$useTls")
+                _connectionState.value = ConnectionState.CONNECTING
+
+                var success = false
+
+                // 尝试 TLS 连接
+                if (useTls) {
                     try {
-                        android.util.Log.d("AdbRepo", "Connecting via TCP attempt $attempt/$maxRetries to $host:$port ...")
-                        success = manager.connect(host, port)
-                        android.util.Log.d("AdbRepo", "TCP attempt $attempt result: $success")
-                        if (success) break
+                        android.util.Log.d("AdbRepo", "Connecting via TLS... host=$host")
+                        manager.setHostAddress(host)
+                        success = manager.connectTls(appContext, 5000)
+                        android.util.Log.d("AdbRepo", "TLS result: $success")
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
-                        android.util.Log.w("AdbRepo", "TCP attempt $attempt/$maxRetries failed: ${e.javaClass.simpleName}: ${e.message}")
-                        if (attempt < maxRetries) {
-                            kotlinx.coroutines.delay(500L * attempt)
-                        } else {
+                        android.util.Log.w("AdbRepo", "TLS exception: ${e.javaClass.simpleName}: ${e.message}")
+                        success = false
+                    }
+                }
+
+                // TLS 未成功则降级为普通 TCP（最多重试 3 次，指数退避）
+                if (!success) {
+                    val maxRetries = 3
+                    for (attempt in 1..maxRetries) {
+                        try {
+                            android.util.Log.d("AdbRepo", "Connecting via TCP attempt $attempt/$maxRetries to $host:$port ...")
+                            success = manager.connect(host, port)
+                            android.util.Log.d("AdbRepo", "TCP attempt $attempt result: $success")
+                            if (success) break
+                        } catch (e: CancellationException) {
                             throw e
+                        } catch (e: Exception) {
+                            android.util.Log.w("AdbRepo", "TCP attempt $attempt/$maxRetries failed: ${e.javaClass.simpleName}: ${e.message}")
+                            if (attempt < maxRetries) {
+                                val backoff = exponentialBackoff(attempt)
+                                android.util.Log.d("AdbRepo", "TCP retry waiting ${backoff}ms")
+                                kotlinx.coroutines.delay(backoff)
+                            }
                         }
                     }
                 }
-            }
 
-            android.util.Log.d("AdbRepo", "connect() final success=$success, manager.isConnected=${manager.isConnected}, setting state")
-            if (success) {
-                WearAdbLogger.i("AdbRepo", "连接成功: $host:$port")
-                _connectionState.value = ConnectionState.CONNECTED
-                _deviceBanner.value = "Connected to $host:$port"
+                android.util.Log.d("AdbRepo", "connect() final success=$success, manager.isConnected=${manager.isConnected}, setting state")
+                if (success) {
+                    WearAdbLogger.i("AdbRepo", "连接成功: $host:$port")
+                    _connectionState.value = ConnectionState.CONNECTED
+                    _deviceBanner.value = "Connected to $host:$port"
 
-                deviceRepository.saveDevice(
-                    SavedDevice(
-                        host = host,
-                        name = _deviceBanner.value,
-                        lastConnected = System.currentTimeMillis()
+                    deviceRepository.saveDevice(
+                        SavedDevice(
+                            host = host,
+                            name = _deviceBanner.value,
+                            lastConnected = System.currentTimeMillis()
+                        )
                     )
-                )
-                deviceRepository.saveLastHost(host)
-                deviceRepository.saveLastPort(port)
-            } else {
-                WearAdbLogger.w("AdbRepo", "连接失败: $host:$port")
-                android.util.Log.w("AdbRepo", "connect() returned false")
+                    deviceRepository.saveLastHost(host)
+                    deviceRepository.saveLastPort(port)
+                } else {
+                    WearAdbLogger.w("AdbRepo", "连接失败: $host:$port")
+                    android.util.Log.w("AdbRepo", "connect() returned false")
+                    _connectionState.value = ConnectionState.ERROR
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                WearAdbLogger.e("AdbRepo", "连接异常: $host:$port - ${e.message}", e)
+                android.util.Log.e("AdbRepo", "connect() exception: ${e.javaClass.simpleName}: ${e.message}", e)
                 _connectionState.value = ConnectionState.ERROR
             }
-        } catch (e: Exception) {
-            WearAdbLogger.e("AdbRepo", "连接异常: $host:$port - ${e.message}", e)
-            android.util.Log.e("AdbRepo", "connect() exception: ${e.javaClass.simpleName}: ${e.message}", e)
-            _connectionState.value = ConnectionState.ERROR
-            throw e
         }
     }
 
@@ -369,11 +405,15 @@ class AdbRepository @Inject constructor(
 
                     android.util.Log.d("AdbRepo", "runSingleCommand: done, chars=${output.length}")
                     return@withContext output.trim()
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: java.net.ConnectException) {
                     lastException = e
                     android.util.Log.w("AdbRepo", "runSingleCommand: attempt $attempt/$maxRetries failed: ${e.message}")
                     if (attempt < maxRetries) {
-                        kotlinx.coroutines.delay(500L * attempt) // 递增等待
+                        val backoff = exponentialBackoff(attempt)
+                        android.util.Log.d("AdbRepo", "runSingleCommand retry waiting ${backoff}ms")
+                        kotlinx.coroutines.delay(backoff)
                     }
                 } catch (e: Exception) {
                     android.util.Log.e("AdbRepo", "runSingleCommand exception: ${e.message}", e)
@@ -902,10 +942,16 @@ class AdbRepository @Inject constructor(
                 WearAdbLogger.i("AdbRepo", "推送文件结果: ${localFile.name} -> $remotePath: $result")
                 android.util.Log.d("AdbRepo", "pushFile(File): $result")
                 return@withContext result
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: java.net.ConnectException) {
                 lastException = e
                 android.util.Log.w("AdbRepo", "pushFile(File): attempt $attempt/$maxRetries ConnectException: ${e.message}")
-                if (attempt < maxRetries) kotlinx.coroutines.delay(500L * attempt)
+                if (attempt < maxRetries) {
+                    val backoff = exponentialBackoff(attempt)
+                    android.util.Log.d("AdbRepo", "pushFile(File) retry waiting ${backoff}ms")
+                    kotlinx.coroutines.delay(backoff)
+                }
             } catch (e: Exception) {
                 WearAdbLogger.e("AdbRepo", "推送文件异常: ${localFile.name} -> $remotePath: ${e.message}", e)
                 android.util.Log.e("AdbRepo", "pushFile(File): exception: ${e.javaClass.simpleName}: ${e.message}", e)
