@@ -3,6 +3,8 @@ package com.wearadb.data.repository
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.net.wifi.WifiManager
+import android.os.PowerManager
 import com.wearadb.adb.AdbOutputParser
 import com.wearadb.adb.AdvancedOps
 import com.wearadb.adb.WearAdbConnectionManager
@@ -12,14 +14,21 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.muntashirakon.adb.AdbStream
 import io.github.muntashirakon.adb.LocalServices
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.io.BufferedReader
 import java.io.File
 import java.io.IOException
@@ -107,6 +116,12 @@ class AdbRepository @Inject constructor(
         private const val SERVICE_TYPE_CONNECT = "_adb-tls-connect._tcp."
         private const val SERVICE_TYPE_PAIRING = "_adb-tls-pairing._tcp."
 
+        /** 心跳间隔与超时：空闲连接不保活会被 Wi-Fi 省电/NAT 静默掐断 */
+        private const val HEARTBEAT_INTERVAL_MS = 20_000L
+        private const val HEARTBEAT_TIMEOUT_MS = 5_000L
+        private const val HEARTBEAT_MAX_FAILURES = 2
+        private const val MAX_RECONNECT_ATTEMPTS = 6
+
         /** 指数退避：baseMs * 2^attempt + jitter */
         private fun exponentialBackoff(attempt: Int, baseMs: Long = 500L, maxMs: Long = 10_000L): Long {
             val exp = baseMs * (1L shl (attempt - 1))
@@ -117,6 +132,19 @@ class AdbRepository @Inject constructor(
 
     // ── 连接互斥锁，防止并发 connect 调用产生连接风暴 ──
     private val connectMutex = Mutex()
+
+    // ── 保活与自动重连 ──
+    private val repoScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var monitorJob: Job? = null
+    private var reconnectJob: Job? = null
+
+    @Volatile private var userRequestedDisconnect = false
+    @Volatile private var lastConnectedHost: String? = null
+    @Volatile private var lastConnectedPort = 0
+    @Volatile private var lastConnectedUseTls = false
+
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
 
     fun startDiscovery() {
         WearAdbLogger.i("AdbRepo", "开始NSD设备发现")
@@ -294,6 +322,14 @@ class AdbRepository @Inject constructor(
                     _connectionState.value = ConnectionState.CONNECTED
                     _deviceBanner.value = "Connected to $host:$port"
 
+                    // 记录连接参数供自动重连使用，并启动心跳保活
+                    lastConnectedHost = host
+                    lastConnectedPort = port
+                    lastConnectedUseTls = useTls
+                    userRequestedDisconnect = false
+                    acquireKeepAliveLocks()
+                    startHeartbeatMonitor()
+
                     deviceRepository.saveDevice(
                         SavedDevice(
                             host = host,
@@ -339,9 +375,127 @@ class AdbRepository @Inject constructor(
 
     fun disconnect() {
         WearAdbLogger.i("AdbRepo", "断开连接")
+        // 用户主动断开：停止心跳与自动重连
+        userRequestedDisconnect = true
+        monitorJob?.cancel()
+        monitorJob = null
+        reconnectJob?.cancel()
+        reconnectJob = null
+        releaseKeepAliveLocks()
         try { manager.disconnect() } catch (_: Exception) {}
         _connectionState.value = ConnectionState.DISCONNECTED
         _deviceBanner.value = ""
+    }
+
+    /**
+     * 心跳监控：定期用一条轻量 exec 流做往返探测。
+     * 库内部 socket 没开 TCP keepalive，空闲连接会被 Wi-Fi 省电/NAT 静默丢弃，
+     * 且库的 openStream 在无响应时会无限期阻塞，因此探测包用 runInterruptible + withTimeout 兜底。
+     */
+    private fun startHeartbeatMonitor() {
+        monitorJob?.cancel()
+        monitorJob = repoScope.launch {
+            var failures = 0
+            while (isActive) {
+                kotlinx.coroutines.delay(HEARTBEAT_INTERVAL_MS)
+                if (userRequestedDisconnect) return@launch
+                if (_connectionState.value != ConnectionState.CONNECTED) return@launch
+
+                // 库的连接线程已退出（mConnectionEstablished=false）→ 连接必然已断
+                val conn = manager.getAdbConnection()
+                if (conn == null || !conn.isConnectionEstablished) {
+                    WearAdbLogger.w("AdbRepo", "心跳检测: 连接已失效 (connectionEstablished=${conn?.isConnectionEstablished})")
+                    handleConnectionLost()
+                    return@launch
+                }
+
+                // 应用层心跳：OPEN→OKAY 往返确认链路可用
+                try {
+                    withTimeout(HEARTBEAT_TIMEOUT_MS) {
+                        runInterruptible(Dispatchers.IO) {
+                            val stream = manager.openStream("exec:echo wearadb-heartbeat")
+                            try { stream.close() } catch (_: Exception) {}
+                        }
+                    }
+                    failures = 0
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    failures++
+                    WearAdbLogger.w("AdbRepo", "心跳失败 $failures/$HEARTBEAT_MAX_FAILURES: ${e.javaClass.simpleName}: ${e.message}")
+                    if (failures >= HEARTBEAT_MAX_FAILURES) {
+                        handleConnectionLost()
+                        return@launch
+                    }
+                }
+            }
+        }
+    }
+
+    /** 连接失效的统一入口：只允许从 CONNECTED 状态触发一次，避免心跳与命令线程重复触发 */
+    private fun handleConnectionLost() {
+        synchronized(this) {
+            if (_connectionState.value != ConnectionState.CONNECTED) return
+            WearAdbLogger.w("AdbRepo", "检测到连接断开")
+            releaseKeepAliveLocks()
+            try { manager.disconnect() } catch (_: Exception) {}
+            _connectionState.value = ConnectionState.DISCONNECTED
+            _deviceBanner.value = ""
+        }
+        if (!userRequestedDisconnect && lastConnectedHost != null && lastConnectedPort > 0) {
+            scheduleReconnect()
+        }
+    }
+
+    /** 断线自动重连：指数退避重试最近一次成功的连接参数 */
+    private fun scheduleReconnect() {
+        reconnectJob?.cancel()
+        val host = lastConnectedHost ?: return
+        val port = lastConnectedPort
+        val useTls = lastConnectedUseTls
+        reconnectJob = repoScope.launch {
+            for (attempt in 1..MAX_RECONNECT_ATTEMPTS) {
+                if (userRequestedDisconnect) return@launch
+                val backoff = exponentialBackoff(attempt, baseMs = 1_000L, maxMs = 15_000L)
+                WearAdbLogger.i("AdbRepo", "自动重连 $attempt/$MAX_RECONNECT_ATTEMPTS: $host:$port, ${backoff}ms 后重试")
+                kotlinx.coroutines.delay(backoff)
+                if (userRequestedDisconnect || _connectionState.value == ConnectionState.CONNECTED) return@launch
+                connect(host, port, useTls)
+                if (_connectionState.value == ConnectionState.CONNECTED) {
+                    WearAdbLogger.i("AdbRepo", "自动重连成功: $host:$port")
+                    return@launch
+                }
+            }
+            WearAdbLogger.w("AdbRepo", "自动重连 $MAX_RECONNECT_ATTEMPTS 次后放弃，等待用户手动连接")
+        }
+    }
+
+    /** 连接期间持有 WakeLock/WifiLock，防止控制器端息屏进 Doze 后网络被冻结 */
+    @Suppress("DEPRECATION")
+    private fun acquireKeepAliveLocks() {
+        try {
+            val pm = appContext.getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (wakeLock == null) {
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "wearadb:adb-conn").apply {
+                    setReferenceCounted(false)
+                }
+            }
+            wakeLock?.acquire()
+            val wm = appContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            if (wifiLock == null) {
+                wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "wearadb:adb-wifi").apply {
+                    setReferenceCounted(false)
+                }
+            }
+            wifiLock?.acquire()
+        } catch (e: Exception) {
+            WearAdbLogger.w("AdbRepo", "获取保活锁失败: ${e.message}")
+        }
+    }
+
+    private fun releaseKeepAliveLocks() {
+        try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
+        try { if (wifiLock?.isHeld == true) wifiLock?.release() } catch (_: Exception) {}
     }
 
     fun isConnected(): Boolean = manager.isConnected
@@ -407,9 +561,16 @@ class AdbRepository @Inject constructor(
                     return@withContext output.trim()
                 } catch (e: CancellationException) {
                     throw e
-                } catch (e: java.net.ConnectException) {
+                } catch (e: IOException) {
                     lastException = e
                     android.util.Log.w("AdbRepo", "runSingleCommand: attempt $attempt/$maxRetries failed: ${e.message}")
+                    // 连接已失效（SocketException/Broken pipe 等）→ 标记断开并触发自动重连，不再空转重试
+                    val conn = manager.getAdbConnection()
+                    if (conn == null || !conn.isConnectionEstablished) {
+                        android.util.Log.w("AdbRepo", "runSingleCommand: connection lost, triggering reconnect")
+                        handleConnectionLost()
+                        return@withContext ""
+                    }
                     if (attempt < maxRetries) {
                         val backoff = exponentialBackoff(attempt)
                         android.util.Log.d("AdbRepo", "runSingleCommand retry waiting ${backoff}ms")

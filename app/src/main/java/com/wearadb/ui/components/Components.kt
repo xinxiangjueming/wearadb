@@ -239,7 +239,8 @@ fun WearSnackbarHost(
                 shape = RoundedCornerShape(cr),
                 containerColor = c.surfaceVariant,
                 contentColor = c.onSurface,
-                actionColor = c.accent
+                actionColor = c.accent,
+                modifier = Modifier.border(1.dp, c.toastBorder, RoundedCornerShape(cr))
             )
         }
     )

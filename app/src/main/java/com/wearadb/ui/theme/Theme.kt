@@ -45,6 +45,9 @@ data class WearAdbColors(
     val outlineVariant: Color,
     val border: Color,
 
+    // Toast / Snackbar 边框：深色模式浅白色，浅色模式浅黑色
+    val toastBorder: Color,
+
     // Button
     val buttonPrimary: Color,
     val buttonPrimaryText: Color,
@@ -108,6 +111,7 @@ private val LightColors = WearAdbColors(
     outline            = Gray300,
     outlineVariant     = Gray150,
     border             = Gray150,
+    toastBorder        = Color(0x40000000),
     buttonPrimary      = AccentDark,
     buttonPrimaryText  = Gray50,
     buttonSecondary    = Gray150,
@@ -158,6 +162,7 @@ private val DarkColors = WearAdbColors(
     outline            = Gray700,
     outlineVariant     = Gray800,
     border             = Gray800,
+    toastBorder        = Color(0x59FFFFFF),
     buttonPrimary      = Accent,
     buttonPrimaryText  = Gray900,
     buttonSecondary    = Gray800,

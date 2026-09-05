@@ -58,3 +58,6 @@ Thumbs.db
 # ====== 其他 ======
 *.log
 /tmp/
+/小白条检查报告.html
+/app/src/main/java/com/wearadb/.workbuddy/memory/2026-08-14.md
+/app/src/main/java/com/wearadb/.workbuddy/memory/2026-09-05.md

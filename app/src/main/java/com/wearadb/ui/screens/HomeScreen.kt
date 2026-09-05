@@ -45,7 +45,6 @@ fun HomeScreen(
     val deviceBanner by viewModel.deviceBanner.collectAsState()
     val devices by viewModel.devices.collectAsState(initial = emptyList())
     val lastHost by viewModel.lastHost.collectAsState()
-    val lastPort by viewModel.lastPort.collectAsState()
     val showBluetoothDialog by viewModel.showBluetoothDialog.collectAsState()
 
     val expanded = useDualPane()
@@ -56,7 +55,8 @@ fun HomeScreen(
     val navBarPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     var hostInput by remember(lastHost) { mutableStateOf(lastHost) }
-    var portInput by remember(lastPort) { mutableStateOf(if (lastPort > 0) lastPort.toString() else "") }
+    // 端口每次连接可能不同，不预填历史端口，由用户手动输入
+    var portInput by remember { mutableStateOf("") }
     val isConnecting by remember(connectionState) {
         derivedStateOf { connectionState == ConnectionState.CONNECTING || connectionState == ConnectionState.AUTHENTICATING }
     }
@@ -88,7 +88,7 @@ fun HomeScreen(
                             Text(s.homeSubtitle, style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant)
                         }
                     }
-                    item { WirelessConnectionCard(connectionState, isConnecting, isConnected, deviceBanner, hostInput, portInput, lastHost, lastPort, onHostChange = { hostInput = it }, onPortChange = { portInput = it }, onConnect = { viewModel.connect(hostInput.trim(), portInput.toIntOrNull() ?: 55555) }, onDisconnect = { viewModel.disconnect() }, onNavigateToDiscovery, onNavigateToPairing) }
+                    item { WirelessConnectionCard(connectionState, isConnecting, isConnected, deviceBanner, hostInput, portInput, lastHost, onHostChange = { hostInput = it }, onPortChange = { portInput = it }, onConnect = { viewModel.connect(hostInput.trim(), portInput.toIntOrNull() ?: 55555) }, onDisconnect = { viewModel.disconnect() }, onNavigateToDiscovery, onNavigateToPairing) }
                     if (isConnected) {
                         item { SectionHeader(s.sectionTools) }
                         item {
@@ -112,9 +112,9 @@ fun HomeScreen(
                         items(items = devices, key = { it.address }) { device ->
                             DeviceCard(
                                 device = device,
-                                onConnect = {
+                                onSelect = {
                                     hostInput = device.host
-                                    viewModel.connect(device.host, portInput.toIntOrNull() ?: 55555)
+                                    portInput = ""
                                 },
                                 onToggleFavorite = { viewModel.toggleFavorite(device.address) },
                                 onRemove = { viewModel.removeDevice(device.address) }
@@ -164,7 +164,7 @@ fun HomeScreen(
                         Text(s.homeSubtitle, style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant)
                     }
                 }
-                item { WirelessConnectionCard(connectionState, isConnecting, isConnected, deviceBanner, hostInput, portInput, lastHost, lastPort, onHostChange = { hostInput = it }, onPortChange = { portInput = it }, onConnect = { viewModel.connect(hostInput.trim(), portInput.toIntOrNull() ?: 55555) }, onDisconnect = { viewModel.disconnect() }, onNavigateToDiscovery, onNavigateToPairing) }
+                item { WirelessConnectionCard(connectionState, isConnecting, isConnected, deviceBanner, hostInput, portInput, lastHost, onHostChange = { hostInput = it }, onPortChange = { portInput = it }, onConnect = { viewModel.connect(hostInput.trim(), portInput.toIntOrNull() ?: 55555) }, onDisconnect = { viewModel.disconnect() }, onNavigateToDiscovery, onNavigateToPairing) }
                 if (isConnected) {
                     item { SectionHeader(s.sectionTools) }
                     item {
@@ -201,9 +201,9 @@ fun HomeScreen(
                     items(items = devices, key = { it.address }) { device ->
                         DeviceCard(
                             device = device,
-                            onConnect = {
+                            onSelect = {
                                 hostInput = device.host
-                                viewModel.connect(device.host, portInput.toIntOrNull() ?: 55555)
+                                portInput = ""
                             },
                             onToggleFavorite = { viewModel.toggleFavorite(device.address) },
                             onRemove = { viewModel.removeDevice(device.address) }
@@ -238,7 +238,6 @@ private fun WirelessConnectionCard(
     hostInput: String,
     portInput: String,
     lastHost: String,
-    lastPort: Int,
     onHostChange: (String) -> Unit,
     onPortChange: (String) -> Unit,
     onConnect: () -> Unit,
@@ -355,13 +354,13 @@ private fun FeatureCard(
 @Composable
 private fun DeviceCard(
     device: SavedDevice,
-    onConnect: () -> Unit,
+    onSelect: () -> Unit,
     onToggleFavorite: () -> Unit,
     onRemove: () -> Unit
 ) {
     val c = WearAdbTheme.colors
     val s = LocalStrings.current
-    WearCard(onClick = onConnect) {
+    WearCard(onClick = onSelect) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(device.displayName, style = MaterialTheme.typography.titleMedium, color = c.onSurface)

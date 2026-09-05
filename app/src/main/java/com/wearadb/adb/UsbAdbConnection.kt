@@ -97,7 +97,9 @@ class UsbAdbConnection(
                 val token = authMsg.data
                 log("AUTH TOKEN (${token.size} bytes), 签名中...")
 
-                val signature = Signature.getInstance("SHA256withRSA")
+                // adbd 用 SHA-1 (RSA_sign/NID_sha1) 校验签名，必须用 SHA1withRSA；
+                // 用 SHA256 会被永远拒绝，即使设备已保存本公钥也会重新弹授权
+                val signature = Signature.getInstance("SHA1withRSA")
                 signature.initSign(privateKey)
                 signature.update(token)
                 val signedToken = signature.sign()
@@ -138,7 +140,11 @@ class UsbAdbConnection(
     }
 
     private fun sendPublicKey(): Boolean {
-        val pubKeyBytes = certificate.publicKey.encoded
+        // adbd 期望的格式是 base64(Android RSAPublicKey 结构体) + " " + 设备名 + "\0"，
+        // 不能直接发 X.509 SPKI DER (publicKey.encoded)，否则设备存不下可用密钥，
+        // 导致每次连接都重新弹授权
+        val rsaPub = certificate.publicKey as java.security.interfaces.RSAPublicKey
+        val pubKeyBytes = AndroidPubkeyCodec.encodeWithName(rsaPub, deviceName)
         sendMessage(UsbAdbProtocol.authPublicKey(pubKeyBytes))
         log(">>> AUTH PUBLIC_KEY (${pubKeyBytes.size} bytes)")
 
