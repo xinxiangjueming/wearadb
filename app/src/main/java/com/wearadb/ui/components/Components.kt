@@ -233,7 +233,8 @@ fun WearSnackbarHost(
     val cr = WearAdbTheme.shape.cornerRadius
     SnackbarHost(
         hostState = snackbarHostState,
-        modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        // 底部 8dp + 额外 15dp：整体上移 15dp，避免贴到屏幕底部导航/手势区
+        modifier = modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 23.dp),
         snackbar = { data ->
             // M3 Snackbar 内部固定带 6dp 投影且关不掉，投影会罩在贴边描边上，
             // 导致边框和填充之间出现缝隙。因此用 Surface(无投影 + border) 自绘 toast，
