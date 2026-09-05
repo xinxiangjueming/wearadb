@@ -1,5 +1,6 @@
 package com.wearadb.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -234,14 +235,36 @@ fun WearSnackbarHost(
         hostState = snackbarHostState,
         modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         snackbar = { data ->
-            Snackbar(
-                snackbarData = data,
+            // M3 Snackbar 内部固定带 6dp 投影且关不掉，投影会罩在贴边描边上，
+            // 导致边框和填充之间出现缝隙。因此用 Surface(无投影 + border) 自绘 toast，
+            // 边框与填充按同一轮廓渲染，贴合无缝。
+            Surface(
                 shape = RoundedCornerShape(cr),
-                containerColor = c.surfaceVariant,
+                color = c.surfaceVariant,
                 contentColor = c.onSurface,
-                actionColor = c.accent,
-                modifier = Modifier.border(1.dp, c.toastBorder, RoundedCornerShape(cr))
-            )
+                border = BorderStroke(1.dp, c.toastBorder),
+                shadowElevation = 0.dp,
+                modifier = Modifier
+                    .widthIn(max = 600.dp)
+                    .fillMaxWidth()
+            ) {
+                val actionLabel = data.visuals.actionLabel
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = data.visuals.message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 16.dp, end = if (actionLabel == null) 16.dp else 8.dp)
+                            .padding(vertical = 14.dp)
+                    )
+                    if (actionLabel != null) {
+                        TextButton(onClick = { data.performAction() }) {
+                            Text(actionLabel)
+                        }
+                    }
+                }
+            }
         }
     )
 }
