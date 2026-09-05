@@ -1,6 +1,7 @@
 package com.wearadb
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.net.Uri
@@ -22,6 +23,7 @@ import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.navigation.AppNavGraph
 import com.wearadb.ui.rememberStrings
 import com.wearadb.ui.theme.WearAdbTheme
+import com.wearadb.ui.utils.NavigationBarHelper
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -53,6 +55,24 @@ class MainActivity : ComponentActivity() {
             }
             }
         }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // manifest 已声明 configChanges（旋转不重建），此处重放 edge-to-edge，
+        // 否则旋转后窗口退回非沉浸、导航栏恢复不透明默认色
+        NavigationBarHelper.setupEdgeToEdge(this, lightStatusBar = !isNightMode())
+        // 系统可能在配置变更后按主题重放窗口属性，延迟一帧再设一次兜底
+        window.decorView.post {
+            if (isFinishing || isDestroyed) return@post
+            NavigationBarHelper.setupEdgeToEdge(this, lightStatusBar = !isNightMode())
+        }
+        // 不调 recreate()：Compose 通过 LocalConfiguration/WindowInsets 自动响应配置变化
+    }
+
+    private fun isNightMode(): Boolean {
+        return (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
     }
 
     override fun onNewIntent(intent: Intent) {

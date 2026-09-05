@@ -86,9 +86,12 @@ fun ShellScreen(
                     label = s.shellWifiFix,
                     onClick = {
                         val cmds = listOf(
-                            "settings put global captive_portal_mode 0",
+                            "settings put global captive_portal_mode 1",
+                            "settings put global captive_portal_http_url http://connect.rom.miui.com/generate_204",
                             "settings put global captive_portal_https_url https://connect.rom.miui.com/generate_204",
-                            "settings put global captive_portal_http_url http://connect.rom.miui.com/generate_204"
+                            "settings put global captive_portal_fallback_url http://cp.cloudflare.com/generate_204",
+                            "svc wifi disable",
+                            "svc wifi enable"
                         )
                         cmds.forEach { cmd ->
                             lines.add(TerminalLine(cmd, isCommand = true))

@@ -1,22 +1,16 @@
 package com.wearadb.ui.theme
 
-import android.app.Activity
-import android.os.Build
-import android.view.WindowManager
 import androidx.activity.ComponentActivity
-import androidx.activity.SystemBarStyle
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.core.view.WindowCompat
 import androidx.compose.ui.platform.LocalConfiguration
+import com.wearadb.ui.utils.NavigationBarHelper
 
 
 // ── Design Tokens ──
@@ -272,46 +266,15 @@ fun WearAdbTheme(
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
-            val window = (view.context as ComponentActivity).window
+            val activity = view.context as ComponentActivity
+            val window = activity.window
 
+            // 窗口背景透明（主题级策略，非系统栏属性，保留在主题中）
             window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                (view.context as ComponentActivity).enableEdgeToEdge(
-                    statusBarStyle = SystemBarStyle.auto(
-                        android.graphics.Color.TRANSPARENT,
-                        android.graphics.Color.TRANSPARENT
-                    ),
-                    navigationBarStyle = SystemBarStyle.auto(
-                        android.graphics.Color.TRANSPARENT,
-                        android.graphics.Color.TRANSPARENT
-                    )
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                window.statusBarColor = Color.Transparent.toArgb()
-                @Suppress("DEPRECATION")
-                window.navigationBarColor = Color.Transparent.toArgb()
-                WindowCompat.setDecorFitsSystemWindows(window, false)
-            }
-
-            // enableEdgeToEdge() 内部会重新打开 contrast enforcement，
-            // 必须在它之后再关闭，否则会被覆盖
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                window.isNavigationBarContrastEnforced = false
-                window.isStatusBarContrastEnforced = false
-            }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                window.attributes.layoutInDisplayCutoutMode =
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-            }
-
-            val insetsController = WindowCompat.getInsetsController(window, view)
-            insetsController.isAppearanceLightStatusBars = !darkTheme
-            insetsController.isAppearanceLightNavigationBars = !darkTheme
-            insetsController.systemBarsBehavior =
-                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            // 统一入口：enableEdgeToEdge + 显式透明/关 contrast + 图标明暗 + insets 监听兜底（180° 翻转）。
+            // 重复调用仅覆盖 listener，不累积。
+            NavigationBarHelper.setupEdgeToEdge(activity, lightStatusBar = !darkTheme)
         }
     }
 
