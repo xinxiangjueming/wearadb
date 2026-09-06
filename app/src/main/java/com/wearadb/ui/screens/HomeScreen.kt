@@ -15,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -66,6 +67,17 @@ fun HomeScreen(
 
     // 预取字符串，避免在 LazyColumn item lambda 中调用
     val s = LocalStrings.current
+    val context = LocalContext.current
+
+    // 端口必填：留空或非法时点击不发起连接，短促强震提醒用户补填
+    val onConnectClick = {
+        val port = portInput.toIntOrNull()
+        if (port == null || port !in 1..65535) {
+            vibrateStrongShort(context)
+        } else {
+            viewModel.connect(hostInput.trim(), port)
+        }
+    }
 
     Scaffold(containerColor = c.background, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
         if (expanded) {
@@ -88,7 +100,7 @@ fun HomeScreen(
                             Text(s.homeSubtitle, style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant)
                         }
                     }
-                    item { WirelessConnectionCard(connectionState, isConnecting, isConnected, deviceBanner, hostInput, portInput, lastHost, onHostChange = { hostInput = it }, onPortChange = { portInput = it }, onConnect = { viewModel.connect(hostInput.trim(), portInput.toIntOrNull() ?: 55555) }, onDisconnect = { viewModel.disconnect() }, onNavigateToDiscovery, onNavigateToPairing) }
+                    item { WirelessConnectionCard(connectionState, isConnecting, isConnected, deviceBanner, hostInput, portInput, lastHost, onHostChange = { hostInput = it }, onPortChange = { portInput = it }, onConnect = onConnectClick, onDisconnect = { viewModel.disconnect() }, onNavigateToDiscovery, onNavigateToPairing) }
                     if (isConnected) {
                         item { SectionHeader(s.sectionTools) }
                         item {
@@ -164,7 +176,7 @@ fun HomeScreen(
                         Text(s.homeSubtitle, style = MaterialTheme.typography.bodyLarge, color = c.onSurfaceVariant)
                     }
                 }
-                item { WirelessConnectionCard(connectionState, isConnecting, isConnected, deviceBanner, hostInput, portInput, lastHost, onHostChange = { hostInput = it }, onPortChange = { portInput = it }, onConnect = { viewModel.connect(hostInput.trim(), portInput.toIntOrNull() ?: 55555) }, onDisconnect = { viewModel.disconnect() }, onNavigateToDiscovery, onNavigateToPairing) }
+                item { WirelessConnectionCard(connectionState, isConnecting, isConnected, deviceBanner, hostInput, portInput, lastHost, onHostChange = { hostInput = it }, onPortChange = { portInput = it }, onConnect = onConnectClick, onDisconnect = { viewModel.disconnect() }, onNavigateToDiscovery, onNavigateToPairing) }
                 if (isConnected) {
                     item { SectionHeader(s.sectionTools) }
                     item {
