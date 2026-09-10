@@ -1,5 +1,6 @@
 package com.wearadb.ui.components
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -18,6 +19,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
@@ -26,6 +29,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.wearadb.ui.theme.WearAdbTheme
 
 @Composable
@@ -268,4 +273,87 @@ fun WearSnackbarHost(
             }
         }
     )
+}
+
+/**
+ * 应用图标：从本地 PNG 文件异步解码并绘制。
+ *
+ * 不引第三方图片库（本地小图标无需网络栈），用简单的内存 Bitmap 缓存 +
+ * 后台线程解码，避免在主线程做 BitmapFactory.decodeFile。
+ *
+ * @param iconFile 图标文件；为 null 时显示首字母占位。
+ * @param fallbackText 无图标时的占位文本（通常取应用名首字符）。
+ */
+@Composable
+fun AppIcon(
+    iconFile: java.io.File?,
+    fallbackText: String,
+    modifier: Modifier = Modifier,
+    iconSize: androidx.compose.ui.unit.Dp = 32.dp
+) {
+    val c = WearAdbTheme.colors
+    val shape = RoundedCornerShape(WearAdbTheme.shape.cornerRadius / 2)
+
+    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(
+        initialValue = iconFile?.let { AppIconCache.get(it) },
+        key1 = iconFile?.absolutePath
+    ) {
+        value = iconFile?.let { AppIconCache.get(it) }
+        if (iconFile != null && value == null) {
+            value = withContext(Dispatchers.IO) { AppIconCache.load(iconFile) }
+        }
+    }
+
+    Box(
+        modifier = modifier.size(iconSize).clip(shape).background(c.surface, shape),
+        contentAlignment = Alignment.Center
+    ) {
+        val bmp = bitmap
+        if (bmp != null) {
+            Image(
+                bitmap = bmp,
+                contentDescription = null,
+                modifier = Modifier.size(iconSize),
+                contentScale = ContentScale.Fit
+            )
+        } else {
+            Text(
+                text = fallbackText.take(1).uppercase(),
+                style = MaterialTheme.typography.titleMedium,
+                color = c.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/** 应用图标的内存缓存（按文件路径 + 修改时间做键，避免重建）。 */
+private object AppIconCache {
+    private const val MAX_ENTRIES = 256
+    private val cache = object : LinkedHashMap<String, androidx.compose.ui.graphics.ImageBitmap>(
+        32, 0.75f, true
+    ) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, androidx.compose.ui.graphics.ImageBitmap>?
+        ) = size > MAX_ENTRIES
+    }
+
+    @Synchronized
+    fun get(file: java.io.File): androidx.compose.ui.graphics.ImageBitmap? =
+        cache[key(file)]
+
+    fun load(file: java.io.File): androidx.compose.ui.graphics.ImageBitmap? {
+        get(file)?.let { return it }
+        return try {
+            val bytes = file.readBytes()
+            val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+            val image = bmp.asImageBitmap()
+            synchronized(this) { cache[key(file)] = image }
+            image
+        } catch (t: Throwable) {
+            android.util.Log.w("AppIcon", "解码图标失败: ${file.name} - ${t.message}")
+            null
+        }
+    }
+
+    private fun key(file: java.io.File) = "${file.absolutePath}:${file.lastModified()}"
 }

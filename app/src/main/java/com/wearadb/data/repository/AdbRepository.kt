@@ -5,8 +5,10 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
 import android.os.PowerManager
+import android.util.Log
 import com.wearadb.adb.AdbOutputParser
 import com.wearadb.adb.AdvancedOps
+import com.wearadb.adb.UsbAdbRepository
 import com.wearadb.adb.WearAdbConnectionManager
 import com.wearadb.data.model.*
 import com.wearadb.log.WearAdbLogger
@@ -84,10 +86,25 @@ data class PullResult(
 @Singleton
 class AdbRepository @Inject constructor(
     private val deviceRepository: DeviceRepository,
+    private val usbAdbRepository: UsbAdbRepository,
     @ApplicationContext private val appContext: Context
 ) {
     private val manager: WearAdbConnectionManager by lazy {
         WearAdbConnectionManager.getInstance(appContext)
+    }
+
+    /** 应用名 / 图标解析器（app_process + dex）。 */
+    private val appInfo by lazy { AppInfoResolver(appContext) }
+
+    /** 当前设备的序列号缓存，供 UI 侧同步读缓存用（连接成功后写入）。 */
+    @Volatile
+    var appInfoSerialOverride: String? = null
+        private set
+
+    /** 记录当前设备序列号（连接成功 / 加载应用列表时调用）。 */
+    suspend fun rememberAppInfoSerial() {
+        val s = currentSerial()
+        if (s.isNotEmpty() && s != "unknown") appInfoSerialOverride = s
     }
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
@@ -657,7 +674,36 @@ class AdbRepository @Inject constructor(
         val result = AdbOutputParser.parseDeviceInfo(output)
         val (storageTotal, storageUsed, storageFree) = AdbOutputParser.parseStorageInfo(output)
         android.util.Log.d("AdbRepo", "getDeviceInfo() parsed: model=${result.model}, storage=$storageTotal")
-        result.copy(storageTotal = storageTotal, storageUsed = storageUsed, storageFree = storageFree)
+        var info = result.copy(storageTotal = storageTotal, storageUsed = storageUsed, storageFree = storageFree)
+
+        // root 专属：循环次数 + UFS 闪存寿命 + 电池容量（仅设备已 root 时 su 可用；非 root / 超时则静默跳过）
+        //   设计容量 / 当前满容量对 shell 身份 Permission denied，仅 root 可读；健康度% 依赖二者，故在此合并时计算。
+        try {
+            val rootOut = runSingleCommand(
+                "echo ==EXTRA==; su -c 'echo CYCLE; cat /sys/class/power_supply/battery/cycle_count 2>/dev/null; " +
+                "D=\$(find /sys/devices -type d -name health_descriptor 2>/dev/null | head -1); " +
+                "echo UFS; echo \$D; cat \$D/life_time_estimation_a 2>/dev/null; echo SEP; cat \$D/life_time_estimation_b 2>/dev/null; " +
+                "echo CFULL; cat /sys/class/power_supply/battery/charge_full 2>/dev/null; " +
+                "echo CDESIGN; cat /sys/class/power_supply/battery/charge_full_design 2>/dev/null'",
+                8000
+            )
+            AdbOutputParser.parseRootExtras(rootOut)?.let { ex ->
+                val currentMah = if (ex.chargeFull > 0) (ex.chargeFull / 1000).toInt() else info.batteryCurrentCapacity
+                val designMah = if (ex.chargeFullDesign > 0) (ex.chargeFullDesign / 1000).toInt() else info.batteryDesignCapacity
+                val healthPct = if (designMah > 0 && currentMah > 0) currentMah.toFloat() / designMah * 100f else 0f
+                info = info.copy(
+                    batteryCycleCount = ex.cycleCount,
+                    flashLifeA = ex.flashLifeA,
+                    flashLifeB = ex.flashLifeB,
+                    batteryCurrentCapacity = currentMah,
+                    batteryDesignCapacity = designMah,
+                    batteryHealthPct = healthPct
+                )
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("AdbRepo", "getDeviceInfo() root extras failed: ${e.message}")
+        }
+        info
     }
 
     /**
@@ -665,7 +711,7 @@ class AdbRepository @Inject constructor(
      * 去掉所有 prompt 行和命令回显行。
      */
     private fun cleanShellOutput(raw: String): String {
-        val markers = listOf("==PROPS==", "==BATTERY==", "==DISPLAY==", "==MEM==", "==UPTIME==", "==STORAGE==")
+        val markers = listOf("==PROPS==", "==BATTERY==", "==DISPLAY==", "==MEM==", "==UPTIME==", "==STORAGE==", "==EXTRA==")
         val lines = raw.lines()
         val result = mutableListOf<String>()
         var collecting = false
@@ -721,6 +767,95 @@ class AdbRepository @Inject constructor(
         android.util.Log.d("AdbRepo", "getInstalledPackages() parsed ${result.size} apps, system=${result.count { it.isSystem }}, enabled=$enabledCount, disabled=$disabledCount")
         result
     }
+
+    // ── 应用名 / 图标（app_process + dex）──
+    /** 当前连接设备的序列号，用于按设备隔离缓存。 */
+    private suspend fun currentSerial(): String =
+        runSingleCommand("getprop ro.serialno").trim().ifEmpty {
+            runSingleCommand("settings get secure android_id").trim().ifEmpty { "unknown" }
+        }
+
+    /**
+     * 批量解析应用名 + 图标。内部整批下发（app_process 启动开销大），
+     * 已缓存的不重复解析。
+     *
+     * @param packages 待解析包名；调用方一般传入全量列表，本方法自行跳过已缓存的。
+     * @param force 忽略磁盘缓存强制重新解析。
+     * @param onProgress (已完成, 总数)
+     */
+    suspend fun resolveAppInfo(
+        packages: List<String>,
+        force: Boolean = false,
+        onProgress: (Int, Int) -> Unit = { _, _ -> }
+    ): Map<String, AppInfoResolver.AppInfo> = withContext(Dispatchers.IO) {
+        if (packages.isEmpty()) return@withContext emptyMap()
+        val serial = currentSerial()
+        if (serial.isNotEmpty() && serial != "unknown") appInfoSerialOverride = serial
+        if (force) appInfo.clearDisk(serial)
+
+        val pending = packages.filter { force || !appInfo.hasCache(serial, it) }
+        if (pending.isEmpty()) {
+            Log.d("AdbRepo", "resolveAppInfo: 全部命中缓存（${packages.size} 个）")
+            return@withContext emptyMap()
+        }
+
+        appInfo.resolve(
+            serial = serial,
+            packages = pending,
+            exec = { cmd -> runSingleCommand(cmd, 60000).ifBlank { null } },
+            push = { local, remote -> pushFile(File(local), remote).contains("成功") },
+            pull = { remote -> pullFile(remote).let { if (it.success) it.data else null } },
+            onProgress = onProgress
+        )
+    }
+
+    /** 已缓存的图标文件（UI 可直接喂给图片加载器）。 */
+    fun cachedAppIconFile(pkg: String): File? =
+        appInfoSerialOverride?.let { appInfo.cachedIconFile(it, pkg) }
+
+    // ── 应用名 / 图标（USB 通道版，路由到 UsbAdbRepository）──
+    /** USB 通道的当前序列号，用于按设备隔离缓存。 */
+    private suspend fun currentSerialUsb(): String =
+        usbAdbRepository.executeCommand("getprop ro.serialno").trim().ifEmpty {
+            usbAdbRepository.executeCommand("settings get secure android_id").trim().ifEmpty { "unknown" }
+        }
+
+    /**
+     * 与 [resolveAppInfo] 逻辑一致，但命令执行 / 推送 / 拉取全部走 USB ADB。
+     * 用于「手机端」等通过 USB 有线连接上来的设备——这些设备此前因
+     * [resolveAppInfo] 仅走无线通道而永远拿不到名称与图标。
+     */
+    suspend fun resolveAppInfoUsb(
+        packages: List<String>,
+        force: Boolean = false,
+        onProgress: (Int, Int) -> Unit = { _, _ -> }
+    ): Map<String, AppInfoResolver.AppInfo> = withContext(Dispatchers.IO) {
+        if (packages.isEmpty()) return@withContext emptyMap()
+        val serial = currentSerialUsb()
+        if (serial.isNotEmpty() && serial != "unknown") appInfoSerialOverride = serial
+        if (force) appInfo.clearDisk(serial)
+
+        val pending = packages.filter { force || !appInfo.hasCache(serial, it) }
+        if (pending.isEmpty()) {
+            Log.d("AdbRepo", "resolveAppInfoUsb: 全部命中缓存（${packages.size} 个）")
+            return@withContext emptyMap()
+        }
+
+        appInfo.resolve(
+            serial = serial,
+            packages = pending,
+            exec = { cmd -> usbAdbRepository.executeCommand(cmd, 60000).ifBlank { null } },
+            push = { local, remote -> usbAdbRepository.pushFile(File(local), remote).contains("成功") },
+            pull = { remote -> usbAdbRepository.pullFile(remote).let { if (it.first) it.second else null } },
+            onProgress = onProgress
+        )
+    }
+
+    /** 已缓存的应用名。 */
+    fun cachedAppLabel(pkg: String): String? =
+        appInfoSerialOverride?.let { appInfo.cachedLabel(it, pkg) }
+
+    fun clearAppInfoMemoryCache() = appInfo.clearMemory()
 
     suspend fun uninstallApp(pkg: String): String = withContext(Dispatchers.IO) {
         WearAdbLogger.i("AdbRepo", "卸载应用: pkg=$pkg")

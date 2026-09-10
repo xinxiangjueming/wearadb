@@ -48,6 +48,9 @@ fun AppsScreen(
     val apps by viewModel.apps.collectAsState()
     val loading by viewModel.appsLoading.collectAsState()
     val filter by viewModel.appsFilter.collectAsState()
+    val appLabels by viewModel.appLabels.collectAsState()
+    val appIcons by viewModel.appIcons.collectAsState()
+    val appInfoLoading by viewModel.appInfoLoading.collectAsState()
 
     // recomposition tracking
     var recompositionCount = remember { 0 }
@@ -63,14 +66,18 @@ fun AppsScreen(
 
     LaunchedEffect(Unit) { viewModel.loadApps() }
 
-    val filteredApps = remember(apps, filter, searchQuery) {
+    val filteredApps = remember(apps, filter, searchQuery, appLabels) {
         val base = when (filter) {
             AppFilter.ALL -> apps
             AppFilter.SYSTEM -> apps.filter { it.isSystem }
             AppFilter.THIRD_PARTY -> apps.filter { !it.isSystem }
             AppFilter.DISABLED -> apps.filter { !it.isEnabled }
         }
-        val result = if (searchQuery.isBlank()) base else base.filter { it.packageName.contains(searchQuery, ignoreCase = true) }
+        // 搜索同时匹配应用名与包名
+        val result = if (searchQuery.isBlank()) base else base.filter {
+            it.packageName.contains(searchQuery, ignoreCase = true) ||
+                (appLabels[it.packageName]?.contains(searchQuery, ignoreCase = true) == true)
+        }
         val totalEnabled = apps.count { it.isEnabled }
         val totalDisabled = apps.count { !it.isEnabled }
         android.util.Log.d("Apps", "filteredApps: filter=$filter, total=${apps.size}, enabled=$totalEnabled, disabled=$totalDisabled, filtered=${result.size}")
@@ -195,6 +202,14 @@ fun AppsScreen(
                     Spacer(Modifier.width(8.dp))
                     Text(s.appsTitle, style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
                     Spacer(Modifier.weight(1f))
+                    // 应用名/图标后台解析中：在计数前显示一个小进度环
+                    if (appInfoLoading) {
+                        CircularProgressIndicator(
+                            color = c.accent, strokeWidth = 2.dp,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
                     Text("${filteredApps.size}", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
                     Spacer(Modifier.width(8.dp))
                     IconButton(onClick = { pickerActive = true; apkPicker.launch("*/*") }) {
@@ -225,7 +240,8 @@ fun AppsScreen(
                 if (systemApps.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(s.appsSystemCount(systemApps.size)) }
                     items(systemApps, key = { it.packageName }) { app ->
-                        AppListItem(app, expandedPkg, onToggleExpand = { expandedPkg = it },
+                        AppListItem(app, expandedPkg, label = appLabels[app.packageName], icon = appIcons[app.packageName],
+                            onToggleExpand = { expandedPkg = it },
                             onUninstall = { viewModel.uninstallApp(app.packageName) { snackbarMessage = it } },
                             onClearData = { viewModel.clearAppData(app.packageName) { snackbarMessage = it } },
                             onForceStop = { viewModel.forceStopApp(app.packageName) { snackbarMessage = it } },
@@ -236,7 +252,8 @@ fun AppsScreen(
                 if (thirdPartyApps.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(s.appsThirdCount(thirdPartyApps.size)) }
                     items(thirdPartyApps, key = { it.packageName }) { app ->
-                        AppListItem(app, expandedPkg, onToggleExpand = { expandedPkg = it },
+                        AppListItem(app, expandedPkg, label = appLabels[app.packageName], icon = appIcons[app.packageName],
+                            onToggleExpand = { expandedPkg = it },
                             onUninstall = { viewModel.uninstallApp(app.packageName) { snackbarMessage = it } },
                             onClearData = { viewModel.clearAppData(app.packageName) { snackbarMessage = it } },
                             onForceStop = { viewModel.forceStopApp(app.packageName) { snackbarMessage = it } },
@@ -246,7 +263,8 @@ fun AppsScreen(
                 }
             } else {
                 items(filteredApps, key = { it.packageName }) { app ->
-                    AppListItem(app, expandedPkg, onToggleExpand = { expandedPkg = it },
+                    AppListItem(app, expandedPkg, label = appLabels[app.packageName], icon = appIcons[app.packageName],
+                        onToggleExpand = { expandedPkg = it },
                         onUninstall = { viewModel.uninstallApp(app.packageName) { snackbarMessage = it } },
                         onClearData = { viewModel.clearAppData(app.packageName) { snackbarMessage = it } },
                         onForceStop = { viewModel.forceStopApp(app.packageName) { snackbarMessage = it } },
@@ -262,6 +280,8 @@ fun AppsScreen(
 private fun AppListItem(
     app: AppEntry,
     expandedPkg: String?,
+    label: String?,
+    icon: java.io.File?,
     onToggleExpand: (String?) -> Unit,
     onUninstall: () -> Unit,
     onClearData: () -> Unit,
@@ -272,6 +292,7 @@ private fun AppListItem(
     val isExpanded = expandedPkg == app.packageName
     AppCard(
         app = app, expanded = isExpanded,
+        label = label, icon = icon,
         onToggleExpand = { onToggleExpand(if (isExpanded) null else app.packageName) },
         onUninstall = onUninstall,
         onClearData = onClearData,
@@ -300,27 +321,47 @@ private fun FilterChipItem(text: String, selected: Boolean, onClick: () -> Unit)
 
 @Composable
 private fun AppCard(
-    app: AppEntry, expanded: Boolean, onToggleExpand: () -> Unit,
+    app: AppEntry, expanded: Boolean,
+    label: String?, icon: java.io.File?,
+    onToggleExpand: () -> Unit,
     onUninstall: () -> Unit, onClearData: () -> Unit, onForceStop: () -> Unit, onDisable: () -> Unit, onEnable: () -> Unit
 ) {
     val c = WearAdbTheme.colors
     val s = LocalStrings.current
     val cr = WearAdbTheme.shape.cornerRadius
     val shape = remember { RoundedCornerShape(cr) }
+    // 应用名已解析时用名称做主标题，否则先用包名占位（避免列表空白等待）
+    val title = label?.takeIf { it.isNotBlank() } ?: app.packageName
     Column(
         modifier = Modifier.fillMaxWidth().clip(shape).background(c.surfaceVariant, shape)
             .border(1.dp, c.outlineVariant, shape).clickable(onClick = onToggleExpand).padding(16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(8.dp).clip(RoundedCornerShape(4.dp))
-                .background(if (app.isSystem) c.systemAppDot else c.thirdPartyAppDot))
-            Spacer(Modifier.width(10.dp))
+            // 应用图标（无图标时显示首字母占位）
+            AppIcon(iconFile = icon, fallbackText = title, iconSize = 32.dp)
+            Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(app.packageName, style = MaterialTheme.typography.titleMedium, color = c.onSurface,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Row {
-                    if (app.versionName.isNotEmpty()) Text("v${app.versionName}", style = MaterialTheme.typography.labelMedium, color = c.onSurfaceVariant)
-                    if (!app.isEnabled) { Spacer(Modifier.width(8.dp)); Text(s.appsDisabled, style = MaterialTheme.typography.labelSmall, color = c.disabledBadge) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // 系统应用/第三方色点保留在名称前，作为类型标识
+                    Box(modifier = Modifier.size(8.dp).clip(RoundedCornerShape(4.dp))
+                        .background(if (app.isSystem) c.systemAppDot else c.thirdPartyAppDot))
+                    Spacer(Modifier.width(8.dp))
+                    Text(title, style = MaterialTheme.typography.titleMedium, color = c.onSurface,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Spacer(Modifier.height(2.dp))
+                // 副标题：包名 + 版本 + 停用标记
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(app.packageName, style = MaterialTheme.typography.labelSmall, color = c.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    if (app.versionName.isNotEmpty()) {
+                        Spacer(Modifier.width(8.dp))
+                        Text("v${app.versionName}", style = MaterialTheme.typography.labelSmall, color = c.onSurfaceVariant)
+                    }
+                    if (!app.isEnabled) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(s.appsDisabled, style = MaterialTheme.typography.labelSmall, color = c.disabledBadge)
+                    }
                 }
             }
             Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null,

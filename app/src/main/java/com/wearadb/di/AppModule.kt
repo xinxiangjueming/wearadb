@@ -1,6 +1,7 @@
 package com.wearadb.di
 
 import android.content.Context
+import com.wearadb.adb.UsbAdbRepository
 import com.wearadb.data.repository.AdbRepository
 import com.wearadb.data.repository.DeviceRepository
 import dagger.Module
@@ -24,8 +25,9 @@ object AppModule {
     @Singleton
     fun provideAdbRepository(
         deviceRepository: DeviceRepository,
+        usbAdbRepository: UsbAdbRepository,
         @ApplicationContext context: Context
     ): AdbRepository {
-        return AdbRepository(deviceRepository, context)
+        return AdbRepository(deviceRepository, usbAdbRepository, context)
     }
 }

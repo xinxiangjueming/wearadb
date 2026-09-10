@@ -89,6 +89,11 @@
     <string name="info_battery_status">Status</string>
     <string name="info_voltage">Voltage</string>
     <string name="info_temperature">Temperature</string>
+    <string name="info_chip_platform">Chip Platform</string>
+    <string name="info_imei">IMEI</string>
+    <string name="info_cycle_count">Cycle Count</string>
+    <string name="info_battery_health_pct">Battery Health</string>
+    <string name="info_flash_lifespan">Flash Lifespan</string>
     <string name="info_mem_storage">Memory &amp; Storage</string>
     <string name="info_ram">RAM</string>
     <string name="info_used">Used</string>

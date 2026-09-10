@@ -69,6 +69,12 @@ object AdbOutputParser {
                 ?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 0
         }
         val batteryCurrentCapacity = run {
+            // 0. dumpsys batterystats: "Last learned battery capacity: 4524 mAh"（免 root，当前满容量学习值）
+            //    注意：勿用 "Estimated battery capacity"（可能是学习初期的极小值，如 4.00 mAh）
+            val learned = output.lineSequence()
+                .firstOrNull { it.trim().startsWith("Last learned battery capacity:") }
+                ?.substringAfter(":")?.substringBefore("mAh")?.replace(Regex("[^0-9]"), "")?.toIntOrNull()
+            if (learned != null && learned > 0) return@run learned
             // 1. uevent 格式: POWER_SUPPLY_CHARGE_FULL=xxxx (µAh)
             val uevent = output.lineSequence()
                 .firstOrNull { it.contains("POWER_SUPPLY_CHARGE_FULL=") && !it.contains("DESIGN") }
@@ -90,6 +96,30 @@ object AdbOutputParser {
         val batteryTemperature = output.lineSequence()
             .firstOrNull { it.trim().startsWith("temperature:") }
             ?.substringAfter("temperature:")?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 0
+
+        // 电池健康度（容量百分比）= 当前满容量 / 设计容量。
+        // 设计容量多数机型仅 root 可读（/sys/.../charge_full_design，shell 身份 Permission denied），
+        // 故真正的健康度在采集层（AdbRepository / UsbAdbRepository）拿到 root 容量后合并时计算。
+        // 此处先置 0，避免用不完整的非 root 数据给出误导值。
+        val batteryHealthPct = 0f
+
+        // 芯片平台（免 root，getprop 已包含）
+        val chipPlatform = props["ro.board.platform"] ?: ""
+
+        // IMEI：从 getprop 多属性兜底（免 root；部分 ROM 对 shell 暴露 persist.radio.imei）。
+        // 过滤规则：纯数字且长度 ≥ 10，去重。双卡 → "SIM1: x\nSIM2: y"。
+        val imei = run {
+            val candidates = listOf(
+                "persist.radio.imei", "persist.radio.imei2",
+                "ro.ril.oem.imei", "persist.vendor.radio.imei"
+            ).mapNotNull { props[it]?.takeIf { v -> v.length >= 10 && v.all { c -> c.isDigit() } } }
+                .distinct()
+            when (candidates.size) {
+                0 -> ""
+                1 -> candidates[0]
+                else -> candidates.mapIndexed { i, v -> "SIM${i + 1}: $v" }.joinToString("\n")
+            }
+        }
 
         val resolution = output.lineSequence()
             .firstOrNull { it.contains("Physical size:") }
@@ -132,6 +162,9 @@ object AdbOutputParser {
             batteryCurrentCapacity = batteryCurrentCapacity,
             batteryVoltage = batteryVoltage,
             batteryTemperature = batteryTemperature,
+            batteryHealthPct = batteryHealthPct,
+            chipPlatform = chipPlatform,
+            imei = imei,
             screenWidth = w,
             screenHeight = h,
             density = density,
@@ -140,6 +173,82 @@ object AdbOutputParser {
             uptime = uptimeRaw
         )
     }
+
+    /**
+     * 解析 root 专属数据的复合命令输出。
+     *
+     * 该命令以 `echo ==EXTRA==;` 打头（让 cleanShellOutput 能开始收集），
+     * 随后 `su -c '...'` 内用固定锚点分隔：
+     *   CYCLE          → 下一行起为循环次数（直到 UFS 锚点）
+     *   UFS            → 下一行为 health_descriptor 目录（可能为空），再下一行为寿命 A，
+     *                    之后 SEP，再之后为寿命 B
+     *
+     * 若输出中不含 CYCLE 锚点，说明 su 不可用 / 未授权 → 返回 null（表示无 root）。
+     */
+    fun parseRootExtras(text: String): RootExtras? {
+        val idx = text.indexOf("==EXTRA==")
+        if (idx < 0) return null
+        val body = text.substring(idx)
+        if (!body.contains("CYCLE")) return null
+
+        val lines = body.lines()
+        var cycleCount = 0
+        var flashA = -1
+        var flashB = -1
+        var chargeFull = 0L        // 当前满容量 µAh，0 = 未知
+        var chargeFullDesign = 0L  // 设计容量 µAh，0 = 未知
+
+        for (i in lines.indices) {
+            when (lines[i].trim()) {
+                "CYCLE" -> {
+                    val v = lines.getOrNull(i + 1)?.trim() ?: ""
+                    cycleCount = v.toIntOrNull() ?: 0
+                }
+                "UFS" -> {
+                    // i+1 = 目录（可能空），i+2 = 寿命 A，i+3 = "SEP"，i+4 = 寿命 B
+                    val a = lines.getOrNull(i + 2)?.trim() ?: ""
+                    val b = lines.getOrNull(i + 4)?.trim() ?: ""
+                    flashA = parseUfsLife(a)
+                    flashB = parseUfsLife(b)
+                }
+                "CFULL" -> {
+                    val v = lines.getOrNull(i + 1)?.trim() ?: ""
+                    chargeFull = v.toLongOrNull() ?: 0L
+                }
+                "CDESIGN" -> {
+                    val v = lines.getOrNull(i + 1)?.trim() ?: ""
+                    chargeFullDesign = v.toLongOrNull() ?: 0L
+                }
+            }
+        }
+        return RootExtras(
+            cycleCount = cycleCount, flashLifeA = flashA, flashLifeB = flashB,
+            chargeFull = chargeFull, chargeFullDesign = chargeFullDesign
+        )
+    }
+
+    /**
+     * 解析 UFS life_time_estimation 字段。
+     * 取值形如 0x01~0x0B（值越小寿命越充足）：剩余% = (0x0B - 值) × 10，钳制到 0~100。
+     * 非 0x 前缀或解析失败返回 -1（未知）。
+     */
+    private fun parseUfsLife(value: String): Int {
+        val v = value.trim()
+        if (!v.startsWith("0x", ignoreCase = true)) return -1
+        val hex = v.substring(2).toIntOrNull(16) ?: return -1
+        return ((0x0B - hex) * 10).coerceIn(0, 100)
+    }
+
+    /**
+     * root 专属数据解析结果。字段为 -1 / 0 表示未知。
+     */
+    data class RootExtras(
+        val cycleCount: Int = 0,
+        val flashLifeA: Int = -1,
+        val flashLifeB: Int = -1,
+        val chargeFull: Long = 0,        // 当前满容量 µAh，0 = 未知（仅 root 可读）
+        val chargeFullDesign: Long = 0   // 设计容量 µAh，0 = 未知（仅 root 可读）
+    )
 
     /**
      * 用 pm list packages -s / -3 的结果做分类，同时利用安装路径辅助判断。

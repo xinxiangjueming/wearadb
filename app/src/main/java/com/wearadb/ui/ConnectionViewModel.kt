@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.wearadb.data.repository.ConnectionState
 import com.wearadb.data.repository.DiscoveredDevice
 import com.wearadb.data.repository.PullResult
+import com.wearadb.data.repository.AppInfoResolver
 import com.wearadb.data.model.*
 import com.wearadb.data.repository.AdbRepository
 import com.wearadb.adb.UsbAdbRepository
@@ -63,6 +64,74 @@ class ConnectionViewModel @Inject constructor(
     private val _appsFilter = MutableStateFlow(AppFilter.ALL)
     val appsFilter: StateFlow<AppFilter> = _appsFilter.asStateFlow()
     private var appsLoadedOnce = false
+
+    // ── 应用名 / 图标（异步补全，不阻塞列表首屏）──
+    /** 包名 -> 应用名。列表拿到后立即先用包名渲染，随后被此 map 覆盖。 */
+    private val _appLabels = MutableStateFlow<Map<String, String>>(emptyMap())
+    val appLabels: StateFlow<Map<String, String>> = _appLabels.asStateFlow()
+
+    /** 包名 -> 图标文件。UI 用 File 加载（Coil/自绘），避免把 Bitmap 塞进 StateFlow。 */
+    private val _appIcons = MutableStateFlow<Map<String, java.io.File>>(emptyMap())
+    val appIcons: StateFlow<Map<String, java.io.File>> = _appIcons.asStateFlow()
+
+    private val _appInfoLoading = MutableStateFlow(false)
+    val appInfoLoading: StateFlow<Boolean> = _appInfoLoading.asStateFlow()
+    private var appInfoJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * 异步解析应用名与图标。
+     * 整批下发（app_process 启动开销约 2.8s），每批完成后增量推送到 UI。
+     */
+    fun loadAppInfo(force: Boolean = false) {
+        val pkgList = _apps.value.map { it.packageName }
+        if (pkgList.isEmpty()) return
+        if (appInfoJob?.isActive == true) {
+            android.util.Log.d("VM", "loadAppInfo() 已有任务在跑，跳过")
+            return
+        }
+        appInfoJob = viewModelScope.launch {
+            _appInfoLoading.value = true
+            try {
+                val resolved = when {
+                    connectionState.value == ConnectionState.CONNECTED -> {
+                        android.util.Log.d("VM", "loadAppInfo() 走无线通道")
+                        repository.resolveAppInfo(pkgList, force) { done, total ->
+                            android.util.Log.d("VM", "loadAppInfo() 进度 $done/$total")
+                        }
+                    }
+                    isUsbAdbActive -> {
+                        android.util.Log.d("VM", "loadAppInfo() 走 USB 通道")
+                        repository.resolveAppInfoUsb(pkgList, force) { done, total ->
+                            android.util.Log.d("VM", "loadAppInfo() 进度 $done/$total")
+                        }
+                    }
+                    else -> {
+                        android.util.Log.d("VM", "loadAppInfo() 无连接，跳过")
+                        emptyMap<String, AppInfoResolver.AppInfo>()
+                    }
+                }
+                // 无论新解析还是全命中缓存，都从磁盘/内存缓存补齐 UI
+                publishCachedAppInfo(pkgList)
+                android.util.Log.d("VM", "loadAppInfo() 完成，新解析 ${resolved.size} 个")
+            } catch (e: Exception) {
+                android.util.Log.e("VM", "loadAppInfo() 异常: ${e.message}", e)
+            } finally {
+                _appInfoLoading.value = false
+            }
+        }
+    }
+
+    /** 把磁盘/内存缓存里的名称与图标同步到 UI 状态。 */
+    private fun publishCachedAppInfo(packages: List<String>) {
+        val labels = HashMap<String, String>()
+        val icons = HashMap<String, java.io.File>()
+        for (pkg in packages) {
+            repository.cachedAppLabel(pkg)?.let { labels[pkg] = it }
+            repository.cachedAppIconFile(pkg)?.let { icons[pkg] = it }
+        }
+        _appLabels.value = labels
+        _appIcons.value = icons
+    }
 
     // ── Files ──
     private val _files = MutableStateFlow<List<FileEntry>>(emptyList())
@@ -326,6 +395,7 @@ class ConnectionViewModel @Inject constructor(
             _appsLoading.value = true
             try {
                 _apps.value = if (connectionState.value == ConnectionState.CONNECTED) {
+                    repository.rememberAppInfoSerial()
                     repository.getInstalledPackages()
                 } else if (isUsbAdbActive) {
                     usbAdbRepository.getInstalledPackages()
@@ -336,6 +406,8 @@ class ConnectionViewModel @Inject constructor(
                 val enabledCount = _apps.value.count { it.isEnabled }
                 val disabledCount = _apps.value.count { !it.isEnabled }
                 android.util.Log.d("VM", "loadApps() loaded ${_apps.value.size} apps, enabled=$enabledCount, disabled=$disabledCount")
+                // 名称与图标异步补全：列表先用包名快速出图，随后被真实名称/图标覆盖
+                if (_apps.value.isNotEmpty()) loadAppInfo(force = force)
             } catch (e: Exception) {
                 android.util.Log.e("VM", "loadApps() EXCEPTION: ${e.javaClass.simpleName}: ${e.message}", e)
             }

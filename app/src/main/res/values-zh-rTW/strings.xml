@@ -89,6 +89,11 @@
     <string name="info_battery_status">狀態</string>
     <string name="info_voltage">電壓</string>
     <string name="info_temperature">溫度</string>
+    <string name="info_chip_platform">晶片平台</string>
+    <string name="info_imei">IMEI</string>
+    <string name="info_cycle_count">循環次數</string>
+    <string name="info_battery_health_pct">電池健康度</string>
+    <string name="info_flash_lifespan">快閃記憶體壽命</string>
     <string name="info_mem_storage">記憶體與儲存空間</string>
     <string name="info_ram">主記憶體</string>
     <string name="info_used">已使用</string>

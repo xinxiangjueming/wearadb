@@ -128,11 +128,11 @@ class UsbAdbRepository @Inject constructor(
      * Execute a shell command over USB ADB.
      * Returns the command output as a string.
      */
-    suspend fun executeCommand(command: String): String = withContext(Dispatchers.IO) {
+    suspend fun executeCommand(command: String, timeoutMs: Long = 15000): String = withContext(Dispatchers.IO) {
         val conn = awaitManager().getConnection() ?: return@withContext "未连接"
         try {
             val stream = conn.openShell(command)
-            val result = stream.readAll(15000)
+            val result = stream.readAll(timeoutMs)
             conn.closeStream(stream)
             result
         } catch (e: Exception) {
@@ -168,7 +168,38 @@ class UsbAdbRepository @Inject constructor(
 
             val result = AdbOutputParser.parseDeviceInfo(raw)
             val (storageTotal, storageUsed, storageFree) = AdbOutputParser.parseStorageInfo(raw)
-            result.copy(storageTotal = storageTotal, storageUsed = storageUsed, storageFree = storageFree)
+            var info = result.copy(storageTotal = storageTotal, storageUsed = storageUsed, storageFree = storageFree)
+
+            // root 专属：循环次数 + UFS 闪存寿命 + 电池容量（仅已 root 时 su 可用；失败静默跳过）
+            //   设计容量 / 当前满容量对 shell 身份 Permission denied，仅 root 可读；健康度% 依赖二者，故在此合并时计算。
+            try {
+                val rootStream = conn.openShell(
+                    "echo ==EXTRA==; su -c 'echo CYCLE; cat /sys/class/power_supply/battery/cycle_count 2>/dev/null; " +
+                    "D=\$(find /sys/devices -type d -name health_descriptor 2>/dev/null | head -1); " +
+                    "echo UFS; echo \$D; cat \$D/life_time_estimation_a 2>/dev/null; echo SEP; cat \$D/life_time_estimation_b 2>/dev/null; " +
+                    "echo CFULL; cat /sys/class/power_supply/battery/charge_full 2>/dev/null; " +
+                    "echo CDESIGN; cat /sys/class/power_supply/battery/charge_full_design 2>/dev/null'"
+                )
+                val rootRaw = rootStream.readAll(8000)
+                conn.closeStream(rootStream)
+                AdbOutputParser.parseRootExtras(rootRaw)?.let { ex ->
+                    val currentMah = if (ex.chargeFull > 0) (ex.chargeFull / 1000).toInt() else info.batteryCurrentCapacity
+                    val designMah = if (ex.chargeFullDesign > 0) (ex.chargeFullDesign / 1000).toInt() else info.batteryDesignCapacity
+                    val healthPct = if (designMah > 0 && currentMah > 0) currentMah.toFloat() / designMah * 100f else 0f
+                    info = info.copy(
+                        batteryCycleCount = ex.cycleCount,
+                        flashLifeA = ex.flashLifeA,
+                        flashLifeB = ex.flashLifeB,
+                        batteryCurrentCapacity = currentMah,
+                        batteryDesignCapacity = designMah,
+                        batteryHealthPct = healthPct
+                    )
+                }
+            } catch (re: Exception) {
+                android.util.Log.w(TAG, "getDeviceInfo: root extras failed: ${re.message}")
+            }
+
+            info
         } catch (e: Exception) {
             android.util.Log.e(TAG, "getDeviceInfo failed: ${e.message}")
             com.wearadb.data.model.DeviceInfo()

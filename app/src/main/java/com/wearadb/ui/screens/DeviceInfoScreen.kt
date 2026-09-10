@@ -96,6 +96,8 @@ fun DeviceInfoScreen(
                         WearCard {
                             InfoRow("Android 版本", d.androidVersion); InfoRow("SDK", d.sdkVersion)
                             InfoRow("Build ID", d.buildId); InfoRow(s.infoFingerprint, d.fingerprint, mono = true)
+                            if (d.chipPlatform.isNotEmpty()) InfoRow(s.infoChipPlatform, d.chipPlatform)
+                            if (d.imei.isNotEmpty()) InfoRow(s.infoImei, d.imei)
                         }
                     }
                 }
@@ -117,6 +119,8 @@ fun DeviceInfoScreen(
                                 SectionHeader(s.infoBattery)
                                 WearCard {
                                     if (d.batteryDesignCapacity > 0) InfoRow(s.infoDesignCapacity, "${d.batteryDesignCapacity} mAh")
+                                    if (d.batteryHealthPct > 0) InfoRow(s.infoBatteryHealthPct, "%.1f%%".format(d.batteryHealthPct))
+                                    if (d.batteryCycleCount > 0) InfoRow(s.infoCycleCount, d.batteryCycleCount.toString())
                                     if (d.batteryTechnology.isNotEmpty()) InfoRow(s.infoBatteryType, d.batteryTechnology)
                                     if (d.batteryHealth.isNotEmpty()) InfoRow(s.infoHealth, d.batteryHealth)
                                     Spacer(Modifier.height(8.dp))
@@ -161,6 +165,8 @@ fun DeviceInfoScreen(
                 WearCard {
                     InfoRow("Android 版本", d.androidVersion); InfoRow("SDK", d.sdkVersion)
                     InfoRow("Build ID", d.buildId); InfoRow(s.infoFingerprint, d.fingerprint, mono = true)
+                    if (d.chipPlatform.isNotEmpty()) InfoRow(s.infoChipPlatform, d.chipPlatform)
+                    if (d.imei.isNotEmpty()) InfoRow(s.infoImei, d.imei)
                 }
             }
             if (d.screenWidth > 0) {
@@ -173,6 +179,8 @@ fun DeviceInfoScreen(
                     WearCard {
                         if (d.batteryDesignCapacity > 0) InfoRow(s.infoDesignCapacity, "${d.batteryDesignCapacity} mAh")
                         if (d.batteryCurrentCapacity > 0) InfoRow(s.infoCurrentCapacity, "${d.batteryCurrentCapacity} mAh")
+                        if (d.batteryHealthPct > 0) InfoRow(s.infoBatteryHealthPct, "%.1f%%".format(d.batteryHealthPct))
+                        if (d.batteryCycleCount > 0) InfoRow(s.infoCycleCount, d.batteryCycleCount.toString())
                         if (d.batteryTechnology.isNotEmpty()) InfoRow(s.infoBatteryType, d.batteryTechnology)
                         if (d.batteryHealth.isNotEmpty()) InfoRow(s.infoHealth, d.batteryHealth)
                         if (d.batteryVoltage > 0) InfoRow(s.infoVoltage, "${"%.2f".format(d.batteryVoltage / 1000.0)} V")
@@ -235,6 +243,18 @@ fun DeviceInfoScreen(
                 Spacer(Modifier.height(12.dp))
                 HorizontalDivider(color = c.outlineVariant)
                 Spacer(Modifier.height(12.dp))
+                // 闪存寿命（UFS）：仅已 root 且设备暴露 health_descriptor 时有效；置于内部存储进度条上方
+                if (d.flashLifeA >= 0 || d.flashLifeB >= 0) {
+                    val flashText = when {
+                        d.flashLifeA >= 0 && d.flashLifeB >= 0 -> "A ${d.flashLifeA}% · B ${d.flashLifeB}%"
+                        d.flashLifeA >= 0 -> "A ${d.flashLifeA}%"
+                        else -> "B ${d.flashLifeB}%"
+                    }
+                    InfoRow(s.infoFlashLifespan, flashText)
+                    Spacer(Modifier.height(12.dp))
+                    HorizontalDivider(color = c.outlineVariant)
+                    Spacer(Modifier.height(12.dp))
+                }
                 Text(s.infoInternalStorage, style = MaterialTheme.typography.labelLarge, color = c.accent)
                 Spacer(Modifier.height(4.dp))
                 if (d.storageTotal > 0) {

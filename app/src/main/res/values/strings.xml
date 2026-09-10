@@ -89,6 +89,11 @@
     <string name="info_battery_status">状态</string>
     <string name="info_voltage">电压</string>
     <string name="info_temperature">温度</string>
+    <string name="info_chip_platform">芯片平台</string>
+    <string name="info_imei">IMEI</string>
+    <string name="info_cycle_count">循环次数</string>
+    <string name="info_battery_health_pct">电池健康度</string>
+    <string name="info_flash_lifespan">闪存寿命</string>
     <string name="info_mem_storage">内存与存储</string>
     <string name="info_ram">运行内存</string>
     <string name="info_used">已用</string>
