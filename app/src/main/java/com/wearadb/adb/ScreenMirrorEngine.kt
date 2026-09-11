@@ -128,7 +128,7 @@ internal class UsbMirrorStream(
  * 线协议参考（scrcpy v2.7 Streamer.writeVideoHeader / writeFrameMeta / demuxer.c）：
  *   视频头: [codec_id:4 BE][width:4 BE][height:4 BE]
  *   每包:   [pts_flags:8 BE][len:4 BE] + len 字节裸包（pts_flags bit63=CONFIG, bit62=KEY_FRAME）
- *   控制消息: [type:1][payload]；SET_SCREEN_POWER_MODE=10 + mode 1 字节（0=OFF, 2=NORMAL）
+ *   控制消息: [type:1][payload]；SET_SCREEN_POWER_MODE=10 + mode 1 字节（0=OFF, 1=NORMAL）
  */
 class ScreenMirrorEngine(private val appContext: Context) {
 
@@ -210,9 +210,10 @@ class ScreenMirrorEngine(private val appContext: Context) {
         /** scrcpy 2.7 ControlMessage.TYPE_SET_SCREEN_POWER_MODE */
         private const val CTRL_TYPE_SET_SCREEN_POWER_MODE = 10
 
-        /** SurfaceControl.POWER_MODE_OFF / POWER_MODE_NORMAL（Device.setScreenPowerMode 原样透传） */
+        /** scrcpy 协议屏幕电源枚举：0=OFF，1=NORMAL（非 Android SurfaceControl.POWER_MODE_*）。
+         *  此前误用 SurfaceControl.POWER_MODE_NORMAL=2，被 server 当非法值忽略，导致退出会话时屏幕无法自动点亮。 */
         private const val POWER_MODE_OFF = 0
-        private const val POWER_MODE_NORMAL = 2
+        private const val POWER_MODE_NORMAL = 1
 
         /**
          * 生成会话 scid（随机、非 -1）。

@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
+
 package com.wearadb.ui.components
 
 import androidx.compose.foundation.Image
@@ -13,7 +15,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.ui.Alignment
+import com.wearadb.ui.navigation.LocalNavTransitionScope
+import com.wearadb.ui.navigation.LocalSharedTransitionScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
@@ -125,7 +130,8 @@ fun WearButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    variant: ButtonVariant = ButtonVariant.Primary
+    variant: ButtonVariant = ButtonVariant.Primary,
+    sharedKey: String? = null
 ) {
     val c = WearAdbTheme.colors
     val shape = RoundedCornerShape(WearAdbTheme.shape.cornerRadius)
@@ -158,7 +164,17 @@ fun WearButton(
         contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
         modifier = modifier.fillMaxWidth()
     ) {
-        Text(text = text, style = MaterialTheme.typography.titleMedium)
+        val stScope = LocalSharedTransitionScope.current
+        val avScope = LocalNavTransitionScope.current
+        Text(
+            text = text,
+            style = MaterialTheme.typography.titleMedium,
+            modifier = if (sharedKey != null && stScope != null && avScope != null) {
+                with(stScope) {
+                    Modifier.sharedElement(rememberSharedContentState(sharedKey), avScope)
+                }
+            } else Modifier
+        )
     }
 }
 

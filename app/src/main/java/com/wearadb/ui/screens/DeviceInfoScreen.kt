@@ -20,6 +20,8 @@ import com.wearadb.ui.ConnectionViewModel
 import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
+import com.wearadb.ui.navigation.Routes
+import com.wearadb.ui.navigation.SharedTitle
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
 import com.wearadb.ui.utils.formatBytes
 import com.wearadb.ui.utils.isLandscape
@@ -61,7 +63,7 @@ fun DeviceInfoScreen(
                     Icon(Icons.AutoMirrored.Outlined.ArrowBack, s.btnBack, tint = c.onBackground)
                 }
                 Spacer(Modifier.width(8.dp))
-                Text(s.deviceInfoTitle, style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
+                SharedTitle(Routes.DEVICE_INFO, s.deviceInfoTitle, MaterialTheme.typography.headlineMedium, c.onBackground)
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = { viewModel.loadDeviceInfo(force = true) }) {
                     Icon(Icons.Outlined.Refresh, s.btnRefresh, tint = c.onSurfaceVariant, modifier = Modifier.size(20.dp))

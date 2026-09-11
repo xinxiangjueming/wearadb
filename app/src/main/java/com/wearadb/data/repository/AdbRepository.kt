@@ -1624,6 +1624,20 @@ class AdbRepository @Inject constructor(
         runSingleCommand("settings put system user_rotation 1", 8000)
     }
 
+    /** 运行时熄屏 / 亮屏（SET_DISPLAY_POWER 控制消息，无需重启会话，与官方 scrcpy MOD+o 一致）。
+     *  off=true 熄灭屏幕（保留投屏）；off=false 点亮。未投屏时 sendControl 返回 false，仅保存状态待下次启动生效。 */
+    suspend fun screenPowerOff(off: Boolean) = withContext(Dispatchers.IO) {
+        if (mirrorEngine.sendControl(com.wearadb.adb.ScrcpyControlProtocol.setDisplayPower(on = !off))) return@withContext
+        WearAdbLogger.w("AdbRepo", "投屏运行时熄屏控制消息发送失败（继续投屏）")
+    }
+
+    /** 运行时保持唤醒（直接写 Android 全局设置 stay_on_while_plugged_in，无需重启；退出时由 scrcpy 还原）。
+     *  7 = AC|USB|WIRELESS 均保持；0 = 关闭。未充电（仅无线）时按 Android 行为无效果。 */
+    suspend fun setStayAwake(on: Boolean) = withContext(Dispatchers.IO) {
+        val value = if (on) 7 else 0
+        runSingleCommand("settings put global stay_on_while_plugged_in $value", 8000)
+    }
+
     private inner class WirelessMirrorTransport : com.wearadb.adb.MirrorTransport {
 
         /**

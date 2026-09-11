@@ -154,10 +154,10 @@ object ScrcpyControlProtocol {
         u8(action)
     }
 
-    /** 屏幕电源：0=OFF，2=NORMAL（SurfaceControl POWER_MODE）。 */
+    /** 屏幕电源：0=OFF，1=NORMAL（scrcpy 协议枚举，非 Android SurfaceControl 常量）。 */
     fun setDisplayPower(on: Boolean): ByteArray = build(2) {
         u8(TYPE_SET_DISPLAY_POWER)
-        u8(if (on) 2 else 0)
+        u8(if (on) 1 else 0)
     }
 
     /** 旋转设备（服务端按当前传感器状态翻转显示）。 */

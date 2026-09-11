@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
+
 package com.wearadb.ui.screens
 
 import androidx.compose.animation.*
@@ -28,6 +30,9 @@ import com.wearadb.ui.theme.WearAdbTheme
 import com.wearadb.ui.ConnectionViewModel
 import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.utils.*
+import com.wearadb.ui.navigation.LocalNavTransitionScope
+import com.wearadb.ui.navigation.LocalSharedTransitionScope
+import com.wearadb.ui.navigation.Routes
 
 @Composable
 fun HomeScreen(
@@ -109,18 +114,18 @@ fun HomeScreen(
                         item { SectionHeader(s.sectionTools) }
                         item {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                FeatureCard(Icons.Outlined.Terminal, s.featureShell, s.featureShellDesc, Modifier.weight(1f), onNavigateToShell)
-                                FeatureCard(Icons.Outlined.PhoneAndroid, s.featureDevice, s.featureDeviceDesc, Modifier.weight(1f), onNavigateToDeviceInfo)
+                                FeatureCard(Icons.Outlined.Terminal, s.featureShell, s.featureShellDesc, Modifier.weight(1f), sharedKey = Routes.SHELL, onNavigateToShell)
+                                FeatureCard(Icons.Outlined.PhoneAndroid, s.featureDevice, s.featureDeviceDesc, Modifier.weight(1f), sharedKey = Routes.DEVICE_INFO, onNavigateToDeviceInfo)
                             }
                         }
                         item {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                FeatureCard(Icons.Outlined.Apps, s.featureApps, s.featureAppsDesc, Modifier.weight(1f), onNavigateToApps)
-                                FeatureCard(Icons.Outlined.Folder, s.featureFiles, s.featureFilesDesc, Modifier.weight(1f), onNavigateToFiles)
+                                FeatureCard(Icons.Outlined.Apps, s.featureApps, s.featureAppsDesc, Modifier.weight(1f), sharedKey = Routes.APPS, onNavigateToApps)
+                                FeatureCard(Icons.Outlined.Folder, s.featureFiles, s.featureFilesDesc, Modifier.weight(1f), sharedKey = Routes.FILES, onNavigateToFiles)
                             }
                         }
                         item {
-                            FeatureCard(Icons.Outlined.Build, s.featureAdvanced, s.featureAdvancedDesc, Modifier.fillMaxWidth(), onNavigateToAdvanced)
+                            FeatureCard(Icons.Outlined.Build, s.featureAdvanced, s.featureAdvancedDesc, Modifier.fillMaxWidth(), sharedKey = Routes.ADVANCED, onNavigateToAdvanced)
                         }
                     }
                     if (devices.isNotEmpty()) {
@@ -154,8 +159,8 @@ fun HomeScreen(
                                 modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                FeatureCard(Icons.Outlined.DeveloperBoard, s.featureFastboot, s.featureFastbootDesc, Modifier.weight(1f), onNavigateToFastboot)
-                                FeatureCard(Icons.Outlined.Usb, s.featureUsbAdb, s.featureUsbAdbDesc, Modifier.weight(1f), onNavigateToUsbAdb)
+                                FeatureCard(Icons.Outlined.DeveloperBoard, s.featureFastboot, s.featureFastbootDesc, Modifier.weight(1f), sharedKey = Routes.FASTBOOT, onNavigateToFastboot)
+                                FeatureCard(Icons.Outlined.Usb, s.featureUsbAdb, s.featureUsbAdbDesc, Modifier.weight(1f), sharedKey = Routes.USB_ADB, onNavigateToUsbAdb)
                             }
                         }
                     }
@@ -185,18 +190,18 @@ fun HomeScreen(
                     item { SectionHeader(s.sectionTools) }
                     item {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            FeatureCard(Icons.Outlined.Terminal, s.featureShell, s.featureShellDesc, Modifier.weight(1f), onNavigateToShell)
-                            FeatureCard(Icons.Outlined.PhoneAndroid, s.featureDevice, s.featureDeviceDesc, Modifier.weight(1f), onNavigateToDeviceInfo)
+                            FeatureCard(Icons.Outlined.Terminal, s.featureShell, s.featureShellDesc, Modifier.weight(1f), sharedKey = Routes.SHELL, onNavigateToShell)
+                            FeatureCard(Icons.Outlined.PhoneAndroid, s.featureDevice, s.featureDeviceDesc, Modifier.weight(1f), sharedKey = Routes.DEVICE_INFO, onNavigateToDeviceInfo)
                         }
                     }
                     item {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            FeatureCard(Icons.Outlined.Apps, s.featureApps, s.featureAppsDesc, Modifier.weight(1f), onNavigateToApps)
-                            FeatureCard(Icons.Outlined.Folder, s.featureFiles, s.featureFilesDesc, Modifier.weight(1f), onNavigateToFiles)
+                            FeatureCard(Icons.Outlined.Apps, s.featureApps, s.featureAppsDesc, Modifier.weight(1f), sharedKey = Routes.APPS, onNavigateToApps)
+                            FeatureCard(Icons.Outlined.Folder, s.featureFiles, s.featureFilesDesc, Modifier.weight(1f), sharedKey = Routes.FILES, onNavigateToFiles)
                         }
                     }
                     item {
-                        FeatureCard(Icons.Outlined.Build, s.featureAdvanced, s.featureAdvancedDesc, Modifier.fillMaxWidth(), onNavigateToAdvanced)
+                        FeatureCard(Icons.Outlined.Build, s.featureAdvanced, s.featureAdvancedDesc, Modifier.fillMaxWidth(), sharedKey = Routes.ADVANCED, onNavigateToAdvanced)
                     }
                 }
                 item {
@@ -207,8 +212,8 @@ fun HomeScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            FeatureCard(Icons.Outlined.DeveloperBoard, s.featureFastboot, s.featureFastbootDesc, Modifier.weight(1f), onNavigateToFastboot)
-                            FeatureCard(Icons.Outlined.Usb, s.featureUsbAdb, s.featureUsbAdbDesc, Modifier.weight(1f), onNavigateToUsbAdb)
+                            FeatureCard(Icons.Outlined.DeveloperBoard, s.featureFastboot, s.featureFastbootDesc, Modifier.weight(1f), sharedKey = Routes.FASTBOOT, onNavigateToFastboot)
+                            FeatureCard(Icons.Outlined.Usb, s.featureUsbAdb, s.featureUsbAdbDesc, Modifier.weight(1f), sharedKey = Routes.USB_ADB, onNavigateToUsbAdb)
                         }
                     }
                 }
@@ -319,12 +324,14 @@ private fun WirelessConnectionCard(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 WearButton(
                     text = s.btnDiscover,
+                    sharedKey = Routes.DISCOVERY,
                     onClick = onNavigateToDiscovery,
                     modifier = Modifier.weight(1f),
                     variant = ButtonVariant.Secondary
                 )
                 WearButton(
                     text = s.btnPair,
+                    sharedKey = Routes.PAIRING,
                     onClick = onNavigateToPairing,
                     modifier = Modifier.weight(1f),
                     variant = ButtonVariant.Secondary
@@ -346,9 +353,12 @@ private fun FeatureCard(
     title: String,
     subtitle: String,
     modifier: Modifier = Modifier,
+    sharedKey: String? = null,
     onClick: () -> Unit
 ) {
     val c = WearAdbTheme.colors
+    val stScope = LocalSharedTransitionScope.current
+    val avScope = LocalNavTransitionScope.current
     val shape = remember { RoundedCornerShape(28.dp) }
     Column(
         modifier = modifier
@@ -362,7 +372,16 @@ private fun FeatureCard(
     ) {
         Icon(icon, title, tint = c.accent, modifier = Modifier.size(32.dp))
         Spacer(Modifier.height(10.dp))
-        Text(title, style = MaterialTheme.typography.titleMedium, color = c.onSurface)
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            color = c.onSurface,
+            modifier = if (sharedKey != null && stScope != null && avScope != null) {
+                with(stScope) {
+                    Modifier.sharedElement(rememberSharedContentState(sharedKey), avScope)
+                }
+            } else Modifier
+        )
         Text(subtitle, style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
     }
 }

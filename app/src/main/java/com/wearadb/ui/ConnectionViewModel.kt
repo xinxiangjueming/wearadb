@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
@@ -986,6 +988,14 @@ class ConnectionViewModel @Inject constructor(
     @Volatile
     private var mirrorSurface: android.view.Surface? = null
 
+    /**
+     * 会话重启互斥锁。点设置里的画质/开关会走 engine.startSafe（先 stop 再起新 server），
+     * 同一时刻只允许一个重启在跑：否则快速连点两个选项会并发触发两次 startSafe，二者共享
+     * engine 的 videoStream/controlStream/launchStream 可变字段且无互斥，runLoop 会同时起
+     * 两个 server 互相踩流，导致会话损坏、断连后回不来。串行化后"最新设置胜出"且永不竞态。
+     */
+    private val mirrorRestartMutex = Mutex()
+
     private fun buildMirrorOptions() = com.wearadb.adb.MirrorOptions(
         maxSize = _mirrorMaxSize.value,
         bitRate = _mirrorBitRate.value,
@@ -1002,7 +1012,11 @@ class ConnectionViewModel @Inject constructor(
         mirrorSurface = surface
         viewModelScope.launch(Dispatchers.IO) {
             val (engine, transport) = currentMirror()
-            engine.startSafe(transport, surface, buildMirrorOptions())
+            // 与 restartMirrorIfRunning 共用同一把锁：避免"启动中点击设置"并发触发
+            // 两次 startSafe，踩踏 engine 的共享流字段。
+            mirrorRestartMutex.withLock {
+                engine.startSafe(transport, surface, buildMirrorOptions())
+            }
         }
     }
 
@@ -1010,18 +1024,45 @@ class ConnectionViewModel @Inject constructor(
         currentMirror().first.stop()
     }
 
-    /** 变更画质/开关选项；正在投屏则用新参数无缝重启（只读除外，纯 UI 门控），空闲/错误态仅保存待下次启动生效。 */
-    fun setMirrorMaxSize(v: Int) { _mirrorMaxSize.value = v; restartMirrorIfRunning() }
+    /** 变更画质/开关选项。
+     *  - 熄屏 / 保持唤醒：**运行时**直接下发控制消息或 Android 全局设置，不重启会话（与官方 scrcpy MOD+o / --stay-awake 一致）。
+     *  - 分辨率 / 码率 / 帧率：scrcpy 协议限制只能在 server 启动时指定，仍在投屏中用新参数无缝重启。
+     *  - 只读：纯 UI 门控，不注入。
+     *  值未变化（如点回当前已选项）直接跳过，避免无谓断流。 */
+    fun setMirrorMaxSize(v: Int) {
+        if (_mirrorMaxSize.value == v) return
+        _mirrorMaxSize.value = v
+        restartMirrorIfRunning()
+    }
 
-    fun setMirrorBitRate(v: Int) { _mirrorBitRate.value = v; restartMirrorIfRunning() }
+    fun setMirrorBitRate(v: Int) {
+        if (_mirrorBitRate.value == v) return
+        _mirrorBitRate.value = v
+        restartMirrorIfRunning()
+    }
 
-    fun setMirrorMaxFps(v: Float) { _mirrorMaxFps.value = v; restartMirrorIfRunning() }
+    fun setMirrorMaxFps(v: Float) {
+        if (_mirrorMaxFps.value == v) return
+        _mirrorMaxFps.value = v
+        restartMirrorIfRunning()
+    }
 
     fun setMirrorReadOnly(v: Boolean) { _mirrorReadOnly.value = v }
 
-    fun setMirrorTurnOffScreen(v: Boolean) { _mirrorTurnOffScreen.value = v; restartMirrorIfRunning() }
+    fun setMirrorTurnOffScreen(v: Boolean) {
+        if (_mirrorTurnOffScreen.value == v) return
+        _mirrorTurnOffScreen.value = v
+        // 运行时切换：直接发 SET_DISPLAY_POWER 控制消息，无需重启会话（与官方 scrcpy MOD+o 一致）。
+        // 未投屏时 sendControl 返回 false，仅保存状态、待下次启动生效。
+        deviceOp({ usbAdbRepository.screenPowerOff(v) }, { repository.screenPowerOff(v) })
+    }
 
-    fun setMirrorStayAwake(v: Boolean) { _mirrorStayAwake.value = v; restartMirrorIfRunning() }
+    fun setMirrorStayAwake(v: Boolean) {
+        if (_mirrorStayAwake.value == v) return
+        _mirrorStayAwake.value = v
+        // 运行时切换：直接写 Android 全局设置，无需重启会话（底层即 scrcpy 的 stay_awake 实现）。
+        deviceOp({ usbAdbRepository.setStayAwake(v) }, { repository.setStayAwake(v) })
+    }
 
     private fun restartMirrorIfRunning() {
         val sf = mirrorSurface ?: return
@@ -1029,12 +1070,15 @@ class ConnectionViewModel @Inject constructor(
         // 该值永远是 Idle → 直接 return → 改画质/帧率/熄屏都不生效（真功能 bug）。
         // currentMirror() 已按 isUsbAdbActive 选好 engine，用它自己的 status 判断。
         val (engine, transport) = currentMirror()
-        val st = engine.status.value
-        if (st !is com.wearadb.adb.MirrorStatus.Streaming &&
-            st !is com.wearadb.adb.MirrorStatus.Starting
-        ) return
+        // 锁内再取最新参数与状态：串行化重启，杜绝并发两次 startSafe 踩踏共享流字段。
         viewModelScope.launch(Dispatchers.IO) {
-            engine.startSafe(transport, sf, buildMirrorOptions())
+            mirrorRestartMutex.withLock {
+                val st = engine.status.value
+                if (st !is com.wearadb.adb.MirrorStatus.Streaming &&
+                    st !is com.wearadb.adb.MirrorStatus.Starting
+                ) return@withLock
+                engine.startSafe(transport, sf, buildMirrorOptions())
+            }
         }
     }
 

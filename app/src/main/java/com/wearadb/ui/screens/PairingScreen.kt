@@ -19,6 +19,8 @@ import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.PairingState
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
+import com.wearadb.ui.navigation.Routes
+import com.wearadb.ui.navigation.SharedTitle
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
 import com.wearadb.ui.utils.useDualPane
 
@@ -61,7 +63,7 @@ fun PairingScreen(
                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, s.btnBack, tint = c.onBackground)
             }
             Spacer(Modifier.width(8.dp))
-            Text(s.pairTitle, style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
+            SharedTitle(Routes.PAIRING, s.pairTitle, MaterialTheme.typography.headlineMedium, c.onBackground)
         }
     }
 

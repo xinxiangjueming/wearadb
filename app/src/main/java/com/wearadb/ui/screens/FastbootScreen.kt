@@ -27,7 +27,10 @@ import com.wearadb.fastboot.FastbootConnectionState
 import com.wearadb.fastboot.FastbootDevice
 import com.wearadb.ui.FastbootViewModel
 import com.wearadb.ui.LocalStrings
+import androidx.compose.material3.MaterialTheme
 import com.wearadb.ui.theme.WearAdbTheme
+import com.wearadb.ui.navigation.Routes
+import com.wearadb.ui.navigation.SharedTitle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,7 +82,7 @@ fun FastbootScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(s.fbModeTitle) },
+                title = { SharedTitle(Routes.FASTBOOT, s.fbModeTitle, MaterialTheme.typography.titleLarge, colors.onSurface) },
                 navigationIcon = {
                     IconButton(onClick = {
                         viewModel.disconnect()

@@ -25,7 +25,10 @@ import com.wearadb.adb.UsbAdbConnectionState
 import com.wearadb.adb.UsbAdbDeviceInfo
 import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.UsbAdbViewModel
+import androidx.compose.material3.MaterialTheme
 import com.wearadb.ui.theme.WearAdbTheme
+import com.wearadb.ui.navigation.Routes
+import com.wearadb.ui.navigation.SharedTitle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,7 +60,7 @@ fun UsbAdbScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(s.featureUsbAdb) },
+                title = { SharedTitle(Routes.USB_ADB, s.featureUsbAdb, MaterialTheme.typography.titleLarge, colors.onSurface) },
                 navigationIcon = {
                     IconButton(onClick = {
                         viewModel.disconnect()

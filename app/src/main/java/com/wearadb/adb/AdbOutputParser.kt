@@ -341,7 +341,18 @@ object AdbOutputParser {
                 // 符号链接：只取 -> 前面的文件名，忽略链接目标
                 if (perms.startsWith("l")) {
                     val arrowIdx = name.indexOf(" -> ")
-                    if (arrowIdx > 0) name = name.substring(0, arrowIdx)
+                    if (arrowIdx > 0) {
+                        name = name.substring(0, arrowIdx)
+                    } else if (name.startsWith("->")) {
+                        // ls -L 对悬空符号链接（stat 失败）会把大小/日期列打成 "?" 占位，
+                        // 列位整体前移，解析后名字只剩 "-> 目标"，真实文件名在 parts[6]。
+                        // 此前会产出形如 "/-> ?" 的重复 path，LazyColumn 重复 key 直接崩溃。
+                        val recovered = parts.getOrNull(6)?.trim().orEmpty()
+                        if (recovered.isBlank() || recovered == "->" || recovered.contains(" -> ")) {
+                            return@mapNotNull null
+                        }
+                        name = recovered
+                    }
                 }
                 FileEntry(
                     name = name,
@@ -352,6 +363,9 @@ object AdbOutputParser {
                     lastModified = date
                 )
             }
+            // 兜底去重：畸形行（如悬空链接占位列）可能解析出相同 path，
+            // LazyColumn 按 path 作 key，重复即崩，这里保证唯一。
+            .distinctBy { it.path }
             .sortedWith(compareByDescending<FileEntry> { it.isDirectory }.thenBy { it.name })
     }
 

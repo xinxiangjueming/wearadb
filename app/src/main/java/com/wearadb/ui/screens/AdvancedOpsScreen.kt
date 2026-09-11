@@ -28,6 +28,8 @@ import com.wearadb.ui.ConnectionViewModel
 import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
+import com.wearadb.ui.navigation.Routes
+import com.wearadb.ui.navigation.SharedTitle
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
 
 private data class OpsItem(val icon: ImageVector, val label: String, val onClick: () -> Unit)
@@ -110,7 +112,7 @@ fun AdvancedOpsScreen(
             Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, s.btnBack, tint = c.onBackground) }
                 Spacer(Modifier.width(8.dp))
-                Text(s.advancedTitle, style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
+                SharedTitle(Routes.ADVANCED, s.advancedTitle, MaterialTheme.typography.headlineMedium, c.onBackground)
             }
         }
 

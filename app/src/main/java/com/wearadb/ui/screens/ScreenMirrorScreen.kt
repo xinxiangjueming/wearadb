@@ -392,7 +392,9 @@ fun ScreenMirrorScreen(
                         "15" to 15f,
                         "24" to 24f,
                         "30" to 30f,
-                        "60" to 60f
+                        "60" to 60f,
+                        "90" to 90f,
+                        "120" to 120f
                     ),
                     selected = maxFps
                 ) { viewModel.setMirrorMaxFps(it) }
@@ -456,7 +458,12 @@ fun ScreenMirrorScreen(
                 Button(
                     onClick = { viewModel.stopMirror() },
                     modifier = Modifier.clip(RoundedCornerShape(WearAdbTheme.shape.cornerRadius)),
-                    colors = ButtonDefaults.buttonColors(containerColor = c.error)
+                    // 危险操作按钮用 buttonDanger 语义色（深色模式 = 0xFFB91C1C 暗红），
+                    // 不能用 c.error：它是为暗底错误文字设计的浅粉(0xFFFCA5A5)，做底色会变粉色。
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = c.buttonDanger,
+                        contentColor = c.buttonDangerText
+                    )
                 ) {
                     Text(s.mirrorStop)
                 }

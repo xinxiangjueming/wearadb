@@ -65,7 +65,15 @@
     <string name="shell_scene">Scene 啟用</string>
     <string name="shell_brevent">黑域啟用</string>
     <string name="shell_icebox">冰箱啟用</string>
+    <string name="shell_stop_app">小黑屋啟用</string>
+    <string name="shell_greenify">綠色守護啟用</string>
     <string name="shell_thanox">Thanox 啟用</string>
+    <string name="shell_air_frozen">空調狗啟用</string>
+    <string name="shell_freeze_you">自凍啟用</string>
+    <string name="shell_island">煉妖壺啟用</string>
+    <string name="shell_apk_installer">安裝獅啟用</string>
+    <string name="shell_black_hole">黑洞啟用</string>
+    <string name="shell_second_space">第二空間啟用</string>
     <string name="shell_hint">輸入指令開始互動…\n例如: ls -la, getprop ro.product.model</string>
     <string name="shell_input_hint">輸入指令…</string>
 

@@ -38,6 +38,8 @@ import com.wearadb.ui.ConnectionViewModel
 import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
+import com.wearadb.ui.navigation.Routes
+import com.wearadb.ui.navigation.SharedTitle
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
 import com.wearadb.ui.utils.formatBytes
 
@@ -254,7 +256,7 @@ fun AppsScreen(
                 Row(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, s.btnBack, tint = c.onBackground) }
                     Spacer(Modifier.width(8.dp))
-                    Text(s.appsTitle, style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
+                    SharedTitle(Routes.APPS, s.appsTitle, MaterialTheme.typography.headlineMedium, c.onBackground)
                     Spacer(Modifier.weight(1f))
                     // 应用名/图标后台解析中：在计数前显示一个小进度环
                     if (appInfoLoading) {

@@ -72,7 +72,15 @@ data class ShellStrings(
     val shellScene: String,
     val shellBrevent: String,
     val shellIceBox: String,
+    val shellStopApp: String,
+    val shellGreenify: String,
     val shellThanox: String,
+    val shellAirFrozen: String,
+    val shellFreezeYou: String,
+    val shellIsland: String,
+    val shellApkInstaller: String,
+    val shellBlackHole: String,
+    val shellSecondSpace: String,
     val shellHint: String,
     val shellInputHint: String,
 )
@@ -400,7 +408,15 @@ class Strings(
     val shellScene get() = shell.shellScene
     val shellBrevent get() = shell.shellBrevent
     val shellIceBox get() = shell.shellIceBox
+    val shellStopApp get() = shell.shellStopApp
+    val shellGreenify get() = shell.shellGreenify
     val shellThanox get() = shell.shellThanox
+    val shellAirFrozen get() = shell.shellAirFrozen
+    val shellFreezeYou get() = shell.shellFreezeYou
+    val shellIsland get() = shell.shellIsland
+    val shellApkInstaller get() = shell.shellApkInstaller
+    val shellBlackHole get() = shell.shellBlackHole
+    val shellSecondSpace get() = shell.shellSecondSpace
     val shellHint get() = shell.shellHint
     val shellInputHint get() = shell.shellInputHint
     // DeviceInfoScreen
@@ -705,7 +721,15 @@ private fun rememberShellStrings() = ShellStrings(
     shellScene = stringResource(R.string.shell_scene),
     shellBrevent = stringResource(R.string.shell_brevent),
     shellIceBox = stringResource(R.string.shell_icebox),
+    shellStopApp = stringResource(R.string.shell_stop_app),
+    shellGreenify = stringResource(R.string.shell_greenify),
     shellThanox = stringResource(R.string.shell_thanox),
+    shellAirFrozen = stringResource(R.string.shell_air_frozen),
+    shellFreezeYou = stringResource(R.string.shell_freeze_you),
+    shellIsland = stringResource(R.string.shell_island),
+    shellApkInstaller = stringResource(R.string.shell_apk_installer),
+    shellBlackHole = stringResource(R.string.shell_black_hole),
+    shellSecondSpace = stringResource(R.string.shell_second_space),
     shellHint = stringResource(R.string.shell_hint),
     shellInputHint = stringResource(R.string.shell_input_hint),
 )

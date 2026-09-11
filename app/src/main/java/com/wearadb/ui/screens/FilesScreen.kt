@@ -33,6 +33,8 @@ import com.wearadb.ui.utils.formatBytes
 import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
+import com.wearadb.ui.navigation.Routes
+import com.wearadb.ui.navigation.SharedTitle
 import com.wearadb.ui.utils.useDualPane
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
 
@@ -124,7 +126,7 @@ fun FilesScreen(
                     else onBack()
                 }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, s.btnBack, tint = c.onBackground) }
                 Spacer(Modifier.width(8.dp))
-                Text(s.filesTitle, style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
+                SharedTitle(Routes.FILES, s.filesTitle, MaterialTheme.typography.headlineMedium, c.onBackground)
                 Spacer(Modifier.weight(1f))
                 // 推送按钮
                 IconButton(onClick = { pushLauncher.launch("*/*") }) {

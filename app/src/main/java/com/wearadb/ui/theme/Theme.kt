@@ -106,7 +106,9 @@ private val LightColors = WearAdbColors(
     onAccent           = Gray50,
     error              = DangerRed,
     onError            = Gray50,
-    warning            = WarnYellow,
+    // warning 跟随深浅色：浅色模式用近黑(Gray900)，深色模式用近白(Gray100)。
+    // 原 WarnYellow(0xFFFDE68A) 在双主题都固定为浅黄，不符合"跟随深浅色切换白/黑"的需求。
+    warning            = Gray900,
     info               = InfoBlue,
     outline            = Gray300,
     outlineVariant     = Gray150,
@@ -157,7 +159,8 @@ private val DarkColors = WearAdbColors(
     onAccent           = Gray900,
     error              = ErrorRed,
     onError            = Gray900,
-    warning            = WarnYellow,
+    // warning 跟随深浅色：浅色模式用近黑(Gray900)，深色模式用近白(Gray100)。
+    warning            = Gray100,
     info               = InfoBlue,
     outline            = Gray700,
     outlineVariant     = Gray800,

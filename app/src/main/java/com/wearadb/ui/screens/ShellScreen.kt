@@ -27,6 +27,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.ui.theme.WearAdbTheme
+import com.wearadb.ui.navigation.Routes
+import com.wearadb.ui.navigation.SharedTitle
 import com.wearadb.ui.ConnectionViewModel
 import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
@@ -71,7 +73,7 @@ fun ShellScreen(
                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, s.btnBack, tint = c.onBackground)
             }
             Spacer(Modifier.width(8.dp))
-            Text("Shell", style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
+            SharedTitle(Routes.SHELL, "Shell", MaterialTheme.typography.headlineMedium, c.onBackground)
             Spacer(Modifier.weight(1f))
             Text(s.shellSubtitle, style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
         }
@@ -124,7 +126,8 @@ fun ShellScreen(
                 QuickCommandChip(
                     label = s.shellBrevent,
                     onClick = {
-                        val cmd = "sh /data/data/me.piebridge.brevent/brevent.sh"
+                        // 与电脑端一致：脚本缺失时回退 app_process 直接拉起服务
+                        val cmd = "sh /data/data/me.piebridge.brevent/brevent.sh || (output=\$(pm path me.piebridge.brevent); export CLASSPATH=\${output#*:}; app_process /system/bin me.piebridge.brevent.server.BreventServer bootstrap; /system/bin/sh /data/local/tmp/brevent.sh)"
                         lines.add(TerminalLine(cmd, isCommand = true))
                         viewModel.executeCommand(cmd)
                     }
@@ -142,6 +145,26 @@ fun ShellScreen(
             }
             item {
                 QuickCommandChip(
+                    label = s.shellStopApp,
+                    onClick = {
+                        val cmd = "sh /storage/emulated/0/Android/data/web1n.stopapp/files/starter.sh"
+                        lines.add(TerminalLine(cmd, isCommand = true))
+                        viewModel.executeCommand(cmd)
+                    }
+                )
+            }
+            item {
+                QuickCommandChip(
+                    label = s.shellGreenify,
+                    onClick = {
+                        val cmd = "pm grant com.oasisfeng.greenify android.permission.WRITE_SECURE_SETTINGS"
+                        lines.add(TerminalLine(cmd, isCommand = true))
+                        viewModel.executeCommand(cmd)
+                    }
+                )
+            }
+            item {
+                QuickCommandChip(
                     label = s.shellThanox,
                     onClick = {
                         val cmds = listOf(
@@ -152,6 +175,67 @@ fun ShellScreen(
                             lines.add(TerminalLine(cmd, isCommand = true))
                         }
                         viewModel.executeCommands(cmds)
+                    }
+                )
+            }
+            item {
+                QuickCommandChip(
+                    label = s.shellAirFrozen,
+                    onClick = {
+                        val cmd = "dpm set-device-owner me.yourbay.airfrozen/.main.core.mgmt.MDeviceAdminReceiver"
+                        lines.add(TerminalLine(cmd, isCommand = true))
+                        viewModel.executeCommand(cmd)
+                    }
+                )
+            }
+            item {
+                QuickCommandChip(
+                    label = s.shellFreezeYou,
+                    onClick = {
+                        val cmd = "dpm set-device-owner cf.playhi.freezeyou/.DeviceAdminReceiver"
+                        lines.add(TerminalLine(cmd, isCommand = true))
+                        viewModel.executeCommand(cmd)
+                    }
+                )
+            }
+            item {
+                QuickCommandChip(
+                    label = s.shellIsland,
+                    onClick = {
+                        val cmd = "dpm set-device-owner com.oasisfeng.island/.IslandDeviceAdminReceiver"
+                        lines.add(TerminalLine(cmd, isCommand = true))
+                        viewModel.executeCommand(cmd)
+                    }
+                )
+            }
+            item {
+                QuickCommandChip(
+                    label = s.shellApkInstaller,
+                    onClick = {
+                        val cmd = "dpm set-device-owner com.modosa.apkinstaller/.receiver.AdminReceiver"
+                        lines.add(TerminalLine(cmd, isCommand = true))
+                        viewModel.executeCommand(cmd)
+                    }
+                )
+            }
+            item {
+                QuickCommandChip(
+                    label = s.shellBlackHole,
+                    onClick = {
+                        // 管理员组件未硬编码：先从 dumpsys package 自动探测（与电脑端 FindDeviceAdminReceiverAsync 同逻辑）
+                        val cmd = "admin=\$(dumpsys package com.hld.apurikakusu | grep -A7 -F \"android.app.action.DEVICE_ADMIN_ENABLED\" | grep -o \"com.hld.apurikakusu/[^ ]*\" | head -n 1); if [ -n \"\$admin\" ]; then dpm set-device-owner \$admin; else echo \"device admin receiver not found for com.hld.apurikakusu\"; fi"
+                        lines.add(TerminalLine(cmd, isCommand = true))
+                        viewModel.executeCommand(cmd)
+                    }
+                )
+            }
+            item {
+                QuickCommandChip(
+                    label = s.shellSecondSpace,
+                    onClick = {
+                        val cmd = "admin=\$(dumpsys package com.hld.anzenbokusu | grep -A7 -F \"android.app.action.DEVICE_ADMIN_ENABLED\" | grep -o \"com.hld.anzenbokusu/[^ ]*\" | head -n 1); if [ -n \"\$admin\" ]; then dpm set-device-owner \$admin; else echo \"device admin receiver not found for com.hld.anzenbokusu\"; fi"
+                        lines.add(TerminalLine(cmd, isCommand = true))
+                        viewModel.executeCommand(cmd)
                     }
                 )
             }

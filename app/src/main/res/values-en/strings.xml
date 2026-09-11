@@ -65,7 +65,15 @@
     <string name="shell_scene">Activate Scene</string>
     <string name="shell_brevent">Activate Brevent</string>
     <string name="shell_icebox">Activate IceBox</string>
+    <string name="shell_stop_app">Activate StopApp</string>
+    <string name="shell_greenify">Activate Greenify</string>
     <string name="shell_thanox">Activate Thanox</string>
+    <string name="shell_air_frozen">Activate AirFrozen</string>
+    <string name="shell_freeze_you">Activate FreezeYou</string>
+    <string name="shell_island">Activate Island</string>
+    <string name="shell_apk_installer">Activate Apk Installer</string>
+    <string name="shell_black_hole">Activate BlackHole</string>
+    <string name="shell_second_space">Activate Second Space</string>
     <string name="shell_hint">Type a command to start…\nExample: ls -la, getprop ro.product.model</string>
     <string name="shell_input_hint">Enter command…</string>
 
