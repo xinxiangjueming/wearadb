@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -68,6 +69,7 @@ fun HomeScreen(
     // 预取字符串，避免在 LazyColumn item lambda 中调用
     val s = LocalStrings.current
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
 
     // 端口必填：留空或非法时点击不发起连接，短促强震提醒用户补填
     val onConnectClick = {
@@ -75,6 +77,8 @@ fun HomeScreen(
         if (port == null || port !in 1..65535) {
             vibrateStrongShort(context)
         } else {
+            // 连接是表单提交：立即收起软键盘，避免随后弹出的蓝牙询问框上方仍压着输入法
+            focusManager.clearFocus()
             viewModel.connect(hostInput.trim(), port)
         }
     }
@@ -235,8 +239,8 @@ fun HomeScreen(
             shape = RoundedCornerShape(cr),
             title = { Text(s.btTitle, style = MaterialTheme.typography.titleMedium, color = c.onSurface) },
             text = { Text(s.btMessage, style = MaterialTheme.typography.bodyMedium, color = c.onSurfaceVariant) },
-            confirmButton = { TextButton(onClick = { viewModel.confirmDisableBluetooth() }) { Text(s.btConfirm, color = c.accent) } },
-            dismissButton = { TextButton(onClick = { viewModel.dismissBluetoothDialog() }) { Text(s.btDismiss, color = c.onSurfaceVariant) } }
+            confirmButton = { TextButton(onClick = { focusManager.clearFocus(); viewModel.confirmDisableBluetooth() }) { Text(s.btConfirm, color = c.accent) } },
+            dismissButton = { TextButton(onClick = { focusManager.clearFocus(); viewModel.dismissBluetoothDialog() }) { Text(s.btDismiss, color = c.onSurfaceVariant) } }
         )
     }
 }
