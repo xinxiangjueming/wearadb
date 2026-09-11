@@ -27,6 +27,14 @@ class UsbAdbTransport(
     companion object {
         private const val TAG = "UsbAdbTransport"
         private const val WRITE_TIMEOUT = 5000
+
+        /**
+         * 单次 requestWait 的有界等待。
+         * 纯空闲链路（无视频流、无命令）长时间无数据是**常态**，超时不算错误、
+         * 对同一个 request 原地续等；收益是永不永久悬挂——链路劣化/设备拔出时
+         * 最终必然走出等待进入错误路径（2026-09-11 卡死排查结论）。
+         */
+        private const val REQUEST_WAIT_TIMEOUT_MS = 30_000L
     }
 
     @Volatile
@@ -67,8 +75,15 @@ class UsbAdbTransport(
 
     /**
      * Read exactly `length` bytes into `buffer`.
-     * Uses UsbRequest pool + requestWait() (no timeout, blocks until data).
-     * Returns actual bytes read, or throws IOException on failure.
+     * Uses UsbRequest pool + requestWait(timeout) (bounded wait, re-waits the
+     * same queued request while idle). Returns actual bytes read, or throws
+     * IOException on failure.
+     *
+     * 两处硬化（2026-09-11 卡死排查结论）：
+     * 1. queue() 返回值必须检查——队列提交失败（句柄/端点已死）时若继续
+     *    requestWait 会永久悬挂；
+     * 2. requestWait 带 30s 超时——空闲时对同一 request 续等，链路死亡时
+     *    最终必然抛 IOException（由读取线程统一走链路死亡处理）。
      */
     fun readExactly(buffer: ByteArray, offset: Int, length: Int) {
         if (closed) throw IOException("Transport closed")
@@ -82,21 +97,22 @@ class UsbAdbTransport(
             val request = getInRequest()
             try {
                 @Suppress("DEPRECATION")
-                request.queue(buf, needed)
+                if (!request.queue(buf, needed)) {
+                    Log.e(TAG, "USB read queue FAILED (needed=$needed, totalRead=$totalRead/$length)")
+                    throw IOException("USB read queue failed")
+                }
 
-                // requestWait() without timeout — blocks until data arrives
-                val response = conn.requestWait()
-                if (response == null || response !== request) {
-                    Log.w(TAG, "USB read: unexpected response (null=${response == null}), retry=$retryCount")
-                    if (++retryCount > maxRetries) {
-                        Log.e(TAG, "USB read FAILED after $maxRetries retries, totalRead=$totalRead/$length")
-                        throw IOException("USB read failed after $maxRetries retries")
-                    }
-                    continue
+                // 有界等待完成：null = 空闲超时，不算错误，对同一个 request 续等
+                var response = conn.requestWait(REQUEST_WAIT_TIMEOUT_MS)
+                while (response == null && !closed) {
+                    response = conn.requestWait(REQUEST_WAIT_TIMEOUT_MS)
+                }
+                if (response == null) {
+                    throw IOException("USB read aborted (transport closed while waiting)")
                 }
 
                 // UsbRequest updates buf.position() with actual bytes read after requestWait().
-                val bytesRead = buf.position()
+                val bytesRead = if (response === request) buf.position() else -1
                 if (bytesRead > 0) {
                     buf.rewind()
                     buf.get(buffer, offset + totalRead, bytesRead)
@@ -104,11 +120,15 @@ class UsbAdbTransport(
                     retryCount = 0
                     Log.v(TAG, "read: +$bytesRead total=$totalRead/$length")
                 } else {
-                    // 0 bytes — possibly timeout or empty response
-                    Log.w(TAG, "USB read: 0 bytes, retry=$retryCount")
+                    if (bytesRead < 0) {
+                        Log.w(TAG, "USB read: unexpected response (mismatched request), retry=$retryCount")
+                    } else {
+                        // 0 bytes — possibly timeout or empty response
+                        Log.w(TAG, "USB read: 0 bytes, retry=$retryCount")
+                    }
                     if (++retryCount > maxRetries) {
-                        Log.e(TAG, "USB read FAILED: no data after $maxRetries retries, totalRead=$totalRead/$length")
-                        throw IOException("USB read: no data after $maxRetries retries")
+                        Log.e(TAG, "USB read FAILED after $maxRetries retries, totalRead=$totalRead/$length")
+                        throw IOException("USB read failed after $maxRetries retries")
                     }
                 }
             } finally {

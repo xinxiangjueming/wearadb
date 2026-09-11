@@ -83,7 +83,7 @@ class UsbAdbRepository @Inject constructor(
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
                 val (pk, cert) = loadOrGenerateKeyPair()
-                val mgr = UsbAdbManager(appContext, pk, cert) { msg ->
+                val mgr = UsbAdbManager(appContext, pk, cert, onConnectionLost = { handleLinkLost() }) { msg ->
                     synchronized(logLines) {
                         logLines.add(msg)
                         _connectLog.value = logLines.joinToString("\n")
@@ -137,6 +137,24 @@ class UsbAdbRepository @Inject constructor(
         } catch (_: Exception) {}
         _connectionState.value = UsbAdbConnectionState.DISCONNECTED
         _connectedDevice.value = null
+    }
+
+    /**
+     * 链路死亡上报（UsbAdbConnection 读取线程 EOF / USB 设备拔出广播，经
+     * UsbAdbManager.handleConnectionLost 汇聚）。
+     *
+     * 只更新连接状态 + 记日志，**不在此处 mirrorEngine.stop()**：链路死亡时
+     * 引擎的流已被 close，读循环会读到关闭哨兵自行收场并显示 Error
+     * （比静默归 Idle 更可观察，见 ScreenMirrorEngine.finally 的 abnormalExit 分支）。
+     * 必须非阻塞地切到协程：回调可能在读取线程上触发。
+     */
+    private fun handleLinkLost() {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            if (_connectionState.value == UsbAdbConnectionState.DISCONNECTED) return@launch
+            WearAdbLogger.w("UsbAdb", "USB连接已断开（链路失效或设备拔出）")
+            _connectionState.value = UsbAdbConnectionState.DISCONNECTED
+            _connectedDevice.value = null
+        }
     }
 
     val isConnected: Boolean

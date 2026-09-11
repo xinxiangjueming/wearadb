@@ -575,6 +575,11 @@ class ScreenMirrorEngine(private val appContext: Context) {
                 _status.value = MirrorStatus.Error("投屏中断: ${e.message}")
             }
         } finally {
+            // 区分退场原因：stop()（用户/仓储主动停止）会先把 running 置 false；
+            // 若走到 finally 时 running 仍为 true，说明读循环是因为流被链路关闭
+            // 而 break（读取线程 EOF / 设备拔出），必须显式报错而非静默归 Idle
+            // （2026-09-11 卡死假活修复的收尾半环：错误可见 + 可重试）。
+            val abnormalExit = running
             withContext(NonCancellable) {
                 // 恢复设备屏幕（与官方客户端退出行为一致；WAKEUP keyevent 兜底）
                 if (screenTurnedOff) {
@@ -597,7 +602,11 @@ class ScreenMirrorEngine(private val appContext: Context) {
                 }
                 val cur = _status.value
                 if (cur == MirrorStatus.Streaming || cur == MirrorStatus.Starting) {
-                    _status.value = MirrorStatus.Idle
+                    _status.value = if (abnormalExit) {
+                        MirrorStatus.Error("连接已断开（链路失效或设备拔出）")
+                    } else {
+                        MirrorStatus.Idle
+                    }
                 }
             }
         }

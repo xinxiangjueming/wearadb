@@ -17,7 +17,9 @@ class UsbAdbConnection(
     private val privateKey: PrivateKey,
     private val certificate: Certificate,
     private val deviceName: String = "wear-adb",
-    private val logCallback: ((String) -> Unit)? = null
+    private val logCallback: ((String) -> Unit)? = null,
+    /** 链路死亡回调（读取线程 EOF/异常退出时触发；用户主动 disconnect 不触发）。 */
+    private val onLinkDead: (() -> Unit)? = null
 ) {
     companion object {
         private const val TAG = "UsbAdbConnection"
@@ -341,6 +343,9 @@ class UsbAdbConnection(
                     if (msg == null) {
                         Log.w(TAG, "读取线程: EOF, connected=$connected closed=$closed")
                         connected = false
+                        // 只有非用户主动断开（closed=false）才算链路死亡；
+                        // 用户 disconnect() 已先置 closed=true，走不到这里
+                        if (!closed) notifyLinkDead("读取线程 EOF")
                         break
                     }
                     handleMessage(msg)
@@ -348,6 +353,7 @@ class UsbAdbConnection(
                     if (!closed) {
                         Log.e(TAG, "读取线程错误: ${e.javaClass.simpleName}: ${e.message}", e)
                         connected = false
+                        notifyLinkDead("读取线程异常: ${e.javaClass.simpleName}: ${e.message}")
                     }
                     break
                 }
@@ -357,6 +363,28 @@ class UsbAdbConnection(
             isDaemon = true
             start()
         }
+    }
+
+    /**
+     * 链路死亡传播（2026-09-11 "投屏过一会卡死"根因修复）。
+     *
+     * 读取线程退出 = 这条 ADB 连接上的所有流永久无数据/无 ACK。此前只置
+     * connected=false 而不关流、无回调 → 投屏引擎的 video.isClosed 恒 false，
+     * 读循环无限等待 → UI 永远显示"正在投屏"但画面冻结（卡死假活）。
+     *
+     * 现在必须做两件事：
+     * 1. close 全部流 —— 唤醒所有 readBlocking/waitForOpen 等待者；投屏引擎的
+     *    video 流读到关闭哨兵后会话 finally 自然收场（显示 Error），不再假活；
+     * 2. 通知上层（onLinkDead）—— 仓储更新连接状态为 DISCONNECTED 并记日志。
+     *
+     * 注意：调用点在读取线程内，onLinkDead 实现必须非阻塞（仓储侧转发到协程）。
+     */
+    private fun notifyLinkDead(reason: String) {
+        Log.w(TAG, "链路失效($reason) → 关闭全部 ${streams.size} 条流并通知上层")
+        streams.values.forEach { try { it.close() } catch (_: Exception) {} }
+        streams.clear()
+        pendingOpens.clear()
+        try { onLinkDead?.invoke() } catch (_: Exception) {}
     }
 
     private fun handleMessage(msg: AdbMessage) {

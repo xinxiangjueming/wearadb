@@ -19,6 +19,8 @@ class UsbAdbManager(
     private val context: Context,
     private val privateKey: PrivateKey,
     private val certificate: Certificate,
+    /** 链路失效回调（读取线程 EOF / 设备拔出广播），由仓储层注入以更新连接状态。 */
+    private val onConnectionLost: (() -> Unit)? = null,
     private val logCallback: ((String) -> Unit)? = null
 ) {
     companion object {
@@ -37,6 +39,12 @@ class UsbAdbManager(
 
     private var currentConnection: UsbAdbConnection? = null
     private var currentTransport: UsbAdbTransport? = null
+
+    /** 当前已连接的物理设备（用于 DETACHED 广播比对）。 */
+    @Volatile private var currentDevice: UsbDevice? = null
+
+    /** 防重入：同一次断链（读取线程死亡 + DETACHED 广播先后到达）只上报一次。 */
+    @Volatile private var linkLostReported = false
 
     // USB permission receiver
     private var permissionGranted = false
@@ -65,12 +73,37 @@ class UsbAdbManager(
         }
     }
 
+    /** USB 设备拔出接收器（2026-09-11 修复：此前全工程不监听 DETACHED，设备拔出 App 毫无反应）。 */
+    private val usbDetachReceiver = object : BroadcastReceiver() {
+        override fun onReceive(ctx: Context, intent: Intent) {
+            if (intent.action != UsbManager.ACTION_USB_DEVICE_DETACHED) return
+            val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)
+            }
+            val current = currentDevice ?: return
+            // 只处理当前会话的设备（deviceName 是枚举路径 /dev/bus/usb/…，重插后会变）
+            if (device != null && device.deviceName == current.deviceName) {
+                log("USB设备已拔出: ${current.deviceName}")
+                handleConnectionLost()
+            }
+        }
+    }
+
     init {
         val filter = IntentFilter(ACTION_USB_PERMISSION)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             context.registerReceiver(usbPermissionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             context.registerReceiver(usbPermissionReceiver, filter)
+        }
+        val detachFilter = IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(usbDetachReceiver, detachFilter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            context.registerReceiver(usbDetachReceiver, detachFilter)
         }
     }
 
@@ -127,6 +160,7 @@ class UsbAdbManager(
         return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 closed = false
+                linkLostReported = false
                 log("连接有线ADB设备: ${deviceInfo.serialNumber}...")
 
                 val usbDevice = deviceInfo.usbDevice
@@ -219,7 +253,11 @@ class UsbAdbManager(
                 // 5. 创建传输层和连接
                 log("创建ADB连接...")
                 val transport = UsbAdbTransport(conn, outEp, inEp)
-                val adbConn = UsbAdbConnection(transport, privateKey, certificate, logCallback = logCallback)
+                val adbConn = UsbAdbConnection(
+                    transport, privateKey, certificate,
+                    logCallback = logCallback,
+                    onLinkDead = { handleConnectionLost() }
+                )
 
                 // 7. Perform ADB handshake
                 log("开始ADB握手...")
@@ -242,6 +280,7 @@ class UsbAdbManager(
 
                 currentTransport = transport
                 currentConnection = adbConn
+                currentDevice = usbDevice
                 log("有线ADB连接成功!")
                 true
             } catch (e: Exception) {
@@ -253,11 +292,34 @@ class UsbAdbManager(
 
     fun disconnect() {
         closed = true
+        currentDevice = null
         currentConnection?.disconnect()
         currentConnection = null
         currentTransport?.close()
         currentTransport = null
         Log.d(TAG, "Disconnected")
+    }
+
+    /**
+     * 链路失效统一处理（UsbAdbConnection 读取线程 EOF / USB 设备拔出广播）。
+     *
+     * 幂等：读取线程死亡与 DETACHED 广播可能先后到达，同一次断链只清理/上报一次
+     * （[linkLostReported] 在每次 connect() 成功路径前复位）。
+     * 用户主动 [disconnect] 不经过这里，不会产生"链路失效"误报。
+     */
+    private fun handleConnectionLost() {
+        if (linkLostReported) return
+        linkLostReported = true
+        val conn = currentConnection
+        val transport = currentTransport
+        val device = currentDevice
+        currentConnection = null
+        currentTransport = null
+        currentDevice = null
+        log("链路失效，清理连接（device=${device?.deviceName ?: "unknown"}）")
+        try { conn?.disconnect() } catch (_: Exception) {}
+        try { transport?.close() } catch (_: Exception) {}
+        try { onConnectionLost?.invoke() } catch (_: Exception) {}
     }
 
     val isConnected: Boolean get() = currentConnection?.isConnected == true
