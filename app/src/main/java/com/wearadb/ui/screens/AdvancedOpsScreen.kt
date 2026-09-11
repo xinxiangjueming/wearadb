@@ -37,6 +37,7 @@ fun AdvancedOpsScreen(
     onBack: () -> Unit,
     onNavigateToFiles: () -> Unit,
     onNavigateToHome: () -> Unit,
+    onNavigateToScreenMirror: () -> Unit = {},
     viewModel: ConnectionViewModel = hiltViewModel()
 ) {
     val c = WearAdbTheme.colors
@@ -68,6 +69,7 @@ fun AdvancedOpsScreen(
     val sections = remember {
         listOf(
             s.opsDisplay to listOf(
+                OpsItem(Icons.Outlined.ScreenshotMonitor, s.mirrorTitle) { onNavigateToScreenMirror() },
                 OpsItem(Icons.Outlined.Camera, s.opsScreenshot) { showScreenshot = true },
                 OpsItem(Icons.Outlined.LightMode, s.opsScreenOn) { viewModel.screenOn() },
                 OpsItem(Icons.Outlined.DarkMode, s.opsScreenOff) { viewModel.screenOff() },

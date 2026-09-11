@@ -269,4 +269,32 @@
     <string name="usb_serial">Serial: %1$s</string>
     <string name="usb_reboot_fastboot">Reboot to Fastboot</string>
     <string name="usb_reboot_fastboot_desc">Device will disconnect and enter Bootloader</string>
+    <!-- ScreenMirrorScreen (B1 wired mirroring) -->
+    <string name="mirror_title">Screen Mirror</string>
+    <string name="mirror_status_idle">Waiting for surface…</string>
+    <string name="mirror_status_starting">Starting mirror…</string>
+    <string name="mirror_status_streaming">Mirroring</string>
+    <string name="mirror_retry">Retry</string>
+    <string name="mirror_stop">Stop</string>
+    <string name="mirror_touch_hint">Tap / swipe to control the device</string>
+    <string name="mirror_resolution">Video %1$s · Device %2$s</string>
+
+    <!-- ScreenMirrorScreen quality/fps options -->
+    <string name="mirror_option_size">Resolution</string>
+    <string name="mirror_option_bitrate">Bitrate</string>
+    <string name="mirror_option_fps">Frame rate</string>
+    <string name="mirror_auto">Auto</string>
+
+    <!-- ScreenMirrorScreen toggles & quick keys -->
+    <string name="mirror_option_toggles">Toggles</string>
+    <string name="mirror_option_readonly">Read-only</string>
+    <string name="mirror_option_screen_off">Screen off</string>
+    <string name="mirror_option_stay_awake">Keep awake</string>
+    <string name="mirror_key_home">Home</string>
+    <string name="mirror_key_back">Back</string>
+    <string name="mirror_key_recents">Recents</string>
+    <string name="mirror_key_power">Power</string>
+    <string name="mirror_key_vol_up">Volume up</string>
+    <string name="mirror_key_vol_down">Volume down</string>
+
 </resources>

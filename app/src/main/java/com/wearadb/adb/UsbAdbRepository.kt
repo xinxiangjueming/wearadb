@@ -1,19 +1,25 @@
 package com.wearadb.adb
 
 import android.content.Context
+import android.util.Log
+import android.view.Surface
 import com.wearadb.log.WearAdbLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.security.KeyFactory
 import java.security.PrivateKey
 import java.security.cert.Certificate
@@ -36,6 +42,20 @@ class UsbAdbRepository @Inject constructor(
 ) {
     companion object {
         private const val TAG = "UsbAdbRepository"
+
+        // ── B1 有线投屏（scrcpy-server v2.7）常量 ──
+        /** jar 内 BuildConfig.VERSION_NAME（已用 dex 常量池校验），server 启动首参必须匹配，否则直接抛异常 */
+        private const val SCRCPY_VERSION = "2.7"
+        private const val SCRCPY_REMOTE_PATH = "/data/local/tmp/scrcpy-server.jar"
+        private const val SCRCPY_ASSET_PATH = "scrcpy/scrcpy-server.jar"
+        /** scrcpy-server tunnelForward 模式监听的抽象套接字（scid=-1 → 名字为 "scrcpy"） */
+        private const val SCRCPY_ABSTRACT_DEST = "localabstract:scrcpy"
+        /** scrcpy 2.x 线协议 codec id："h264" 的 ASCII（大端） */
+        private const val CODEC_ID_H264 = 0x68323634
+        /** 12 字节包头: [pts_flags:8 BE][len:4 BE] */
+        private const val SC_PACKET_HEADER_SIZE = 12
+        private const val SC_PACKET_FLAG_CONFIG = 1L shl 63
+        private const val SC_PACKET_PTS_MASK = (1L shl 62) - 1
     }
 
     // ── State ──
@@ -110,6 +130,7 @@ class UsbAdbRepository @Inject constructor(
 
     suspend fun disconnect() {
         WearAdbLogger.i("UsbAdb", "USB断开连接")
+        mirrorEngine.stop()
         try {
             awaitManager().disconnect()
         } catch (_: Exception) {}
@@ -296,6 +317,43 @@ class UsbAdbRepository @Inject constructor(
             }
         }
         return null
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // ── 屏幕查看（scrcpy-server，USB/无线共用 ScreenMirrorEngine） ──
+    // 协议与数据流见 ScreenMirrorEngine.kt
+    // ══════════════════════════════════════════════════════════
+
+    val mirrorEngine = ScreenMirrorEngine(appContext)
+
+    val mirrorStatus: StateFlow<MirrorStatus> get() = mirrorEngine.status
+
+    /** 编码分辨率（scrcpy 视频头），触摸映射用 */
+    val mirrorVideoSize: StateFlow<Pair<Int, Int>?> get() = mirrorEngine.videoSize
+
+    /** 设备真实分辨率（wm size），input tap 坐标系用 */
+    val mirrorRealSize: StateFlow<Pair<Int, Int>?> get() = mirrorEngine.realSize
+
+    fun mirrorTransport(): MirrorTransport = UsbMirrorTransport()
+
+    private inner class UsbMirrorTransport : MirrorTransport {
+        override suspend fun executeCommand(cmd: String): String =
+            this@UsbAdbRepository.executeCommand(cmd, 10000)
+
+        override suspend fun pushFileTo(localFile: File, remotePath: String): Boolean =
+            pushFile(localFile, remotePath).contains("成功")
+
+        override suspend fun openShellStream(cmd: String): MirrorStream {
+            val conn = awaitManager().getConnection()
+                ?: throw java.io.IOException("USB 未连接")
+            return UsbMirrorStream(conn.openShell(cmd), conn)
+        }
+
+        override suspend fun openAbstractSocket(dest: String): MirrorStream? {
+            val conn = awaitManager().getConnection() ?: return null
+            val s = conn.openStream(dest, 1500)
+            return if (s.isOpen) UsbMirrorStream(s, conn) else null
+        }
     }
 
     // ── 文件推送 ──
@@ -546,6 +604,7 @@ class UsbAdbRepository @Inject constructor(
                 ((bytes[offset + 3].toInt() and 0xFF) shl 24)
 
     fun destroy() {
+        mirrorEngine.destroy()
         try { initDeferred.getCompleted().manager.destroy() } catch (_: Exception) {}
     }
 

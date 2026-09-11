@@ -1436,6 +1436,66 @@ class AdbRepository @Inject constructor(
         }
     }
 
+    // ── 屏幕查看（B1: scrcpy-server，无线通道，与 USB 共用 ScreenMirrorEngine） ──
+
+    val mirrorEngine: com.wearadb.adb.ScreenMirrorEngine by lazy {
+        com.wearadb.adb.ScreenMirrorEngine(appContext)
+    }
+    val mirrorStatus get() = mirrorEngine.status
+    val mirrorVideoSize get() = mirrorEngine.videoSize
+    val mirrorRealSize get() = mirrorEngine.realSize
+
+    fun mirrorTransport(): com.wearadb.adb.MirrorTransport = WirelessMirrorTransport()
+
+    private inner class WirelessMirrorTransport : com.wearadb.adb.MirrorTransport {
+        override suspend fun executeCommand(cmd: String): String = runSingleCommand(cmd, 10000)
+
+        override suspend fun pushFileTo(localFile: File, remotePath: String): Boolean =
+            pushFile(localFile, remotePath).contains("成功")
+
+        override suspend fun openShellStream(cmd: String): com.wearadb.adb.MirrorStream =
+            WirelessMirrorStream(manager.openStream("shell:$cmd"))
+
+        override suspend fun openAbstractSocket(dest: String): com.wearadb.adb.MirrorStream? = try {
+            val s = manager.openStream(dest)
+            if (!s.isClosed) WirelessMirrorStream(s) else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** libadb-android AdbStream → MirrorStream 适配（InputStream 阻塞读）。 */
+    private class WirelessMirrorStream(private val s: AdbStream) : com.wearadb.adb.MirrorStream {
+        private var input: java.io.InputStream? = null
+        private var output: java.io.OutputStream? = null
+
+        override fun readBlocking(timeoutMs: Long): ByteArray? = try {
+            val ins = input ?: s.openInputStream().also { input = it }
+            val buf = ByteArray(64 * 1024)
+            val n = ins.read(buf) // 阻塞直到 ≥1 字节 / EOF(-1)；流关闭时抛异常 → null
+            if (n <= 0) null else buf.copyOf(n)
+        } catch (_: Exception) {
+            null
+        }
+
+        override fun writeBytes(data: ByteArray): Boolean = try {
+            val os = output ?: s.openOutputStream().also { output = it }
+            os.write(data)
+            os.flush()
+            true
+        } catch (_: Exception) {
+            false
+        }
+
+        override val isClosed: Boolean get() = s.isClosed
+        override val isOpen: Boolean get() = !s.isClosed
+        override fun close() {
+            try { input?.close() } catch (_: Exception) {}
+            try { output?.close() } catch (_: Exception) {}
+            try { s.close() } catch (_: Exception) {}
+        }
+    }
+
     // ── 高级操作 ──
     suspend fun reboot() = withContext(Dispatchers.IO) { WearAdbLogger.i("AdbRepo", "重启设备"); runSingleCommand("reboot") }
     suspend fun rebootRecovery() = withContext(Dispatchers.IO) { WearAdbLogger.i("AdbRepo", "重启到Recovery"); runSingleCommand("reboot recovery") }

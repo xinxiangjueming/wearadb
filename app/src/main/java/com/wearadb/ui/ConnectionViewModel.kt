@@ -643,6 +643,110 @@ class ConnectionViewModel @Inject constructor(
 
     fun clearScreenshot() { _screenshotData.value = null }
 
+    // ── 屏幕查看（B1: scrcpy-server，USB / 无线通道共用 ScreenMirrorEngine） ──
+
+    /** 按当前通道选择 engine + transport（USB 连接时优先 USB 通道） */
+    private fun currentMirror(): Pair<com.wearadb.adb.ScreenMirrorEngine, com.wearadb.adb.MirrorTransport> =
+        if (isUsbAdbActive) usbAdbRepository.mirrorEngine to usbAdbRepository.mirrorTransport()
+        else repository.mirrorEngine to repository.mirrorTransport()
+
+    val mirrorStatus: StateFlow<com.wearadb.adb.MirrorStatus> = combine(
+        usbAdbRepository.mirrorStatus,
+        repository.mirrorStatus,
+        usbAdbRepository.connectionState
+    ) { usb, wl, usbState ->
+        if (usbState == UsbAdbConnectionState.CONNECTED) usb else wl
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, com.wearadb.adb.MirrorStatus.Idle)
+
+    val mirrorVideoSize: StateFlow<Pair<Int, Int>?> = combine(
+        usbAdbRepository.mirrorVideoSize,
+        repository.mirrorVideoSize,
+        usbAdbRepository.connectionState
+    ) { usb, wl, usbState ->
+        if (usbState == UsbAdbConnectionState.CONNECTED) usb else wl
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    val mirrorRealSize: StateFlow<Pair<Int, Int>?> = combine(
+        usbAdbRepository.mirrorRealSize,
+        repository.mirrorRealSize,
+        usbAdbRepository.connectionState
+    ) { usb, wl, usbState ->
+        if (usbState == UsbAdbConnectionState.CONNECTED) usb else wl
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    // 画质/帧率选项：maxSize=0 不限制（scrcpy max_size，8 的倍数才有意义）；bitRate 单位 bps；maxFps=0 不限制
+    private val _mirrorMaxSize = MutableStateFlow(0)
+    val mirrorMaxSize: StateFlow<Int> = _mirrorMaxSize.asStateFlow()
+
+    private val _mirrorBitRate = MutableStateFlow(4_000_000)
+    val mirrorBitRate: StateFlow<Int> = _mirrorBitRate.asStateFlow()
+
+    private val _mirrorMaxFps = MutableStateFlow(0f)
+    val mirrorMaxFps: StateFlow<Float> = _mirrorMaxFps.asStateFlow()
+
+    // 会话开关：只读（纯 UI 门控，不注入）；熄屏（SET_SCREEN_POWER_MODE）；保持唤醒（stay_awake）。声音恒不转发。
+    private val _mirrorReadOnly = MutableStateFlow(false)
+    val mirrorReadOnly: StateFlow<Boolean> = _mirrorReadOnly.asStateFlow()
+
+    private val _mirrorTurnOffScreen = MutableStateFlow(false)
+    val mirrorTurnOffScreen: StateFlow<Boolean> = _mirrorTurnOffScreen.asStateFlow()
+
+    private val _mirrorStayAwake = MutableStateFlow(false)
+    val mirrorStayAwake: StateFlow<Boolean> = _mirrorStayAwake.asStateFlow()
+
+    /** 投屏页当前 Surface（运行中变更选项 → 无缝重启会话需要） */
+    @Volatile
+    private var mirrorSurface: android.view.Surface? = null
+
+    private fun buildMirrorOptions() = com.wearadb.adb.MirrorOptions(
+        maxSize = _mirrorMaxSize.value,
+        bitRate = _mirrorBitRate.value,
+        maxFps = _mirrorMaxFps.value,
+        turnOffScreen = _mirrorTurnOffScreen.value,
+        stayAwake = _mirrorStayAwake.value,
+    )
+
+    /**
+     * 启动屏幕查看。surface 来自投屏页 SurfaceView（surfaceCreated 回调）。
+     * 通道未连接时 engine 内部命令失败会置 Error，UI 据此提示。
+     */
+    fun startMirror(surface: android.view.Surface) {
+        mirrorSurface = surface
+        viewModelScope.launch(Dispatchers.IO) {
+            val (engine, transport) = currentMirror()
+            engine.startSafe(transport, surface, buildMirrorOptions())
+        }
+    }
+
+    fun stopMirror() {
+        currentMirror().first.stop()
+    }
+
+    /** 变更画质/开关选项；正在投屏则用新参数无缝重启（只读除外，纯 UI 门控），空闲/错误态仅保存待下次启动生效。 */
+    fun setMirrorMaxSize(v: Int) { _mirrorMaxSize.value = v; restartMirrorIfRunning() }
+
+    fun setMirrorBitRate(v: Int) { _mirrorBitRate.value = v; restartMirrorIfRunning() }
+
+    fun setMirrorMaxFps(v: Float) { _mirrorMaxFps.value = v; restartMirrorIfRunning() }
+
+    fun setMirrorReadOnly(v: Boolean) { _mirrorReadOnly.value = v }
+
+    fun setMirrorTurnOffScreen(v: Boolean) { _mirrorTurnOffScreen.value = v; restartMirrorIfRunning() }
+
+    fun setMirrorStayAwake(v: Boolean) { _mirrorStayAwake.value = v; restartMirrorIfRunning() }
+
+    private fun restartMirrorIfRunning() {
+        val sf = mirrorSurface ?: return
+        val st = usbAdbRepository.mirrorStatus.value
+        if (st !is com.wearadb.adb.MirrorStatus.Streaming &&
+            st !is com.wearadb.adb.MirrorStatus.Starting
+        ) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val (engine, transport) = currentMirror()
+            engine.startSafe(transport, sf, buildMirrorOptions())
+        }
+    }
+
     fun tap(x: Int, y: Int) {
         if (isUsbAdbActive) usbAdbCmd("input tap $x $y")
         else viewModelScope.launch { repository.tap(x, y) }

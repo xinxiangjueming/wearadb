@@ -20,6 +20,7 @@ object Routes {
     const val ADVANCED = "advanced"
     const val FASTBOOT = "fastboot"
     const val USB_ADB = "usb_adb"
+    const val SCREEN_MIRROR = "screen_mirror"
 
     // 生成带参数的配对路由
     fun pairing(host: String = "", port: Int = 0) =
@@ -87,8 +88,12 @@ fun AppNavGraph(navController: NavHostController) {
                 onNavigateToFiles = { navController.navigate(Routes.FILES) },
                 onNavigateToHome = {
                     navController.popBackStack(Routes.HOME, inclusive = false)
-                }
+                },
+                onNavigateToScreenMirror = { navController.navigate(Routes.SCREEN_MIRROR) }
             )
+        }
+        composable(Routes.SCREEN_MIRROR) {
+            ScreenMirrorScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.FASTBOOT) {
             FastbootScreen(

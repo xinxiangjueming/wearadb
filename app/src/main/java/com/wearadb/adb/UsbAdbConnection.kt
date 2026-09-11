@@ -173,8 +173,12 @@ class UsbAdbConnection(
     /**
      * Open a stream to a destination (e.g., "shell:ls", "shell:", "sync:").
      * Returns a UsbAdbStream for reading/writing.
+     *
+     * openTimeoutMs: 等待设备 OKAY 的超时。对"目标套接字可能尚不存在"的场景
+     * （如 localabstract:scrcpy 对接尚未就绪的 scrcpy-server），调用方应传短超时
+     * 并配合重试，避免每次失败都阻塞满 10s。
      */
-    fun openStream(destination: String): UsbAdbStream {
+    fun openStream(destination: String, openTimeoutMs: Long = 10000): UsbAdbStream {
         val localId = nextLocalId.getAndIncrement()
         val stream = UsbAdbStream(localId, destination)
         pendingOpens[localId] = stream
@@ -185,7 +189,7 @@ class UsbAdbConnection(
         log(">>> OPEN id=$localId dest=$destination")
 
         // Wait for OKAY response (with remoteId)
-        val opened = stream.waitForOpen(10000)
+        val opened = stream.waitForOpen(openTimeoutMs)
         Log.d(TAG, "openStream: localId=$localId opened=$opened")
 
         return stream

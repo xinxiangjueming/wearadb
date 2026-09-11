@@ -269,4 +269,32 @@
     <string name="usb_serial">序列号: %1$s</string>
     <string name="usb_reboot_fastboot">重启到 Fastboot</string>
     <string name="usb_reboot_fastboot_desc">设备将断开连接并进入 Bootloader</string>
+    <!-- ScreenMirrorScreen (B1 有线投屏) -->
+    <string name="mirror_title">屏幕查看</string>
+    <string name="mirror_status_idle">等待画面…</string>
+    <string name="mirror_status_starting">正在启动投屏…</string>
+    <string name="mirror_status_streaming">投屏中</string>
+    <string name="mirror_retry">重试</string>
+    <string name="mirror_stop">停止</string>
+    <string name="mirror_touch_hint">点按 / 滑动可回控设备</string>
+    <string name="mirror_resolution">画面 %1$s · 设备 %2$s</string>
+
+    <!-- ScreenMirrorScreen 画质/帧率选项 -->
+    <string name="mirror_option_size">分辨率</string>
+    <string name="mirror_option_bitrate">码率</string>
+    <string name="mirror_option_fps">帧率</string>
+    <string name="mirror_auto">自动</string>
+
+    <!-- ScreenMirrorScreen 开关与常用按键 -->
+    <string name="mirror_option_toggles">开关</string>
+    <string name="mirror_option_readonly">只读</string>
+    <string name="mirror_option_screen_off">熄屏</string>
+    <string name="mirror_option_stay_awake">保持唤醒</string>
+    <string name="mirror_key_home">主屏</string>
+    <string name="mirror_key_back">返回</string>
+    <string name="mirror_key_recents">最近任务</string>
+    <string name="mirror_key_power">电源</string>
+    <string name="mirror_key_vol_up">音量+</string>
+    <string name="mirror_key_vol_down">音量-</string>
+
 </resources>
