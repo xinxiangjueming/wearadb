@@ -82,18 +82,19 @@ data class PullResult(
     }
 }
 
-// ── 提取安装包结果（文案由 UI 层按当前语言组装，仓储层只回传事实）──
+// ── 导出安装包结果（文案由 UI 层按当前语言组装，仓储/VM 只回传事实）──
 
 sealed interface ApkExtractResult {
-    /** files 为已落到本地缓存的文件，按 base → split 顺序排列 */
-    data class Success(val files: List<java.io.File>) : ApkExtractResult
+    /**
+     * @param fileName  落盘文件名（单 APK 为 `<包名>.apk`；含 split 时为 `<包名>.apks`）
+     * @param location  展示用的位置（公共目录为相对的 `Download/WearAdb`，回退目录为绝对路径）
+     * @param fileCount 包内含的 APK 数量（>1 表示 Split APK）
+     */
+    data class Success(val fileName: String, val location: String, val fileCount: Int) : ApkExtractResult
     /** 设备未返回任何安装包路径 */
     data object NoApkPath : ApkExtractResult
     data class Failure(val reason: String) : ApkExtractResult
 }
-
-/** 提取安装包的本地缓存子目录名（位于 App cacheDir 下，写入用户选定位置后即清理） */
-const val APK_EXTRACT_DIR = "wearadb_apk_export"
 
 /**
  * 解析 `pm path <pkg>` 输出为远程 APK 路径列表。
@@ -107,15 +108,10 @@ fun parseApkPaths(output: String): List<String> =
         .filter { it.isNotEmpty() && it.endsWith(".apk", ignoreCase = true) }
         .toList()
 
-/**
- * 生成落盘文件名：单个 APK 用 `<包名>.apk`；
- * 多包（Split APK）用 `<包名>.<原文件名>`，既区分 split 又保留可读性。
- */
-fun apkFileName(pkg: String, total: Int, remotePath: String, index: Int): String {
-    if (total <= 1) return "$pkg.apk"
+/** Split APK 打进 .apks（zip）时的条目名：保留设备端原名（base.apk / split_xxx.apk） */
+fun apkEntryName(remotePath: String, index: Int): String {
     val raw = remotePath.substringAfterLast('/').ifBlank { "split$index.apk" }
-    val safe = raw.replace(Regex("[^A-Za-z0-9._-]"), "_")
-    return "$pkg.$safe"
+    return raw.replace(Regex("[^A-Za-z0-9._-]"), "_")
 }
 
 // ── ADB 仓库 ──
@@ -882,7 +878,7 @@ class AdbRepository @Inject constructor(
             packages = pending,
             exec = { cmd -> usbAdbRepository.executeCommand(cmd, 60000).ifBlank { null } },
             push = { local, remote -> usbAdbRepository.pushFile(File(local), remote).contains("成功") },
-            pull = { remote -> usbAdbRepository.pullFile(remote).let { if (it.first) it.second else null } },
+            pull = { remote -> usbAdbRepository.pullFile(remote).let { if (it.success) it.data else null } },
             onProgress = onProgress
         )
     }
@@ -936,35 +932,80 @@ class AdbRepository @Inject constructor(
         result
     }
 
+    /** `pm path <pkg>` → 远程 APK 路径列表（base 在前，split 在后）；无输出返回空列表 */
+    suspend fun packageApkPaths(pkg: String): List<String> = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("AdbRepo", "查询安装包路径: pkg=$pkg")
+        parseApkPaths(runSingleCommand("pm path $pkg"))
+    }
+
     /**
-     * 提取应用安装包（含 Split APK）到本地缓存目录。
-     * 流程：`pm path` 取远程路径 → 逐个 pull 落盘到 cacheDir/<APK_EXTRACT_DIR>。
-     * 不直接写入用户目录——最终落点由 UI 层通过 SAF 选择后写入并清理缓存。
+     * 远程文件字节数（`stat -c %s`）。
+     * 取不到时返回 -1，调用方据此退化为"未知总量的进度显示"而不是误报 0。
      */
-    suspend fun extractApkToCache(pkg: String, cacheDir: java.io.File): ApkExtractResult =
-        withContext(Dispatchers.IO) {
-            WearAdbLogger.i("AdbRepo", "提取安装包: pkg=$pkg")
-            val paths = parseApkPaths(runSingleCommand("pm path $pkg"))
-            if (paths.isEmpty()) return@withContext ApkExtractResult.NoApkPath
-            val outDir = java.io.File(cacheDir, APK_EXTRACT_DIR)
-            if (!outDir.exists() && !outDir.mkdirs()) {
-                return@withContext ApkExtractResult.Failure("无法创建缓存目录")
-            }
-            val files = mutableListOf<java.io.File>()
-            for ((index, remote) in paths.withIndex()) {
-                val pulled = pullFile(remote)
-                val data = pulled.data
-                if (!pulled.success || data == null || data.isEmpty()) {
-                    files.forEach { runCatching { it.delete() } }
-                    return@withContext ApkExtractResult.Failure(pulled.message)
+    suspend fun remoteFileSize(path: String): Long = withContext(Dispatchers.IO) {
+        runSingleCommand("stat -c %s '$path'", 8000).trim().toLongOrNull() ?: -1L
+    }
+
+    /**
+     * 流式拉取远程文件到 [sink]（SYNC RECV，DATA 块直接写出）。
+     *
+     * 与 [pullFile] 的关键区别：**不把文件缓存在内存里**——pullFile 用 ByteArrayOutputStream
+     * 累积整份数据，提取 250MB 级 APK 时扩容单次申请 256MB 直接 OOM 崩溃（真机已复现）。
+     * 这里内存占用固定（一个 64KB 数据块）。
+     *
+     * @return true 表示收到 DONE（数据完整）
+     */
+    suspend fun pullTo(remotePath: String, sink: java.io.OutputStream): Boolean = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("AdbRepo", "流式拉取: remotePath=$remotePath")
+        var stream: AdbStream? = null
+        try {
+            stream = manager.openStream(LocalServices.SYNC)
+            val os = stream.openOutputStream()
+            val inputStream = stream.openInputStream()
+
+            val pathBytes = remotePath.toByteArray()
+            val recvBuf = ByteBuffer.allocate(8 + pathBytes.size).order(ByteOrder.LITTLE_ENDIAN)
+            recvBuf.putInt(0x56434552) // RECV
+            recvBuf.putInt(pathBytes.size)
+            recvBuf.put(pathBytes)
+            os.write(recvBuf.array())
+            os.flush()
+
+            val headerBuf = ByteArray(8)
+            val dataBuf = ByteArray(64 * 1024)
+            var totalWritten = 0L
+            var ok = false
+            while (true) {
+                val read = inputStream.read(headerBuf)
+                if (read < 8) break
+                val cmd = littleEndianToInt(headerBuf, 0)
+                val size = littleEndianToInt(headerBuf, 4)
+                when (cmd) {
+                    0x41544144 -> { // DATA
+                        var remaining = size
+                        while (remaining > 0) {
+                            val n = inputStream.read(dataBuf, 0, minOf(remaining, dataBuf.size))
+                            if (n <= 0) break
+                            sink.write(dataBuf, 0, n)
+                            totalWritten += n
+                            remaining -= n
+                        }
+                    }
+                    0x454e4f44 -> { ok = true; break }   // DONE
+                    0x4c494146 -> break                  // FAIL
+                    else -> break
                 }
-                val dest = java.io.File(outDir, apkFileName(pkg, paths.size, remote, index))
-                dest.writeBytes(data)
-                files += dest
             }
-            WearAdbLogger.i("AdbRepo", "提取安装包完成: $pkg, ${files.size} 个文件")
-            ApkExtractResult.Success(files)
+            sink.flush()
+            android.util.Log.d("AdbRepo", "pullTo: written=$totalWritten, ok=$ok")
+            ok
+        } catch (e: Exception) {
+            WearAdbLogger.e("AdbRepo", "流式拉取异常: $remotePath - ${e.message}", e)
+            false
+        } finally {
+            try { stream?.close() } catch (_: Exception) {}
         }
+    }
 
     // ── 安装 APK ──
     suspend fun installApk(apkData: ByteArray): String = withContext(Dispatchers.IO) {
@@ -1571,6 +1612,14 @@ class AdbRepository @Inject constructor(
     }
 
     // ── 高级操作 ──
+    /**
+     * 通用命令执行 —— 公开入口，与 `UsbAdbRepository.executeCommand(command, timeoutMs)` 一一对应。
+     * 无线侧此前只有私有的 runSingleCommand，UI 层要跑任意命令只能自己开 shell 流读 8 秒；
+     * 两侧形状对齐后，ViewModel 的 Shell 分支可以写成同一句路由。
+     */
+    suspend fun executeCommand(command: String, timeoutMs: Long = 15000): String =
+        runSingleCommand(command, timeoutMs)
+
     suspend fun reboot() = withContext(Dispatchers.IO) { WearAdbLogger.i("AdbRepo", "重启设备"); runSingleCommand("reboot") }
     suspend fun rebootRecovery() = withContext(Dispatchers.IO) { WearAdbLogger.i("AdbRepo", "重启到Recovery"); runSingleCommand("reboot recovery") }
     suspend fun rebootBootloader() = withContext(Dispatchers.IO) { WearAdbLogger.i("AdbRepo", "重启到Bootloader"); runSingleCommand("reboot bootloader") }

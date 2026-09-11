@@ -6,6 +6,8 @@ import com.wearadb.data.repository.ConnectionState
 import com.wearadb.data.repository.DiscoveredDevice
 import com.wearadb.data.repository.PullResult
 import com.wearadb.data.repository.AppInfoResolver
+import com.wearadb.data.repository.ApkExtractResult
+import com.wearadb.data.repository.apkEntryName
 import com.wearadb.data.model.*
 import com.wearadb.data.repository.AdbRepository
 import com.wearadb.adb.UsbAdbRepository
@@ -200,12 +202,30 @@ class ConnectionViewModel @Inject constructor(
         }
     }
 
-    // ── Routing helper ──
+    // ── Routing helpers ──
     private val isUsbAdbActive: Boolean
         get() = usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED
 
-    private fun usbAdbCmd(command: String) {
-        viewModelScope.launch { usbAdbRepository.executeCommand(command) }
+    /** 是否存在可用通道（有线优先，与各处的分支顺序一致） */
+    private fun anyAdbActive(): Boolean =
+        isUsbAdbActive || connectionState.value == ConnectionState.CONNECTED
+
+    /**
+     * 通用设备操作的统一派发：两个仓储提供**同名同语义**方法，这里只做通道选择。
+     *
+     * 以前 USB 侧是 `usbAdbCmd("raw cmd")` 直发命令、无线侧调仓储方法——形状不一致，
+     * 一旦有人加新能力只补一边就会静默缺失（本项目多次"点了没反应"都源于此）。
+     * 现在两侧都走命名方法，且结果统一落日志，失败不再完全无声。
+     */
+    private fun deviceOp(usb: suspend () -> Any?, wireless: suspend () -> Any?) {
+        viewModelScope.launch {
+            try {
+                val result = if (isUsbAdbActive) usb() else wireless()
+                android.util.Log.d("VM", "deviceOp usb=$isUsbAdbActive result=${result.toString().take(80)}")
+            } catch (e: Exception) {
+                android.util.Log.e("VM", "deviceOp exception: ${e.message}", e)
+            }
+        }
     }
 
     // ── Connection ──
@@ -433,7 +453,7 @@ class ConnectionViewModel @Inject constructor(
         onResult: (String) -> Unit
     ) {
         viewModelScope.launch {
-            if (!isUsbAdbActive && connectionState.value != ConnectionState.CONNECTED) {
+            if (!anyAdbActive()) {
                 android.util.Log.w("VM", "appOp($tag) skipped: no active adb channel")
                 onResult("")
                 return@launch
@@ -498,20 +518,122 @@ class ConnectionViewModel @Inject constructor(
     )
 
     /**
-     * 提取安装包到本地缓存（路由规则同 [appOp]）。
-     * 返回结构化结果，本地化文案由 UI 层按当前语言组装。
+     * 导出安装包到下载目录（`Download/WearAdb`），返回结构化结果供 UI 生成当前语言文案。
+     *
+     * 全链路**流式**：`pm path` 取路径 → SYNC 数据块直接写目标文件 / zip 条目，中间不经过任何
+     * ByteArray 缓冲。此前把整份 APK 读进内存的方案，在 250MB 级应用上会
+     * `OutOfMemoryError`（真机崩溃已复现：ByteArrayOutputStream 扩容单次申请 256MB）。
+     * 单个 APK 存为 `<包名>.apk`；含 split 时打包成 `<包名>.apks`（本应用安装流程可直接读）。
+     *
+     * @param onProgress 进度回调 (已写字节, 总字节)。总字节为 -1 表示设备未给出大小（UI 退化显示已传输量）。
+     *                   首次立即回调 (0, total)，之后按 [PROGRESS_STEP] 粒度节流，结束再补一次终值。
      */
-    suspend fun extractApkToCache(pkg: String): com.wearadb.data.repository.ApkExtractResult {
-        return try {
-            if (isUsbAdbActive) {
-                usbAdbRepository.extractApkToCache(pkg, appContext.cacheDir)
+    suspend fun exportApk(
+        pkg: String,
+        onProgress: ((written: Long, total: Long) -> Unit)? = null
+    ): ApkExtractResult = withContext(Dispatchers.IO) {
+        try {
+            val paths = if (isUsbAdbActive) {
+                usbAdbRepository.packageApkPaths(pkg)
             } else {
-                repository.extractApkToCache(pkg, appContext.cacheDir)
+                repository.packageApkPaths(pkg)
             }
+            if (paths.isEmpty()) return@withContext ApkExtractResult.NoApkPath
+
+            // 总大小用于百分比：逐个 stat，任一取不到就退化为"未知总量"
+            val sizes = paths.map { remoteFileSize(it) }
+            val total = if (sizes.all { it > 0L }) sizes.sum() else -1L
+            var writtenTotal = 0L
+            var lastReported = 0L
+            onProgress?.invoke(0L, total)
+
+            val (dir, isPublic) = resolveExportDir()
+            if (!dir.exists() && !dir.mkdirs()) {
+                return@withContext ApkExtractResult.Failure("无法创建目录: ${dir.absolutePath}")
+            }
+            val fileName = if (paths.size == 1) "$pkg.apk" else "$pkg.apks"
+            val dest = java.io.File(dir, fileName)
+
+            // 用计数流包一层 sink：pullTo 无需改签名，进度按 PROGRESS_STEP 粒度上报
+            val pull: suspend (String, java.io.OutputStream) -> Boolean = { remote, sink ->
+                val counting = object : java.io.FilterOutputStream(sink) {
+                    override fun write(b: ByteArray, off: Int, len: Int) {
+                        super.write(b, off, len)
+                        writtenTotal += len
+                        if (writtenTotal - lastReported >= PROGRESS_STEP) {
+                            lastReported = writtenTotal
+                            onProgress?.invoke(writtenTotal, total)
+                        }
+                    }
+
+                    override fun write(b: Int) {
+                        super.write(b)
+                        writtenTotal += 1
+                    }
+                }
+                if (isUsbAdbActive) {
+                    usbAdbRepository.pullTo(remote, counting)
+                } else {
+                    repository.pullTo(remote, counting)
+                }
+            }
+
+            var failedRemote: String? = null
+            if (paths.size == 1) {
+                dest.outputStream().buffered().use { out ->
+                    if (!pull(paths[0], out)) failedRemote = paths[0]
+                }
+            } else {
+                // Split APK：打包成 .apks，逐个 split 流式写进 zip 条目（不落中间文件）
+                java.util.zip.ZipOutputStream(dest.outputStream().buffered()).use { zip ->
+                    for ((index, remote) in paths.withIndex()) {
+                        zip.putNextEntry(java.util.zip.ZipEntry(apkEntryName(remote, index)))
+                        val ok = pull(remote, zip)
+                        zip.closeEntry()
+                        if (!ok) { failedRemote = remote; break }
+                    }
+                }
+            }
+
+            if (failedRemote != null || !dest.exists() || dest.length() == 0L) {
+                val reason = failedRemote?.let { "拉取失败: $it" } ?: "写入为空"
+                runCatching { dest.delete() }
+                return@withContext ApkExtractResult.Failure(reason)
+            }
+            // 收尾补一次终值：总量未知时用实际字节数充当 100%，避免进度条停在半途
+            onProgress?.invoke(writtenTotal, if (total > 0L) total else writtenTotal)
+            android.util.Log.d("VM", "exportApk ok: $fileName (${dest.length()} bytes, ${paths.size} apk)")
+            ApkExtractResult.Success(
+                fileName = fileName,
+                location = if (isPublic) "Download/WearAdb" else dir.absolutePath,
+                fileCount = paths.size
+            )
         } catch (e: Exception) {
-            android.util.Log.e("VM", "extractApkToCache exception: ${e.message}", e)
-            com.wearadb.data.repository.ApkExtractResult.Failure(e.message ?: "unknown error")
+            android.util.Log.e("VM", "exportApk exception: ${e.message}", e)
+            ApkExtractResult.Failure(e.message ?: "unknown error")
         }
+    }
+
+    /** 进度上报粒度：1MB。太密会频繁触发 UI 重组，太疏进度条会一跳一跳 */
+    private val PROGRESS_STEP = 1024L * 1024L
+
+    private suspend fun remoteFileSize(path: String): Long =
+        if (isUsbAdbActive) usbAdbRepository.remoteFileSize(path) else repository.remoteFileSize(path)
+
+    /**
+     * 导出目录：默认公共下载目录 `Download/WearAdb`（应用已申请 MANAGE_EXTERNAL_STORAGE）；
+     * 未授予「所有文件访问」时回退到 App 专属外部目录，避免静默写入失败。
+     */
+    private fun resolveExportDir(): Pair<java.io.File, Boolean> {
+        val publicBase = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            if (android.os.Environment.isExternalStorageManager()) {
+                android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+            } else null
+        } else {
+            android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+        }
+        val base = publicBase ?: appContext.getExternalFilesDir(null) ?: appContext.filesDir
+        return java.io.File(base, "WearAdb") to (publicBase != null)
     }
 
     fun installApk(apkData: ByteArray, onResult: (String) -> Unit) {
@@ -530,7 +652,11 @@ class ConnectionViewModel @Inject constructor(
     fun installSplitApk(apkFiles: List<Pair<String, ByteArray>>, onResult: (String) -> Unit) {
         viewModelScope.launch {
             onResult("正在安装 Split APK (${apkFiles.size} 个文件)...")
-            val result = repository.installSplitApk(apkFiles)
+            val result = if (isUsbAdbActive) {
+                usbAdbRepository.installSplitApk(apkFiles)
+            } else {
+                repository.installSplitApk(apkFiles)
+            }
             onResult(result)
             loadApps(force = true)
         }
@@ -564,7 +690,11 @@ class ConnectionViewModel @Inject constructor(
     fun installSplitApkFiles(apkFiles: List<Pair<String, java.io.File>>, onResult: (String) -> Unit) {
         viewModelScope.launch {
             onResult("正在安装 Split APK (${apkFiles.size} 个文件)...")
-            val result = repository.installSplitApkFiles(apkFiles)
+            val result = if (isUsbAdbActive) {
+                usbAdbRepository.installSplitApkFiles(apkFiles)
+            } else {
+                repository.installSplitApkFiles(apkFiles)
+            }
             onResult(result)
             loadApps(force = true)
         }
@@ -573,7 +703,11 @@ class ConnectionViewModel @Inject constructor(
     suspend fun installSplitApkFromApks(apksFile: java.io.File, onStatus: (String) -> Unit): String? {
         return try {
             onStatus("正在解析 .apks...")
-            val result = repository.installSplitApkFromApksFile(apksFile)
+            val result = if (isUsbAdbActive) {
+                usbAdbRepository.installSplitApkFromApksFile(apksFile)
+            } else {
+                repository.installSplitApkFromApksFile(apksFile)
+            }
             onStatus(result)
             loadApps(force = true)
             result
@@ -642,13 +776,9 @@ class ConnectionViewModel @Inject constructor(
 
     fun pushFile(data: ByteArray, remotePath: String, onResult: ((String) -> Unit)? = null) {
         viewModelScope.launch {
-            val result = if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
-                // USB: 写临时文件再推送
-                val tmpFile = java.io.File(appContext.cacheDir, "wearadb_push_tmp")
-                tmpFile.writeBytes(data)
-                val r = usbAdbRepository.pushFile(tmpFile, remotePath)
-                tmpFile.delete()
-                r
+            // 两侧同名方法：USB 版的临时文件处理已下沉到 UsbAdbRepository.pushFile(ByteArray)
+            val result = if (isUsbAdbActive) {
+                usbAdbRepository.pushFile(data, remotePath)
             } else {
                 repository.pushFile(data, remotePath)
             }
@@ -660,26 +790,25 @@ class ConnectionViewModel @Inject constructor(
 
     fun pullFile(remotePath: String, onResult: (PullResult) -> Unit) {
         viewModelScope.launch {
-            if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
-                val (success, data) = usbAdbRepository.pullFile(remotePath)
-                onResult(PullResult(success, data, if (success) "拉取成功: $remotePath" else "拉取失败"))
-            } else {
-                onResult(repository.pullFile(remotePath))
-            }
+            // 两侧同名方法且返回同一类型 PullResult
+            onResult(
+                if (isUsbAdbActive) usbAdbRepository.pullFile(remotePath)
+                else repository.pullFile(remotePath)
+            )
         }
     }
 
     // ── Advanced Ops ──
     fun reboot(mode: String = "") {
         if (isUsbAdbActive) {
-            val cmd = when (mode) {
-                "recovery" -> "reboot recovery"
-                "bootloader" -> "reboot bootloader"
-                "shutdown" -> "reboot -p"
-                else -> "reboot"
-            }
             viewModelScope.launch {
-                usbAdbRepository.executeCommand(cmd)
+                // 两侧同名方法，不再直发裸命令
+                when (mode) {
+                    "recovery" -> usbAdbRepository.rebootRecovery()
+                    "bootloader" -> usbAdbRepository.rebootBootloader()
+                    "shutdown" -> usbAdbRepository.shutdown()
+                    else -> usbAdbRepository.reboot()
+                }
                 if (mode == "bootloader" || mode == "recovery" || mode == "shutdown") {
                     usbAdbRepository.disconnect()
                 }
@@ -814,61 +943,26 @@ class ConnectionViewModel @Inject constructor(
         }
     }
 
-    fun tap(x: Int, y: Int) {
-        if (isUsbAdbActive) usbAdbCmd("input tap $x $y")
-        else viewModelScope.launch { repository.tap(x, y) }
-    }
+    fun tap(x: Int, y: Int) =
+        deviceOp({ usbAdbRepository.tap(x, y) }, { repository.tap(x, y) })
 
-    fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, dur: Int = 300) {
-        if (isUsbAdbActive) usbAdbCmd("input swipe $x1 $y1 $x2 $y2 $dur")
-        else viewModelScope.launch { repository.swipe(x1, y1, x2, y2, dur) }
-    }
+    fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, dur: Int = 300) =
+        deviceOp({ usbAdbRepository.swipe(x1, y1, x2, y2, dur) }, { repository.swipe(x1, y1, x2, y2, dur) })
 
-    fun keyEvent(code: Int) {
-        if (isUsbAdbActive) usbAdbCmd("input keyevent $code")
-        else viewModelScope.launch { repository.keyEvent(code) }
-    }
+    fun keyEvent(code: Int) =
+        deviceOp({ usbAdbRepository.keyEvent(code) }, { repository.keyEvent(code) })
 
-    fun enableWifi() {
-        if (isUsbAdbActive) usbAdbCmd("svc wifi enable")
-        else viewModelScope.launch { repository.enableWifi() }
-    }
-    fun disableWifi() {
-        if (isUsbAdbActive) usbAdbCmd("svc wifi disable")
-        else viewModelScope.launch { repository.disableWifi() }
-    }
-    fun enableBluetooth() {
-        if (isUsbAdbActive) usbAdbCmd("svc bluetooth enable")
-        else viewModelScope.launch { repository.enableBluetooth() }
-    }
-    fun disableBluetooth() {
-        if (isUsbAdbActive) usbAdbCmd("svc bluetooth disable")
-        else viewModelScope.launch { repository.disableBluetooth() }
-    }
-    fun volumeUp() {
-        if (isUsbAdbActive) usbAdbCmd("input keyevent 24")
-        else viewModelScope.launch { repository.volumeUp() }
-    }
-    fun volumeDown() {
-        if (isUsbAdbActive) usbAdbCmd("input keyevent 25")
-        else viewModelScope.launch { repository.volumeDown() }
-    }
-    fun volumeMute() {
-        if (isUsbAdbActive) usbAdbCmd("input keyevent 164")
-        else viewModelScope.launch { repository.volumeMute() }
-    }
-    fun screenOn() {
-        if (isUsbAdbActive) usbAdbCmd("input keyevent 26")
-        else viewModelScope.launch { repository.screenOn() }
-    }
-    fun screenOff() {
-        if (isUsbAdbActive) usbAdbCmd("input keyevent 26")
-        else viewModelScope.launch { repository.screenOff() }
-    }
-    fun inputText(text: String) {
-        if (isUsbAdbActive) usbAdbCmd("input text \"$text\"")
-        else viewModelScope.launch { repository.inputText(text) }
-    }
+    fun enableWifi() = deviceOp({ usbAdbRepository.enableWifi() }, { repository.enableWifi() })
+    fun disableWifi() = deviceOp({ usbAdbRepository.disableWifi() }, { repository.disableWifi() })
+    fun enableBluetooth() = deviceOp({ usbAdbRepository.enableBluetooth() }, { repository.enableBluetooth() })
+    fun disableBluetooth() = deviceOp({ usbAdbRepository.disableBluetooth() }, { repository.disableBluetooth() })
+    fun volumeUp() = deviceOp({ usbAdbRepository.volumeUp() }, { repository.volumeUp() })
+    fun volumeDown() = deviceOp({ usbAdbRepository.volumeDown() }, { repository.volumeDown() })
+    fun volumeMute() = deviceOp({ usbAdbRepository.volumeMute() }, { repository.volumeMute() })
+    fun screenOn() = deviceOp({ usbAdbRepository.screenOn() }, { repository.screenOn() })
+    fun screenOff() = deviceOp({ usbAdbRepository.screenOff() }, { repository.screenOff() })
+    fun inputText(text: String) =
+        deviceOp({ usbAdbRepository.inputText(text) }, { repository.inputText(text) })
 
     fun removeDevice(address: String) { viewModelScope.launch { repository.removeDevice(address) } }
     fun toggleFavorite(address: String) { viewModelScope.launch { repository.toggleFavorite(address) } }

@@ -3,6 +3,7 @@ package com.wearadb.ui.screens
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -38,6 +39,7 @@ import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
+import com.wearadb.ui.utils.formatBytes
 
 @Composable
 fun AppsScreen(
@@ -189,59 +191,27 @@ fun AppsScreen(
         }
     }
 
-    // ── 提取安装包：先拉取到本地缓存，再由系统文件选择器决定落点 ──
-    var pendingExtract by remember { mutableStateOf<Pair<String, java.io.File>?>(null) }
+    // 导出进度快照：非空 = 正在导出（底部常驻进度条的数据源，total = -1 表示设备未给大小）
+    var exportState by remember { mutableStateOf<ExportProgressState?>(null) }
 
-    val apkSavePicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri: Uri? ->
-        val pending = pendingExtract
-        pendingExtract = null
-        if (pending == null) return@rememberLauncherForActivityResult
-        val (suggestedName, file) = pending
-        if (uri == null) {
-            file.delete()
-            return@rememberLauncherForActivityResult
-        }
-        scope.launch(Dispatchers.IO) {
-            try {
-                context.contentResolver.openOutputStream(uri)?.use { out ->
-                    file.inputStream().use { it.copyTo(out) }
-                } ?: throw java.io.IOException("openOutputStream returned null")
-                val shown = uriDisplayName(context, uri) ?: suggestedName
-                launch(Dispatchers.Main) { snackbarMessage = s.appsExtractSaved(shown) }
-            } catch (e: Exception) {
-                launch(Dispatchers.Main) { snackbarMessage = s.appsExtractFailed(e.message ?: "IO error") }
-            } finally {
-                file.delete()
-            }
-        }
-    }
-
-    /** 提取安装包：单个 APK 直接保存；Split APK 打包成 .apks（本应用安装流程可直接读） */
+    /** 提取安装包：流式写入 Download/WearAdb；进行中由底部进度条呈现，结束再用 toast 报结果 */
     fun startExtract(app: AppEntry) {
         if (!connected) {
             snackbarMessage = s.appsNotConnected
             return
         }
+        if (exportState != null) return // 单飞：一次只跑一个导出，避免两个进度互相覆盖
         val label = appLabels[app.packageName]?.takeIf { it.isNotBlank() } ?: app.packageName
+        exportState = ExportProgressState(label, 0L, -1L)
         scope.launch {
-            snackbarMessage = s.appsExtractRunning(label)
-            when (val result = viewModel.extractApkToCache(app.packageName)) {
-                is ApkExtractResult.Success -> {
-                    val extracted = result.files
-                    if (extracted.isEmpty()) {
-                        snackbarMessage = s.appsExtractNoPath
-                    } else {
-                        val payload: java.io.File
-                        if (extracted.size == 1) {
-                            payload = extracted.first()
-                        } else {
-                            payload = zipApks(extracted, File(context.cacheDir, "${app.packageName}.apks"))
-                            extracted.forEach { it.delete() }
-                        }
-                        pendingExtract = payload.name to payload
-                        apkSavePicker.launch(payload.name)
-                    }
-                }
+            val result = viewModel.exportApk(app.packageName) { written, total ->
+                // 进度回调在 IO 线程：Compose 快照状态可跨线程写，重组会调度到主线程
+                exportState = ExportProgressState(label, written, total)
+            }
+            exportState = null
+            when (result) {
+                is ApkExtractResult.Success ->
+                    snackbarMessage = s.appsExtractSaved("${result.location}/${result.fileName}")
                 ApkExtractResult.NoApkPath -> snackbarMessage = s.appsExtractNoPath
                 is ApkExtractResult.Failure -> snackbarMessage = s.appsExtractFailed(result.reason)
             }
@@ -259,7 +229,20 @@ fun AppsScreen(
 
     val hPadding = adaptiveHorizontalPadding()
 
-    Scaffold(snackbarHost = { WearSnackbarHost(snackbarHostState) }, containerColor = c.background, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
+    Scaffold(
+        snackbarHost = {
+            // 底部状态区：导出进度条（进行中常驻）+ 结果 toast 依次排列
+            Column {
+                ExportProgressBanner(
+                    progress = { exportState },
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                )
+                WearSnackbarHost(snackbarHostState)
+            }
+        },
+        containerColor = c.background,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
+    ) { padding ->
         LazyVerticalGrid(
             columns = GridCells.Adaptive(280.dp),
             modifier = Modifier.fillMaxSize().padding(horizontal = hPadding).padding(padding),
@@ -488,25 +471,73 @@ private fun AppActionButton(text: String, bgColor: Color, textColor: Color, onCl
     ) { Text(text, style = MaterialTheme.typography.labelLarge, color = textColor) }
 }
 
+/** 导出进度快照：total <= 0 表示设备未给出文件大小（进度条走不确定态，只显示已传输量） */
+private data class ExportProgressState(val label: String, val written: Long, val total: Long)
+
 /**
- * 把多个 split APK 打包成 .apks（zip）。
- * 本应用自身的 .apks 安装流程按 zip 条目枚举 `*.apk`，因此无需额外清单文件即可回装。
+ * 导出进度条：常驻在底部状态区，不随应用列表滚动。
+ *
+ * 用 lambda 延迟读取进度 —— 进度按 1MB 粒度更新（大包上百次），读取点落在本组件内部，
+ * 因此每次更新只重组这条进度条，不会带着整个 LazyVerticalGrid 一起重组。
  */
-private fun zipApks(files: List<java.io.File>, dest: java.io.File): java.io.File {
-    java.util.zip.ZipOutputStream(dest.outputStream().buffered()).use { zip ->
-        files.forEach { f ->
-            zip.putNextEntry(java.util.zip.ZipEntry(f.name))
-            f.inputStream().use { input -> input.copyTo(zip) }
-            zip.closeEntry()
+@Composable
+private fun ExportProgressBanner(
+    progress: () -> ExportProgressState?,
+    modifier: Modifier = Modifier
+) {
+    val st = progress() ?: return
+    val c = WearAdbTheme.colors
+    val s = LocalStrings.current
+    val cr = WearAdbTheme.shape.cornerRadius
+    val shape = remember { RoundedCornerShape(cr) }
+    val fraction = if (st.total > 0L) {
+        (st.written.toFloat() / st.total.toFloat()).coerceIn(0f, 1f)
+    } else null
+
+    Surface(
+        shape = shape,
+        color = c.surfaceVariant,
+        contentColor = c.onSurface,
+        border = BorderStroke(1.dp, c.toastBorder),
+        shadowElevation = 0.dp,
+        modifier = modifier.widthIn(max = 600.dp).fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = s.appsExtractRunning(st.label),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = c.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = if (st.total > 0L) {
+                        "${formatBytes(st.written)} / ${formatBytes(st.total)}"
+                    } else {
+                        formatBytes(st.written)
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c.onSurfaceVariant
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            if (fraction == null) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(4.dp),
+                    color = c.accent,
+                    trackColor = c.outlineVariant
+                )
+            } else {
+                LinearProgressIndicator(
+                    progress = { fraction },
+                    modifier = Modifier.fillMaxWidth().height(4.dp),
+                    color = c.accent,
+                    trackColor = c.outlineVariant
+                )
+            }
         }
     }
-    return dest
 }
-
-/** 查询 SAF 文档 URI 的显示名（用户可能在系统选择器里改了文件名） */
-private fun uriDisplayName(context: android.content.Context, uri: Uri): String? = runCatching {
-    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-        val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-        if (idx >= 0 && cursor.moveToFirst()) cursor.getString(idx) else null
-    }
-}.getOrNull()
