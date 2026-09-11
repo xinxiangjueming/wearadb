@@ -2,6 +2,12 @@ package com.wearadb.ui.screens
 
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -135,7 +141,8 @@ fun ScreenMirrorScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = hPadding),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(Modifier.height(statusBarPad))
 
@@ -159,10 +166,21 @@ fun ScreenMirrorScreen(
         }
 
         // ── 画面区 ──
+        // 按**视频比例**约束自身尺寸（不拉伸）：SurfaceView 默认会把解码 buffer 缩放
+        // 填满自身边界，容器比例 ≠ 视频比例时画面就会变形（手表 464x464 会被拉成
+        // "矮胖"）。等比之后 mapToDevice 的 letterbox 偏移恒为 0，触摸映射也更精确。
+        // Column 已设 CenterHorizontally，比例不匹配时在剩余空间内水平居中。
+        val areaAspect: Float? =
+            encSize?.takeIf { it.second > 0 }?.let { it.first.toFloat() / it.second }
+                ?: realSize?.takeIf { it.second > 0 }?.let { it.first.toFloat() / it.second }
+
         Box(
             modifier = Modifier
-                .fillMaxWidth()
                 .weight(1f)
+                .then(
+                    if (areaAspect != null) Modifier.aspectRatio(areaAspect)
+                    else Modifier.fillMaxWidth()
+                )
                 .clip(cardShape)
                 .background(Color.Black, cardShape)
                 .border(1.dp, c.outlineVariant, cardShape)
@@ -291,20 +309,6 @@ fun ScreenMirrorScreen(
                 is MirrorStatus.Streaming -> Unit
             }
 
-            // ── 触摸提示（流态且非只读时底部半透明条） ──
-            if (status is MirrorStatus.Streaming && encSize != null && !readOnly) {
-                Text(
-                    s.mirrorTouchHint,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 10.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(Color.Black.copy(alpha = 0.55f))
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelSmall
-                )
-            }
         }
 
         // ── 设置开关 + 分辨率信息（合并为一行；收起时只占这一行） ──
@@ -343,76 +347,82 @@ fun ScreenMirrorScreen(
             )
         }
 
-        if (optionsExpanded) {
-            // ── 画质/帧率选项（变更即用新参数无缝重启会话） ──
-            // 默认 1024（与 ViewModel 的 _mirrorMaxSize 初始值一致）：手表长边普遍 ~466，
-            // 1024 不损清晰度；大屏设备则避免按原生长边编码灌满 ADB 通道。
-            MirrorOptionRow(
-                label = s.mirrorOptionSize,
-                options = listOf(
-                    s.mirrorAuto to 0,
-                    "1024" to 1024,
-                    "720" to 720,
-                    "480" to 480
-                ),
-                selected = maxSize
-            ) { viewModel.setMirrorMaxSize(it) }
+        AnimatedVisibility(
+            visible = optionsExpanded,
+            enter = expandVertically(animationSpec = tween(220)) + fadeIn(animationSpec = tween(220)),
+            exit = shrinkVertically(animationSpec = tween(220)) + fadeOut(animationSpec = tween(220))
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // ── 画质/帧率选项（变更即用新参数无缝重启会话） ──
+                // 默认 1024（与 ViewModel 的 _mirrorMaxSize 初始值一致）：手表长边普遍 ~466，
+                // 1024 不损清晰度；大屏设备则避免按原生长边编码灌满 ADB 通道。
+                MirrorOptionRow(
+                    label = s.mirrorOptionSize,
+                    options = listOf(
+                        s.mirrorAuto to 0,
+                        "1024" to 1024,
+                        "720" to 720,
+                        "480" to 480
+                    ),
+                    selected = maxSize
+                ) { viewModel.setMirrorMaxSize(it) }
 
-            MirrorOptionRow(
-                label = s.mirrorOptionBitrate,
-                options = listOf(
-                    "1M" to 1_000_000,
-                    "2M" to 2_000_000,
-                    "4M" to 4_000_000,
-                    "8M" to 8_000_000,
-                    "16M" to 16_000_000
-                ),
-                selected = bitRate
-            ) { viewModel.setMirrorBitRate(it) }
+                MirrorOptionRow(
+                    label = s.mirrorOptionBitrate,
+                    options = listOf(
+                        "1M" to 1_000_000,
+                        "2M" to 2_000_000,
+                        "4M" to 4_000_000,
+                        "8M" to 8_000_000,
+                        "16M" to 16_000_000
+                    ),
+                    selected = bitRate
+                ) { viewModel.setMirrorBitRate(it) }
 
-            MirrorOptionRow(
-                label = s.mirrorOptionFps,
-                options = listOf(
-                    s.mirrorAuto to 0f,
-                    "10" to 10f,
-                    "15" to 15f,
-                    "24" to 24f,
-                    "30" to 30f,
-                    "60" to 60f
-                ),
-                selected = maxFps
-            ) { viewModel.setMirrorMaxFps(it) }
+                MirrorOptionRow(
+                    label = s.mirrorOptionFps,
+                    options = listOf(
+                        s.mirrorAuto to 0f,
+                        "10" to 10f,
+                        "15" to 15f,
+                        "24" to 24f,
+                        "30" to 30f,
+                        "60" to 60f
+                    ),
+                    selected = maxFps
+                ) { viewModel.setMirrorMaxFps(it) }
 
-            // ── 会话开关（只读 / 熄屏 / 保持唤醒；变更即用新参数无缝重启会话） ──
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    s.mirrorOptionToggles,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = c.onSurfaceVariant,
-                    modifier = Modifier.width(52.dp)
-                )
+                // ── 会话开关（只读 / 熄屏 / 保持唤醒；变更即用新参数无缝重启会话） ──
                 Row(
-                    modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    FilterChip(
-                        selected = readOnly,
-                        onClick = { viewModel.setMirrorReadOnly(!readOnly) },
-                        label = { Text(s.mirrorOptionReadonly, style = MaterialTheme.typography.labelSmall) }
+                    Text(
+                        s.mirrorOptionToggles,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = c.onSurfaceVariant,
+                        modifier = Modifier.width(52.dp)
                     )
-                    FilterChip(
-                        selected = turnOffScreen,
-                        onClick = { viewModel.setMirrorTurnOffScreen(!turnOffScreen) },
-                        label = { Text(s.mirrorOptionScreenOff, style = MaterialTheme.typography.labelSmall) }
-                    )
-                    FilterChip(
-                        selected = stayAwake,
-                        onClick = { viewModel.setMirrorStayAwake(!stayAwake) },
-                        label = { Text(s.mirrorOptionStayAwake, style = MaterialTheme.typography.labelSmall) }
-                    )
+                    Row(
+                        modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = readOnly,
+                            onClick = { viewModel.setMirrorReadOnly(!readOnly) },
+                            label = { Text(s.mirrorOptionReadonly, style = MaterialTheme.typography.labelSmall) }
+                        )
+                        FilterChip(
+                            selected = turnOffScreen,
+                            onClick = { viewModel.setMirrorTurnOffScreen(!turnOffScreen) },
+                            label = { Text(s.mirrorOptionScreenOff, style = MaterialTheme.typography.labelSmall) }
+                        )
+                        FilterChip(
+                            selected = stayAwake,
+                            onClick = { viewModel.setMirrorStayAwake(!stayAwake) },
+                            label = { Text(s.mirrorOptionStayAwake, style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
                 }
             }
         }

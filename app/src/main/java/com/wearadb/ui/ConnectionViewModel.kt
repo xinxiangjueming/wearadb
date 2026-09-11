@@ -1104,12 +1104,27 @@ class ConnectionViewModel @Inject constructor(
         deviceOp({ usbAdbRepository.rotateInject() }, { repository.rotateInject() })
 
     /**
+     * 触摸注入单车道（并发度 = 1），保证 DOWN / MOVE / UP **严格按序**下发。
+     *
+     * 【为什么必须串行】触摸是**有状态、顺序敏感**的协议序列，而 libadb 的
+     * `AdbStream.write()` 用**非公平监视器**分配写令牌（`while (!mWriteReady…) wait();`
+     * 的唤醒顺序不保证 FIFO）。此前每个触摸事件各起一条协程跑在多线程的
+     * `Dispatchers.IO` 上，MOVE 会先于 DOWN、或彼此乱序到达设备——设备只会把这些
+     * 当成一堆孤立的触摸点，表现为「能点击、不能滑动」。
+     * 官方 scrcpy 客户端是单线程按序 push 每条 control 消息，这里对齐其语义。
+     *
+     * 单车道同时消除了并发写，使 [com.wearadb.adb.ScreenMirrorEngine.sendControl]
+     * 的在途检测在正常触摸路径下永不触发。
+     */
+    private val mirrorTouchDispatcher = Dispatchers.IO.limitedParallelism(1)
+
+    /**
      * 注入需要设备真实分辨率（线协议里的 w/h 字段，设备用它做坐标校验）。
      * 尺寸还没探测到就直接跳过——此时画面都还没出来，注入没有意义。
      */
     private fun launchWithMirrorSize(block: suspend (Int, Int) -> Unit) {
         val real = mirrorRealSize.value ?: return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(mirrorTouchDispatcher) {
             try {
                 block(real.first, real.second)
             } catch (e: Exception) {

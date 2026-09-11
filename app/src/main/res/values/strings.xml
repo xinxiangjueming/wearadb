@@ -294,7 +294,6 @@
     <string name="mirror_status_streaming">投屏中</string>
     <string name="mirror_retry">重试</string>
     <string name="mirror_stop">停止</string>
-    <string name="mirror_touch_hint">点按 / 滑动可回控设备</string>
     <string name="mirror_resolution">画面 %1$s · 设备 %2$s</string>
 
     <!-- ScreenMirrorScreen 画质/帧率选项 -->

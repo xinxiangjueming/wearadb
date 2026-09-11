@@ -328,9 +328,10 @@ class ScreenMirrorEngine(private val appContext: Context) {
         if (!running || !c.isOpen) return false
         if (!controlHealthy) return false
         if (controlWriteInFlight) {
-            // 上一笔仍卡在等 OKAY：链路已背压，不再排队，直接判通道不可用。
-            controlHealthy = false
-            Log.w(TAG, "control 上一笔写入仍未返回 → 判定控制通道不可用，改用回退路径")
+            // 上一笔仍在写：**跳过本次，但不判死通道**。正常情况下注入已由 VM 的
+            // 单车道（limitedParallelism(1)）串行化，这里只是防御性保护；若据此把
+            // 通道判死，高频 MOVE 会把健康通道误杀（滑动立刻失效）。
+            Log.w(TAG, "control 上一笔写入仍在途 → 丢弃本次写入（通道保持健康）")
             return false
         }
         controlWriteInFlight = true

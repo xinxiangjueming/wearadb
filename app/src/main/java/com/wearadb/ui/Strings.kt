@@ -155,7 +155,6 @@ data class MirrorStrings(
     val mirrorStatusStreaming: String,
     val mirrorRetry: String,
     val mirrorStop: String,
-    val mirrorTouchHint: String,
     val mirrorResolution: (String, String) -> String,
     val mirrorOptionSize: String,
     val mirrorOptionBitrate: String,
@@ -475,7 +474,6 @@ class Strings(
     val mirrorStatusStreaming get() = mirror.mirrorStatusStreaming
     val mirrorRetry get() = mirror.mirrorRetry
     val mirrorStop get() = mirror.mirrorStop
-    val mirrorTouchHint get() = mirror.mirrorTouchHint
     val mirrorResolution get() = mirror.mirrorResolution
     val mirrorOptionSize get() = mirror.mirrorOptionSize
     val mirrorOptionBitrate get() = mirror.mirrorOptionBitrate
@@ -790,7 +788,6 @@ private fun rememberMirrorStrings() = MirrorStrings(
     mirrorStatusStreaming = stringResource(R.string.mirror_status_streaming),
     mirrorRetry = stringResource(R.string.mirror_retry),
     mirrorStop = stringResource(R.string.mirror_stop),
-    mirrorTouchHint = stringResource(R.string.mirror_touch_hint),
     mirrorResolution = run {
         val f = stringResource(R.string.mirror_resolution)
         val formatter: (String, String) -> String = { video, device -> f.format(video, device) }

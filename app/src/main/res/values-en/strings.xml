@@ -294,7 +294,6 @@
     <string name="mirror_status_streaming">Mirroring</string>
     <string name="mirror_retry">Retry</string>
     <string name="mirror_stop">Stop</string>
-    <string name="mirror_touch_hint">Tap / swipe to control the device</string>
     <string name="mirror_resolution">Video %1$s · Device %2$s</string>
 
     <!-- ScreenMirrorScreen quality/fps options -->
