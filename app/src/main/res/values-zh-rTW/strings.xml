@@ -172,6 +172,14 @@
     <string name="apps_action_disable">停用</string>
     <string name="apps_action_enable">啟用</string>
     <string name="apps_action_uninstall">解除安裝</string>
+    <string name="apps_action_extract">提取安裝包</string>
+    <string name="apps_action_uninstall_keep">移除但保留資料</string>
+    <string name="apps_not_connected">未連接裝置</string>
+    <string name="apps_op_no_output">操作無回應，請檢查連線</string>
+    <string name="apps_extract_running">正在提取 %1$s…</string>
+    <string name="apps_extract_saved">已儲存到 %1$s</string>
+    <string name="apps_extract_no_path">找不到安裝包路徑</string>
+    <string name="apps_extract_failed">提取失敗：%1$s</string>
     <string name="apps_picker_timeout">檔案選擇逾時，請重試</string>
 
     <!-- FilesScreen -->

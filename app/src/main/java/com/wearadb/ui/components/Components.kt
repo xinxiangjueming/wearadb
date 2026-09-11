@@ -240,7 +240,10 @@ fun WearSnackbarHost(
         hostState = snackbarHostState,
         // 底部 8dp + 额外 15dp：整体上移 15dp，避免贴到屏幕底部导航/手势区
         modifier = modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 23.dp),
-        snackbar = { data ->
+        snackbar = snackbar@{ data ->
+            // 空消息直接不渲染：否则只剩一个没有任何文字的胶囊（浅色模式下就是一条"白条"），
+            // 用户会误判为"点了没反应"。UI 层应保证消息非空，这里做最后一道兜底。
+            if (data.visuals.message.isBlank()) return@snackbar
             // M3 Snackbar 内部固定带 6dp 投影且关不掉，投影会罩在贴边描边上，
             // 导致边框和填充之间出现缝隙。因此用 Surface(无投影 + border) 自绘 toast，
             // 边框与填充按同一轮廓渲染，贴合无缝。
@@ -259,6 +262,9 @@ fun WearSnackbarHost(
                     Text(
                         text = data.visuals.message,
                         style = MaterialTheme.typography.bodyMedium,
+                        // 显式指定前景色：不要依赖 LocalContentColor 隐式继承，
+                        // 否则浅色模式下可能继承到浅色值，出现"白字白底"的不可读 toast
+                        color = c.onSurface,
                         modifier = Modifier
                             .weight(1f)
                             .padding(start = 16.dp, end = if (actionLabel == null) 16.dp else 8.dp)
@@ -266,7 +272,7 @@ fun WearSnackbarHost(
                     )
                     if (actionLabel != null) {
                         TextButton(onClick = { data.performAction() }) {
-                            Text(actionLabel)
+                            Text(actionLabel, color = c.accent)
                         }
                     }
                 }

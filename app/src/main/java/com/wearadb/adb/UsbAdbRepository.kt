@@ -4,6 +4,10 @@ import android.content.Context
 import android.util.Log
 import android.view.Surface
 import com.wearadb.log.WearAdbLogger
+import com.wearadb.data.repository.APK_EXTRACT_DIR
+import com.wearadb.data.repository.ApkExtractResult
+import com.wearadb.data.repository.apkFileName
+import com.wearadb.data.repository.parseApkPaths
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -482,6 +486,63 @@ class UsbAdbRepository @Inject constructor(
             android.util.Log.e(TAG, "installApk exception", e)
             "安装异常: ${e.message}"
         }
+    }
+
+    // ── 应用管理（有线通道）──
+    // 与 AdbRepository 同名方法一一对应：USB 会话下 ViewModel 走这里，避免操作静默落空。
+
+    suspend fun uninstallApp(pkg: String, keepData: Boolean = false): String = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("UsbAdb", "USB卸载${if (keepData) "(保留数据)" else ""}: pkg=$pkg")
+        executeCommand(if (keepData) "pm uninstall -k $pkg" else "pm uninstall $pkg", 30000)
+    }
+
+    suspend fun uninstallAppKeepData(pkg: String): String = uninstallApp(pkg, keepData = true)
+
+    suspend fun clearAppData(pkg: String): String = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("UsbAdb", "USB清除数据: pkg=$pkg")
+        executeCommand("pm clear $pkg", 30000)
+    }
+
+    suspend fun forceStopApp(pkg: String): String = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("UsbAdb", "USB强制停止: pkg=$pkg")
+        executeCommand("am force-stop $pkg", 15000)
+    }
+
+    suspend fun disableApp(pkg: String): String = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("UsbAdb", "USB禁用: pkg=$pkg")
+        executeCommand("pm disable-user $pkg", 15000)
+    }
+
+    suspend fun enableApp(pkg: String): String = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("UsbAdb", "USB启用: pkg=$pkg")
+        executeCommand("pm enable $pkg", 15000)
+    }
+
+    /**
+     * 提取应用安装包（含 Split APK）到本地缓存目录：`pm path` 取路径 → 逐个 pull。
+     * 最终落点由 UI 层通过 SAF 选择，写入后清理缓存。
+     */
+    suspend fun extractApkToCache(pkg: String, cacheDir: File): ApkExtractResult = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("UsbAdb", "USB提取安装包: pkg=$pkg")
+        val paths = parseApkPaths(executeCommand("pm path $pkg", 15000))
+        if (paths.isEmpty()) return@withContext ApkExtractResult.NoApkPath
+        val outDir = File(cacheDir, APK_EXTRACT_DIR)
+        if (!outDir.exists() && !outDir.mkdirs()) {
+            return@withContext ApkExtractResult.Failure("无法创建缓存目录")
+        }
+        val files = mutableListOf<File>()
+        for ((index, remote) in paths.withIndex()) {
+            val (ok, data) = pullFile(remote)
+            if (!ok || data == null || data.isEmpty()) {
+                files.forEach { runCatching { it.delete() } }
+                return@withContext ApkExtractResult.Failure("拉取失败: $remote")
+            }
+            val dest = File(outDir, apkFileName(pkg, paths.size, remote, index))
+            dest.writeBytes(data)
+            files += dest
+        }
+        WearAdbLogger.i("UsbAdb", "USB提取安装包完成: $pkg, ${files.size} 个文件")
+        ApkExtractResult.Success(files)
     }
 
     // ── 文件管理 ──

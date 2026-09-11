@@ -213,6 +213,14 @@ data class AppsStrings(
     val appsActionDisable: String,
     val appsActionEnable: String,
     val appsActionUninstall: String,
+    val appsActionExtract: String,
+    val appsActionUninstallKeep: String,
+    val appsNotConnected: String,
+    val appsOpNoOutput: String,
+    val appsExtractRunning: (String) -> String,
+    val appsExtractSaved: (String) -> String,
+    val appsExtractNoPath: String,
+    val appsExtractFailed: (String) -> String,
     val appsPickerTimeout: String,
 )
 
@@ -518,6 +526,14 @@ class Strings(
     val appsActionDisable get() = apps.appsActionDisable
     val appsActionEnable get() = apps.appsActionEnable
     val appsActionUninstall get() = apps.appsActionUninstall
+    val appsActionExtract get() = apps.appsActionExtract
+    val appsActionUninstallKeep get() = apps.appsActionUninstallKeep
+    val appsNotConnected get() = apps.appsNotConnected
+    val appsOpNoOutput get() = apps.appsOpNoOutput
+    val appsExtractRunning get() = apps.appsExtractRunning
+    val appsExtractSaved get() = apps.appsExtractSaved
+    val appsExtractNoPath get() = apps.appsExtractNoPath
+    val appsExtractFailed get() = apps.appsExtractFailed
     val appsPickerTimeout get() = apps.appsPickerTimeout
     // FilesScreen
     val filesTitle get() = files.filesTitle
@@ -834,6 +850,14 @@ private fun rememberAppsStrings() = AppsStrings(
     appsActionDisable = stringResource(R.string.apps_action_disable),
     appsActionEnable = stringResource(R.string.apps_action_enable),
     appsActionUninstall = stringResource(R.string.apps_action_uninstall),
+    appsActionExtract = stringResource(R.string.apps_action_extract),
+    appsActionUninstallKeep = stringResource(R.string.apps_action_uninstall_keep),
+    appsNotConnected = stringResource(R.string.apps_not_connected),
+    appsOpNoOutput = stringResource(R.string.apps_op_no_output),
+    appsExtractRunning = run { val f = stringResource(R.string.apps_extract_running); { n: String -> f.format(n) } },
+    appsExtractSaved = run { val f = stringResource(R.string.apps_extract_saved); { n: String -> f.format(n) } },
+    appsExtractNoPath = stringResource(R.string.apps_extract_no_path),
+    appsExtractFailed = run { val f = stringResource(R.string.apps_extract_failed); { n: String -> f.format(n) } },
     appsPickerTimeout = stringResource(R.string.apps_picker_timeout),
 )
 

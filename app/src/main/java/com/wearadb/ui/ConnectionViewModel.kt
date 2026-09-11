@@ -417,33 +417,100 @@ class ConnectionViewModel @Inject constructor(
 
     fun setAppsFilter(filter: AppFilter) { _appsFilter.value = filter }
 
-    fun uninstallApp(pkg: String, onResult: (String) -> Unit) {
-        viewModelScope.launch { onResult(repository.uninstallApp(pkg).trim()); loadApps(force = true) }
-    }
-
-    fun clearAppData(pkg: String, onResult: (String) -> Unit) {
-        viewModelScope.launch { onResult(repository.clearAppData(pkg).trim()) }
-    }
-
-    fun forceStopApp(pkg: String, onResult: (String) -> Unit) {
-        viewModelScope.launch { onResult(repository.forceStopApp(pkg).trim()) }
-    }
-
-    fun disableApp(pkg: String, onResult: (String) -> Unit) {
-        android.util.Log.d("VM", "disableApp() pkg=$pkg")
+    /**
+     * 应用操作的统一入口：按"当前生效通道"路由到有线 / 无线仓储。
+     *
+     * 历史缺陷：uninstall/clearData/forceStop/disable/enable 只调无线 repository，
+     * 有线会话下无线 manager 未连接 → runSingleCommand 吞掉异常返回空串，
+     * 命令根本没发出去，UI 表现为"点了没反应 + 空白 toast"。
+     * 两个通道都不可用时直接回传空串，由 UI 层给出"未连接/无响应"提示。
+     */
+    private fun appOp(
+        tag: String,
+        refreshApps: Boolean = false,
+        usb: suspend () -> String,
+        wireless: suspend () -> String,
+        onResult: (String) -> Unit
+    ) {
         viewModelScope.launch {
-            val result = repository.disableApp(pkg).trim()
-            android.util.Log.d("VM", "disableApp() result: $result")
-            onResult(result)
+            if (!isUsbAdbActive && connectionState.value != ConnectionState.CONNECTED) {
+                android.util.Log.w("VM", "appOp($tag) skipped: no active adb channel")
+                onResult("")
+                return@launch
+            }
+            val result = try {
+                if (isUsbAdbActive) usb() else wireless()
+            } catch (e: Exception) {
+                android.util.Log.e("VM", "appOp($tag) exception: ${e.message}", e)
+                "执行失败: ${e.message}"
+            }
+            android.util.Log.d("VM", "appOp($tag) usb=$isUsbAdbActive result=${result.take(120)}")
+            onResult(result.trim())
+            if (refreshApps) loadApps(force = true)
         }
     }
 
-    fun enableApp(pkg: String, onResult: (String) -> Unit) {
-        android.util.Log.d("VM", "enableApp() pkg=$pkg")
-        viewModelScope.launch {
-            val result = repository.enableApp(pkg).trim()
-            android.util.Log.d("VM", "enableApp() result: $result")
-            onResult(result)
+    fun uninstallApp(pkg: String, onResult: (String) -> Unit) = appOp(
+        tag = "uninstallApp",
+        refreshApps = true,
+        usb = { usbAdbRepository.uninstallApp(pkg) },
+        wireless = { repository.uninstallApp(pkg) },
+        onResult = onResult
+    )
+
+    /** 卸载但保留数据（pm uninstall -k），卸载后同样需要刷新列表 */
+    fun uninstallAppKeepData(pkg: String, onResult: (String) -> Unit) = appOp(
+        tag = "uninstallAppKeepData",
+        refreshApps = true,
+        usb = { usbAdbRepository.uninstallAppKeepData(pkg) },
+        wireless = { repository.uninstallAppKeepData(pkg) },
+        onResult = onResult
+    )
+
+    fun clearAppData(pkg: String, onResult: (String) -> Unit) = appOp(
+        tag = "clearAppData",
+        usb = { usbAdbRepository.clearAppData(pkg) },
+        wireless = { repository.clearAppData(pkg) },
+        onResult = onResult
+    )
+
+    fun forceStopApp(pkg: String, onResult: (String) -> Unit) = appOp(
+        tag = "forceStopApp",
+        usb = { usbAdbRepository.forceStopApp(pkg) },
+        wireless = { repository.forceStopApp(pkg) },
+        onResult = onResult
+    )
+
+    fun disableApp(pkg: String, onResult: (String) -> Unit) = appOp(
+        tag = "disableApp",
+        refreshApps = true,
+        usb = { usbAdbRepository.disableApp(pkg) },
+        wireless = { repository.disableApp(pkg) },
+        onResult = onResult
+    )
+
+    fun enableApp(pkg: String, onResult: (String) -> Unit) = appOp(
+        tag = "enableApp",
+        refreshApps = true,
+        usb = { usbAdbRepository.enableApp(pkg) },
+        wireless = { repository.enableApp(pkg) },
+        onResult = onResult
+    )
+
+    /**
+     * 提取安装包到本地缓存（路由规则同 [appOp]）。
+     * 返回结构化结果，本地化文案由 UI 层按当前语言组装。
+     */
+    suspend fun extractApkToCache(pkg: String): com.wearadb.data.repository.ApkExtractResult {
+        return try {
+            if (isUsbAdbActive) {
+                usbAdbRepository.extractApkToCache(pkg, appContext.cacheDir)
+            } else {
+                repository.extractApkToCache(pkg, appContext.cacheDir)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("VM", "extractApkToCache exception: ${e.message}", e)
+            com.wearadb.data.repository.ApkExtractResult.Failure(e.message ?: "unknown error")
         }
     }
 

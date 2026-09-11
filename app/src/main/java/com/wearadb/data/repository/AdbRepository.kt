@@ -82,6 +82,42 @@ data class PullResult(
     }
 }
 
+// ── 提取安装包结果（文案由 UI 层按当前语言组装，仓储层只回传事实）──
+
+sealed interface ApkExtractResult {
+    /** files 为已落到本地缓存的文件，按 base → split 顺序排列 */
+    data class Success(val files: List<java.io.File>) : ApkExtractResult
+    /** 设备未返回任何安装包路径 */
+    data object NoApkPath : ApkExtractResult
+    data class Failure(val reason: String) : ApkExtractResult
+}
+
+/** 提取安装包的本地缓存子目录名（位于 App cacheDir 下，写入用户选定位置后即清理） */
+const val APK_EXTRACT_DIR = "wearadb_apk_export"
+
+/**
+ * 解析 `pm path <pkg>` 输出为远程 APK 路径列表。
+ * 输出形如 `package:/data/app/~~x==/com.foo-y==/base.apk`，base 在前、split 在后。
+ */
+fun parseApkPaths(output: String): List<String> =
+    output.lineSequence()
+        .map { it.trim() }
+        .filter { it.startsWith("package:") }
+        .map { it.removePrefix("package:").trim() }
+        .filter { it.isNotEmpty() && it.endsWith(".apk", ignoreCase = true) }
+        .toList()
+
+/**
+ * 生成落盘文件名：单个 APK 用 `<包名>.apk`；
+ * 多包（Split APK）用 `<包名>.<原文件名>`，既区分 split 又保留可读性。
+ */
+fun apkFileName(pkg: String, total: Int, remotePath: String, index: Int): String {
+    if (total <= 1) return "$pkg.apk"
+    val raw = remotePath.substringAfterLast('/').ifBlank { "split$index.apk" }
+    val safe = raw.replace(Regex("[^A-Za-z0-9._-]"), "_")
+    return "$pkg.$safe"
+}
+
 // ── ADB 仓库 ──
 @Singleton
 class AdbRepository @Inject constructor(
@@ -891,6 +927,44 @@ class AdbRepository @Inject constructor(
         android.util.Log.d("AdbRepo", "enableApp() result: $result")
         result
     }
+
+    /** 卸载但保留数据（pm uninstall -k：保留 /data/data 与 /sdcard 下的应用数据） */
+    suspend fun uninstallAppKeepData(pkg: String): String = withContext(Dispatchers.IO) {
+        WearAdbLogger.i("AdbRepo", "卸载(保留数据): pkg=$pkg")
+        val result = runSingleCommand("pm uninstall -k $pkg")
+        WearAdbLogger.i("AdbRepo", "卸载(保留数据)结果: $pkg - $result")
+        result
+    }
+
+    /**
+     * 提取应用安装包（含 Split APK）到本地缓存目录。
+     * 流程：`pm path` 取远程路径 → 逐个 pull 落盘到 cacheDir/<APK_EXTRACT_DIR>。
+     * 不直接写入用户目录——最终落点由 UI 层通过 SAF 选择后写入并清理缓存。
+     */
+    suspend fun extractApkToCache(pkg: String, cacheDir: java.io.File): ApkExtractResult =
+        withContext(Dispatchers.IO) {
+            WearAdbLogger.i("AdbRepo", "提取安装包: pkg=$pkg")
+            val paths = parseApkPaths(runSingleCommand("pm path $pkg"))
+            if (paths.isEmpty()) return@withContext ApkExtractResult.NoApkPath
+            val outDir = java.io.File(cacheDir, APK_EXTRACT_DIR)
+            if (!outDir.exists() && !outDir.mkdirs()) {
+                return@withContext ApkExtractResult.Failure("无法创建缓存目录")
+            }
+            val files = mutableListOf<java.io.File>()
+            for ((index, remote) in paths.withIndex()) {
+                val pulled = pullFile(remote)
+                val data = pulled.data
+                if (!pulled.success || data == null || data.isEmpty()) {
+                    files.forEach { runCatching { it.delete() } }
+                    return@withContext ApkExtractResult.Failure(pulled.message)
+                }
+                val dest = java.io.File(outDir, apkFileName(pkg, paths.size, remote, index))
+                dest.writeBytes(data)
+                files += dest
+            }
+            WearAdbLogger.i("AdbRepo", "提取安装包完成: $pkg, ${files.size} 个文件")
+            ApkExtractResult.Success(files)
+        }
 
     // ── 安装 APK ──
     suspend fun installApk(apkData: ByteArray): String = withContext(Dispatchers.IO) {

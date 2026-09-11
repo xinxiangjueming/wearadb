@@ -172,6 +172,14 @@
     <string name="apps_action_disable">Disable</string>
     <string name="apps_action_enable">Enable</string>
     <string name="apps_action_uninstall">Uninstall</string>
+    <string name="apps_action_extract">Extract APK</string>
+    <string name="apps_action_uninstall_keep">Uninstall, Keep Data</string>
+    <string name="apps_not_connected">No device connected</string>
+    <string name="apps_op_no_output">No response from device. Check the connection.</string>
+    <string name="apps_extract_running">Extracting %1$s…</string>
+    <string name="apps_extract_saved">Saved to %1$s</string>
+    <string name="apps_extract_no_path">APK path not found</string>
+    <string name="apps_extract_failed">Extract failed: %1$s</string>
     <string name="apps_picker_timeout">File picker timed out. Please retry.</string>
 
     <!-- FilesScreen -->

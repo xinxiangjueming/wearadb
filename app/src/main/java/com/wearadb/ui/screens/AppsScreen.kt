@@ -31,6 +31,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.data.model.AppEntry
+import com.wearadb.data.repository.ApkExtractResult
 import com.wearadb.ui.AppFilter
 import com.wearadb.ui.ConnectionViewModel
 import com.wearadb.ui.LocalStrings
@@ -51,6 +52,8 @@ fun AppsScreen(
     val appLabels by viewModel.appLabels.collectAsState()
     val appIcons by viewModel.appIcons.collectAsState()
     val appInfoLoading by viewModel.appInfoLoading.collectAsState()
+    // 任一通道（无线 / 有线）是否已连接：应用操作前先判定，避免命令静默落空
+    val connected by viewModel.isAnyAdbConnected.collectAsState()
 
     // recomposition tracking
     var recompositionCount = remember { 0 }
@@ -186,6 +189,74 @@ fun AppsScreen(
         }
     }
 
+    // ── 提取安装包：先拉取到本地缓存，再由系统文件选择器决定落点 ──
+    var pendingExtract by remember { mutableStateOf<Pair<String, java.io.File>?>(null) }
+
+    val apkSavePicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri: Uri? ->
+        val pending = pendingExtract
+        pendingExtract = null
+        if (pending == null) return@rememberLauncherForActivityResult
+        val (suggestedName, file) = pending
+        if (uri == null) {
+            file.delete()
+            return@rememberLauncherForActivityResult
+        }
+        scope.launch(Dispatchers.IO) {
+            try {
+                context.contentResolver.openOutputStream(uri)?.use { out ->
+                    file.inputStream().use { it.copyTo(out) }
+                } ?: throw java.io.IOException("openOutputStream returned null")
+                val shown = uriDisplayName(context, uri) ?: suggestedName
+                launch(Dispatchers.Main) { snackbarMessage = s.appsExtractSaved(shown) }
+            } catch (e: Exception) {
+                launch(Dispatchers.Main) { snackbarMessage = s.appsExtractFailed(e.message ?: "IO error") }
+            } finally {
+                file.delete()
+            }
+        }
+    }
+
+    /** 提取安装包：单个 APK 直接保存；Split APK 打包成 .apks（本应用安装流程可直接读） */
+    fun startExtract(app: AppEntry) {
+        if (!connected) {
+            snackbarMessage = s.appsNotConnected
+            return
+        }
+        val label = appLabels[app.packageName]?.takeIf { it.isNotBlank() } ?: app.packageName
+        scope.launch {
+            snackbarMessage = s.appsExtractRunning(label)
+            when (val result = viewModel.extractApkToCache(app.packageName)) {
+                is ApkExtractResult.Success -> {
+                    val extracted = result.files
+                    if (extracted.isEmpty()) {
+                        snackbarMessage = s.appsExtractNoPath
+                    } else {
+                        val payload: java.io.File
+                        if (extracted.size == 1) {
+                            payload = extracted.first()
+                        } else {
+                            payload = zipApks(extracted, File(context.cacheDir, "${app.packageName}.apks"))
+                            extracted.forEach { it.delete() }
+                        }
+                        pendingExtract = payload.name to payload
+                        apkSavePicker.launch(payload.name)
+                    }
+                }
+                ApkExtractResult.NoApkPath -> snackbarMessage = s.appsExtractNoPath
+                is ApkExtractResult.Failure -> snackbarMessage = s.appsExtractFailed(result.reason)
+            }
+        }
+    }
+
+    /** 操作结果提示：空串表示通道异常或命令无输出，给出明确原因而不是空白 toast */
+    fun reportOpResult(msg: String) {
+        snackbarMessage = when {
+            msg.isNotBlank() -> msg
+            !connected -> s.appsNotConnected
+            else -> s.appsOpNoOutput
+        }
+    }
+
     val hPadding = adaptiveHorizontalPadding()
 
     Scaffold(snackbarHost = { WearSnackbarHost(snackbarHostState) }, containerColor = c.background, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
@@ -242,11 +313,13 @@ fun AppsScreen(
                     items(systemApps, key = { it.packageName }) { app ->
                         AppListItem(app, expandedPkg, label = appLabels[app.packageName], icon = appIcons[app.packageName],
                             onToggleExpand = { expandedPkg = it },
-                            onUninstall = { viewModel.uninstallApp(app.packageName) { snackbarMessage = it } },
-                            onClearData = { viewModel.clearAppData(app.packageName) { snackbarMessage = it } },
-                            onForceStop = { viewModel.forceStopApp(app.packageName) { snackbarMessage = it } },
-                            onDisable = { viewModel.disableApp(app.packageName) { snackbarMessage = it; viewModel.loadApps(force = true) } },
-                            onEnable = { viewModel.enableApp(app.packageName) { snackbarMessage = it; viewModel.loadApps(force = true) } })
+                            onUninstall = { viewModel.uninstallApp(app.packageName) { reportOpResult(it) } },
+                            onUninstallKeep = { viewModel.uninstallAppKeepData(app.packageName) { reportOpResult(it) } },
+                            onExtract = { startExtract(app) },
+                            onClearData = { viewModel.clearAppData(app.packageName) { reportOpResult(it) } },
+                            onForceStop = { viewModel.forceStopApp(app.packageName) { reportOpResult(it) } },
+                            onDisable = { viewModel.disableApp(app.packageName) { reportOpResult(it) } },
+                            onEnable = { viewModel.enableApp(app.packageName) { reportOpResult(it) } })
                     }
                 }
                 if (thirdPartyApps.isNotEmpty()) {
@@ -254,22 +327,26 @@ fun AppsScreen(
                     items(thirdPartyApps, key = { it.packageName }) { app ->
                         AppListItem(app, expandedPkg, label = appLabels[app.packageName], icon = appIcons[app.packageName],
                             onToggleExpand = { expandedPkg = it },
-                            onUninstall = { viewModel.uninstallApp(app.packageName) { snackbarMessage = it } },
-                            onClearData = { viewModel.clearAppData(app.packageName) { snackbarMessage = it } },
-                            onForceStop = { viewModel.forceStopApp(app.packageName) { snackbarMessage = it } },
-                            onDisable = { viewModel.disableApp(app.packageName) { snackbarMessage = it; viewModel.loadApps(force = true) } },
-                            onEnable = { viewModel.enableApp(app.packageName) { snackbarMessage = it; viewModel.loadApps(force = true) } })
+                            onUninstall = { viewModel.uninstallApp(app.packageName) { reportOpResult(it) } },
+                            onUninstallKeep = { viewModel.uninstallAppKeepData(app.packageName) { reportOpResult(it) } },
+                            onExtract = { startExtract(app) },
+                            onClearData = { viewModel.clearAppData(app.packageName) { reportOpResult(it) } },
+                            onForceStop = { viewModel.forceStopApp(app.packageName) { reportOpResult(it) } },
+                            onDisable = { viewModel.disableApp(app.packageName) { reportOpResult(it) } },
+                            onEnable = { viewModel.enableApp(app.packageName) { reportOpResult(it) } })
                     }
                 }
             } else {
                 items(filteredApps, key = { it.packageName }) { app ->
                     AppListItem(app, expandedPkg, label = appLabels[app.packageName], icon = appIcons[app.packageName],
                         onToggleExpand = { expandedPkg = it },
-                        onUninstall = { viewModel.uninstallApp(app.packageName) { snackbarMessage = it } },
-                        onClearData = { viewModel.clearAppData(app.packageName) { snackbarMessage = it } },
-                        onForceStop = { viewModel.forceStopApp(app.packageName) { snackbarMessage = it } },
-                        onDisable = { viewModel.disableApp(app.packageName) { snackbarMessage = it; viewModel.loadApps(force = true) } },
-                        onEnable = { viewModel.enableApp(app.packageName) { snackbarMessage = it; viewModel.loadApps(force = true) } })
+                        onUninstall = { viewModel.uninstallApp(app.packageName) { reportOpResult(it) } },
+                        onUninstallKeep = { viewModel.uninstallAppKeepData(app.packageName) { reportOpResult(it) } },
+                        onExtract = { startExtract(app) },
+                        onClearData = { viewModel.clearAppData(app.packageName) { reportOpResult(it) } },
+                        onForceStop = { viewModel.forceStopApp(app.packageName) { reportOpResult(it) } },
+                        onDisable = { viewModel.disableApp(app.packageName) { reportOpResult(it) } },
+                        onEnable = { viewModel.enableApp(app.packageName) { reportOpResult(it) } })
                 }
             }
         }
@@ -284,6 +361,8 @@ private fun AppListItem(
     icon: java.io.File?,
     onToggleExpand: (String?) -> Unit,
     onUninstall: () -> Unit,
+    onUninstallKeep: () -> Unit,
+    onExtract: () -> Unit,
     onClearData: () -> Unit,
     onForceStop: () -> Unit,
     onDisable: () -> Unit,
@@ -295,6 +374,8 @@ private fun AppListItem(
         label = label, icon = icon,
         onToggleExpand = { onToggleExpand(if (isExpanded) null else app.packageName) },
         onUninstall = onUninstall,
+        onUninstallKeep = onUninstallKeep,
+        onExtract = onExtract,
         onClearData = onClearData,
         onForceStop = onForceStop,
         onDisable = onDisable,
@@ -319,12 +400,14 @@ private fun FilterChipItem(text: String, selected: Boolean, onClick: () -> Unit)
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AppCard(
     app: AppEntry, expanded: Boolean,
     label: String?, icon: java.io.File?,
     onToggleExpand: () -> Unit,
-    onUninstall: () -> Unit, onClearData: () -> Unit, onForceStop: () -> Unit, onDisable: () -> Unit, onEnable: () -> Unit
+    onUninstall: () -> Unit, onUninstallKeep: () -> Unit, onExtract: () -> Unit,
+    onClearData: () -> Unit, onForceStop: () -> Unit, onDisable: () -> Unit, onEnable: () -> Unit
 ) {
     val c = WearAdbTheme.colors
     val s = LocalStrings.current
@@ -370,17 +453,26 @@ private fun AppCard(
         if (expanded) {
             Column {
                 Spacer(Modifier.height(12.dp)); HorizontalDivider(color = c.outlineVariant); Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // FlowRow：按钮文案随语言长度变化（如 "Uninstall, Keep Data"），自动换行避免溢出
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     AppActionButton(s.appsActionStop, c.buttonSecondary, c.buttonSecondaryText) { onForceStop() }
                     AppActionButton(s.appsActionClear, c.info, c.onSurface) { onClearData() }
+                    // 冻结 / 解冻按当前状态互斥显示：对已启用的应用再点"解冻"必然无任何变化
+                    if (app.isEnabled) {
+                        AppActionButton(s.appsActionDisable, c.buttonSecondary, c.buttonSecondaryText) { onDisable() }
+                    } else {
+                        AppActionButton(s.appsActionEnable, c.buttonSecondary, c.buttonSecondaryText) { onEnable() }
+                    }
+                    AppActionButton(s.appsActionExtract, c.info, c.onSurface) { onExtract() }
+                    if (!app.isSystem) {
+                        AppActionButton(s.appsActionUninstallKeep, c.buttonDanger, c.buttonDangerText) { onUninstallKeep() }
+                        AppActionButton(s.appsActionUninstall, c.buttonDanger, c.buttonDangerText) { onUninstall() }
+                    }
                 }
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (app.isEnabled) AppActionButton(s.appsActionDisable, c.buttonSecondary, c.buttonSecondaryText) { onDisable() }
-                    AppActionButton(s.appsActionEnable, c.buttonSecondary, c.buttonSecondaryText) { onEnable() }
-                }
-                Spacer(Modifier.height(8.dp))
-                if (!app.isSystem) AppActionButton(s.appsActionUninstall, c.buttonDanger, c.buttonDangerText) { onUninstall() }
             }
         }
     }
@@ -395,3 +487,26 @@ private fun AppActionButton(text: String, bgColor: Color, textColor: Color, onCl
             .clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp)
     ) { Text(text, style = MaterialTheme.typography.labelLarge, color = textColor) }
 }
+
+/**
+ * 把多个 split APK 打包成 .apks（zip）。
+ * 本应用自身的 .apks 安装流程按 zip 条目枚举 `*.apk`，因此无需额外清单文件即可回装。
+ */
+private fun zipApks(files: List<java.io.File>, dest: java.io.File): java.io.File {
+    java.util.zip.ZipOutputStream(dest.outputStream().buffered()).use { zip ->
+        files.forEach { f ->
+            zip.putNextEntry(java.util.zip.ZipEntry(f.name))
+            f.inputStream().use { input -> input.copyTo(zip) }
+            zip.closeEntry()
+        }
+    }
+    return dest
+}
+
+/** 查询 SAF 文档 URI 的显示名（用户可能在系统选择器里改了文件名） */
+private fun uriDisplayName(context: android.content.Context, uri: Uri): String? = runCatching {
+    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+        val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+        if (idx >= 0 && cursor.moveToFirst()) cursor.getString(idx) else null
+    }
+}.getOrNull()
