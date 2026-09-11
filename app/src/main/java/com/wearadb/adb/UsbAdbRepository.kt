@@ -14,11 +14,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
@@ -50,8 +51,6 @@ class UsbAdbRepository @Inject constructor(
         private const val SCRCPY_VERSION = "2.7"
         private const val SCRCPY_REMOTE_PATH = "/data/local/tmp/scrcpy-server.jar"
         private const val SCRCPY_ASSET_PATH = "scrcpy/scrcpy-server.jar"
-        /** scrcpy-server tunnelForward 模式监听的抽象套接字（scid=-1 → 名字为 "scrcpy"） */
-        private const val SCRCPY_ABSTRACT_DEST = "localabstract:scrcpy"
         /** scrcpy 2.x 线协议 codec id："h264" 的 ASCII（大端） */
         private const val CODEC_ID_H264 = 0x68323634
         /** 12 字节包头: [pts_flags:8 BE][len:4 BE] */
@@ -338,12 +337,81 @@ class UsbAdbRepository @Inject constructor(
 
     fun mirrorTransport(): MirrorTransport = UsbMirrorTransport()
 
+    // ── 投屏快速注入（首选 control 通道，失败回退 input 命令） ──
+    //
+    // 红线：control 通道的写是**同步阻塞**调用（无线侧 libadb 的 AdbStream.write()
+    // 无超时，等设备 OKAY；USB 侧靠内部流控超时兜底），因此整段注入必须跑在 IO 线程。
+    // 历史版本由 ViewModel 的 deviceOp 在主线程直接调用，链路抖动时被拖成
+    // `AnrType=input.app`。这里统一在仓储层切 IO，任何调用方都安全。
+
+    /**
+     * 触摸注入。control 通道可用时走 scrcpy 线协议（单向写、数毫秒、支持实时拖动）；
+     * 否则回退到 `input` 命令——慢（300-600ms）但保证功能不消失。
+     * 命令注入只能用完整手势表达，故回退路径只能发"点击"或"滑动"。
+     */
+    suspend fun touchInject(
+        action: Int,
+        x: Int,
+        y: Int,
+        realW: Int,
+        realH: Int,
+        pointerId: Long,
+        fallbackGesture: suspend () -> Unit = {}
+    ) = withContext(Dispatchers.IO) {
+        val msg = ScrcpyControlProtocol.injectTouch(action, x, y, realW, realH, pointerId)
+        if (mirrorEngine.sendControl(msg)) return@withContext
+        when (action) {
+            ScrcpyControlProtocol.ACTION_DOWN -> fallbackGesture()
+            // MOVE/UP 在回退路径下无事可做：整体手势由 DOWN 时的 fallback 一次完成
+        }
+    }
+
+    /** 按键注入（control 通道优先，回退 `input keyevent`）。 */
+    suspend fun keyInject(keycode: Int) = withContext(Dispatchers.IO) {
+        if (mirrorEngine.injectKey(keycode)) return@withContext
+        WearAdbLogger.w("UsbAdb", "投屏按键注入回退 input keyevent: keycode=$keycode")
+        executeCommand("input keyevent $keycode", 8000)
+    }
+
+    /** 文本注入（control 通道优先，回退 `input text`）。 */
+    suspend fun textInject(text: String) = withContext(Dispatchers.IO) {
+        if (mirrorEngine.sendControl(ScrcpyControlProtocol.injectText(text))) return@withContext
+        WearAdbLogger.w("UsbAdb", "投屏文本注入回退 input text")
+        executeCommand("input text \"$text\"", 8000)
+    }
+
+    /** 旋转设备（只有 control 通道能表达；回退为 settings 命令）。 */
+    suspend fun rotateInject() = withContext(Dispatchers.IO) {
+        if (mirrorEngine.sendControl(ScrcpyControlProtocol.rotateDevice())) return@withContext
+        WearAdbLogger.w("UsbAdb", "投屏旋转注入回退 settings user_rotation")
+        executeCommand("settings put system user_rotation 1", 8000)
+    }
+
     private inner class UsbMirrorTransport : MirrorTransport {
+
+        /**
+         * 启动期命令闸门。
+         *
+         * 与无线侧 [AdbRepository.WirelessMirrorTransport] 的 startupGate 对称：
+         * 引擎在启动阶段会并行发起「推送 server jar」与「取 wm size」。USB 通道
+         * 在协议层已可安全并发（localId 用 AtomicInteger、流注册表是 ConcurrentHashMap、
+         * 总线写 lock 保证消息原子性），但并行发起两条 shell 流仍会平白增加
+         * 一次 OPEN/OKAY 往返的争用；这里按无线侧同样的形状串行化，
+         * 保持两个通道行为一致，避免"只在无线侧验证过"的盲区。
+         */
+        private val startupGate = Mutex()
+
         override suspend fun executeCommand(cmd: String): String =
             this@UsbAdbRepository.executeCommand(cmd, 10000)
 
+        override suspend fun executeCommandSerialized(cmd: String): String =
+            startupGate.withLock { this@UsbAdbRepository.executeCommand(cmd, 10000) }
+
         override suspend fun pushFileTo(localFile: File, remotePath: String): Boolean =
             pushFile(localFile, remotePath).contains("成功")
+
+        override suspend fun pushFileToSerialized(localFile: File, remotePath: String): Boolean =
+            startupGate.withLock { pushFile(localFile, remotePath).contains("成功") }
 
         override suspend fun openShellStream(cmd: String): MirrorStream {
             val conn = awaitManager().getConnection()
@@ -351,9 +419,9 @@ class UsbAdbRepository @Inject constructor(
             return UsbMirrorStream(conn.openShell(cmd), conn)
         }
 
-        override suspend fun openAbstractSocket(dest: String): MirrorStream? {
+        override suspend fun openAbstractSocket(dest: String, timeoutMs: Long): MirrorStream? {
             val conn = awaitManager().getConnection() ?: return null
-            val s = conn.openStream(dest, 1500)
+            val s = conn.openStream(dest, timeoutMs)
             return if (s.isOpen) UsbMirrorStream(s, conn) else null
         }
     }

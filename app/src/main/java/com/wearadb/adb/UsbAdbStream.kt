@@ -17,6 +17,18 @@ class UsbAdbStream(
 ) {
     companion object {
         private const val TAG = "UsbAdbStream"
+
+        /**
+         * 写入流控等待上限（等设备回 OKAY）。
+         *
+         * 必须是**有限且偏短**的值：同一条 USB 总线上的所有流共用唯一的读线程，
+         * 而读线程除投递数据外还负责给收到的 WRTE 回 OKAY。若某次写长时间等不到
+         * OKAY（拖动投屏时 adbd 正忙于处理 input 事件即会出现），等待方会一直占着
+         * 写锁，后续写依次排队 → 读线程被阻塞 → 视频流读不到数据 → 表现为
+         * "一点屏幕就断开"。1500ms 在真机往返（通常 <50ms）之上留足余量，
+         * 又短到不会把级联堵死。
+         */
+        private const val WRITE_FLOW_CONTROL_TIMEOUT_MS = 1500L
     }
 
     private var remoteId: Int = 0
@@ -33,10 +45,17 @@ class UsbAdbStream(
     val isOpen: Boolean get() = isOpened && !isClosed
 
     /**
-     * Wait for the stream to be opened (OKAY received).
+     * 等待流打开（收到 OKAY）。返回 false 表示超时**或**流已被对端关闭。
+     *
+     * 注意：adbd 对不存在的目标（如尚未监听的 localabstract:scrcpy）回的是 CLSE
+     * 而不是 OKAY。若 onClosed() 不唤醒本闩锁，调用方只能等满 timeoutMs —— 这正是
+     * 投屏探测"每次失败固定烧 1.5s"的来源。onClosed()/close() 现在都会 countDown，
+     * 失败路径立即返回、由调用方按短超时重试。
      */
     fun waitForOpen(timeoutMs: Long): Boolean {
-        return openLatch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+        val opened = openLatch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+        // 被关闭唤醒时闩锁同样归零，必须用 isOpened 区分"真的打开了"与"提前退场"
+        return opened && isOpened
     }
 
     /**
@@ -73,7 +92,7 @@ class UsbAdbStream(
     /**
      * Wait for write to be ready (OKAY received for previous write).
      */
-    fun waitForWriteReady(timeoutMs: Long = 10000): Boolean {
+    fun waitForWriteReady(timeoutMs: Long = WRITE_FLOW_CONTROL_TIMEOUT_MS): Boolean {
         val endTime = System.currentTimeMillis() + timeoutMs
         synchronized(writeLock) {
             while (!writeReady.get() && !isClosed) {
@@ -99,10 +118,13 @@ class UsbAdbStream(
 
     /**
      * Called by the connection when CLSE is received.
-     * Sets isClosed and wakes all blocked readers (same as AdbStream.notifyClose).
+     * Sets isClosed and wakes all blocked readers (same as AdbStream.notifyClose)
+     * **以及等待 OPEN 的 waitForOpen**——设备拒绝 OPEN 时（目标不存在）回的是
+     * CLSE 而非 OKAY，不唤醒的话调用方要白等满整个 timeout。
      */
     fun onClosed() {
         isClosed = true
+        openLatch.countDown()
         readQueue.offer(ByteArray(0)) // Sentinel to unblock readers
         Log.d(TAG, "Stream $localId closed by remote")
     }
@@ -110,6 +132,7 @@ class UsbAdbStream(
     fun close() {
         if (!isClosed) {
             isClosed = true
+            openLatch.countDown()
             readQueue.offer(ByteArray(0)) // Sentinel
         }
     }
@@ -209,11 +232,24 @@ class UsbAdbStream(
     /**
      * Write data to this stream via the parent connection.
      * Waits for OKAY from device before sending (ADB flow control).
+     *
+     * **串行化**：整个「等 OKAY → 标记未就绪 → 发包」序列必须原子完成。
+     * 此前无锁版本在投屏拖动（每帧一条 control 消息）下会有数十条写并发挤入，
+     * 全部排队等 OKAY，把共用读线程堵死，直接导致 USB 会话表现为断开。
+     * 这里用 writeLock 串行化，配合 [WRITE_FLOW_CONTROL_TIMEOUT_MS] 的短超时，
+     * 使最坏等待时间有上界。
+     *
+     * 超时（返回 false）时**仍然发送**：宁可放弃一次流控保真，也不能让
+     * 一条卡的写把整条总线拖死——这是"可用性优先于严格流控"的取舍。
      */
     fun write(data: ByteArray, connection: UsbAdbConnection) {
-        // 等待上一次写入的 OKAY 确认
-        waitForWriteReady(5000)
-        writeReady.set(false)
-        connection.sendMessage(createWriteMessage(data))
+        synchronized(writeLock) {
+            val ready = waitForWriteReady()
+            if (!ready && !isClosed) {
+                Log.w(TAG, "Stream $localId write: 流控超时，仍继续发送（避免堵死总线）")
+            }
+            writeReady.set(false)
+            connection.sendMessage(createWriteMessage(data))
+        }
     }
 }

@@ -4,13 +4,15 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.PowerSettingsNew
@@ -24,6 +26,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
@@ -31,11 +35,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.wearadb.adb.MirrorStatus
+import com.wearadb.adb.ScrcpyControlProtocol
 import com.wearadb.ui.ConnectionViewModel
 import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.theme.WearAdbTheme
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
 import kotlinx.coroutines.launch
+
+/**
+ * 触摸 MOVE 注入的最小间隔（ms）。约 60Hz，与 USB 总线流控节奏匹配；
+ * 抬手时会补发最终位置，因此不会丢失手势终点。
+ */
+private const val MOVE_THROTTLE_MS = 16L
 
 /**
  * B1 有线投屏页：USB 通道 + scrcpy-server + MediaCodec 解码到 SurfaceView。
@@ -73,9 +84,11 @@ fun ScreenMirrorScreen(
 
     // 触摸映射输入
     var viewSize by remember { mutableStateOf<IntSize?>(null) }
-    var downPos by remember { mutableStateOf(Offset.Zero) }
-    var lastPos by remember { mutableStateOf(Offset.Zero) }
-    var dragDistance by remember { mutableStateOf(0f) }
+
+    // 画质/开关等低频设置默认收起，把纵向空间尽量让给画面区。
+    // 原先「分辨率信息 + 3 行画质选项 + 1 行开关」常驻，连同 10dp 行距合计约 200dp，
+    // 在竖屏手机上把画面区压得只剩一半左右高度。
+    var optionsExpanded by remember { mutableStateOf(false) }
 
     val statusBarPad = WindowInsets.statusBars.union(WindowInsets.displayCutout)
         .asPaddingValues().calculateTopPadding()
@@ -102,6 +115,16 @@ fun ScreenMirrorScreen(
         val ry = (ey / enc.second * real.second).toInt().coerceIn(0, real.second - 1)
         return rx to ry
     }
+
+    /**
+     * 手势期间复用同一个 pointerId，设备侧才能把它识别为同一次触摸。
+     *
+     * 必须用 scrcpy 官方约定的「通用手指」哨兵值 -1（UINT64_MAX 的补码表示，
+     * 即 sc_pointer_id_generic_finger）。此前这里误用 MotionEvent 的
+     * ACTION_POINTER_INDEX_MASK（0xFF00 = 65280）当作 pointerId，服务端会把它
+     * 当成"多指手势中的第 65280 号手指"，DOWN/MOVE/UP 序列语义异常。
+     */
+    val pointerId = remember { ScrcpyControlProtocol.POINTER_ID_GENERIC_FINGER }
 
     fun tryStart() {
         val surface = currentSurface ?: return
@@ -145,30 +168,65 @@ fun ScreenMirrorScreen(
                 .border(1.dp, c.outlineVariant, cardShape)
                 .onSizeChanged { viewSize = it }
                 .pointerInput(readOnly) {
-                    // 只读模式禁用触摸回控注入
-                    if (!readOnly) detectDragGestures(
-                        onDragStart = { off ->
-                            downPos = off
-                            lastPos = off
-                            dragDistance = 0f
-                        },
-                        onDrag = { change, _ ->
+                    // 只读模式禁用触摸回控注入。
+                    // 用 awaitPointerEventScope 而不是 detectDragGestures：后者只在
+                    // onDragEnd 回调，拖动全程无法注入（旧实现的"手势要等抬手 + 固定
+                    // 300ms swipe"即源于此）。这里按下即注入 DOWN、移动逐帧注入 MOVE、
+                    // 抬手注入 UP，设备侧表现为实时跟手的原生手势。
+                    if (!readOnly) awaitPointerEventScope {
+                        while (true) {
+                            val down = awaitPointerEvent(PointerEventPass.Main)
+                            val change = down.changes.firstOrNull { it.pressed } ?: continue
+                            if (down.type != PointerEventType.Press) continue
+
+                            var start: Pair<Int, Int>? = mapToDevice(change.position)
+                            if (start == null) continue // 起手落在黑边上，整个手势放弃
+                            var lastPos = change.position
+                            var canceled = false
+                            var up = false
+                            // MOVE 节流：触摸屏可到 120Hz，而 USB 总线上每条 control
+                            // 消息都要过一次流控（等设备 OKAY）。逐帧全发会让写队列
+                            // 堆积、拖动反而变卡。这里限制到 ~60Hz，抬手时补发最终位置
+                            // （见 Release 分支的 lastPos），既不丢终点也不压垮通道。
+                            var lastMoveAt = 0L
+
+                            viewModel.touchDown(start.first, start.second, pointerId)
                             change.consume()
-                            dragDistance += (change.position - change.previousPosition).getDistance()
-                            lastPos = change.position
-                        },
-                        onDragEnd = {
-                            if (dragDistance < 12f) {
-                                mapToDevice(downPos)?.let { (x, y) -> viewModel.tap(x, y) }
-                            } else {
-                                val p1 = mapToDevice(downPos)
-                                val p2 = mapToDevice(lastPos)
-                                if (p1 != null && p2 != null) {
-                                    viewModel.swipe(p1.first, p1.second, p2.first, p2.second)
+
+                            while (!up) {
+                                val ev = awaitPointerEvent(PointerEventPass.Main)
+                                val c = ev.changes.firstOrNull { it.id == change.id } ?: break
+                                when (ev.type) {
+                                    PointerEventType.Move -> {
+                                        val p = mapToDevice(c.position)
+                                        if (p != null) {
+                                            lastPos = c.position
+                                            val now = System.currentTimeMillis()
+                                            if (now - lastMoveAt >= MOVE_THROTTLE_MS) {
+                                                lastMoveAt = now
+                                                viewModel.touchMove(p.first, p.second, pointerId)
+                                            }
+                                        }
+                                        c.consume()
+                                    }
+                                    PointerEventType.Release -> {
+                                        val p = mapToDevice(c.position) ?: mapToDevice(lastPos)
+                                        if (p != null) viewModel.touchUp(p.first, p.second, pointerId)
+                                        else viewModel.touchCancel(pointerId)
+                                        c.consume()
+                                        up = true
+                                    }
+                                    else -> {
+                                        // 被系统抢走（返回手势等）→ 必须补 CANCEL，
+                                        // 否则设备侧会留着一根"按下去没松"的手指
+                                        canceled = true
+                                        up = true
+                                    }
                                 }
                             }
+                            if (canceled) viewModel.touchCancel(pointerId)
                         }
-                    )
+                    }
                 }
         ) {
             AndroidView(
@@ -249,110 +307,140 @@ fun ScreenMirrorScreen(
             }
         }
 
-        // ── 分辨率信息 ──
-        if (encSize != null && realSize != null) {
-            val enc = encSize!!
-            val real = realSize!!
+        // ── 设置开关 + 分辨率信息（合并为一行；收起时只占这一行） ──
+        // 低频设置默认收起，点击右侧「设置」展开。这样常驻高度从
+        // 「1 行分辨率 + 3 行画质 + 1 行开关 + 4 段行距」压到 1 行，画面区显著变大。
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { optionsExpanded = !optionsExpanded }
+                .padding(vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val enc = encSize
+            val real = realSize
+            if (enc != null && real != null) {
+                Text(
+                    s.mirrorResolution("${enc.first}x${enc.second}", "${real.first}x${real.second}"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c.onSurfaceVariant,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f)
+                )
+            } else {
+                Spacer(Modifier.weight(1f))
+            }
             Text(
-                s.mirrorResolution("${enc.first}x${enc.second}", "${real.first}x${real.second}"),
+                s.mirrorOptions,
                 style = MaterialTheme.typography.labelSmall,
-                color = c.onSurfaceVariant
+                color = c.accent
+            )
+            Icon(
+                if (optionsExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                contentDescription = s.mirrorOptions,
+                tint = c.accent,
+                modifier = Modifier.size(18.dp)
             )
         }
 
-        // ── 画质/帧率选项（变更即用新参数无缝重启会话） ──
-        MirrorOptionRow(
-            label = s.mirrorOptionSize,
-            options = listOf(
-                s.mirrorAuto to 0,
-                "720" to 720,
-                "480" to 480,
-                "360" to 360
-            ),
-            selected = maxSize
-        ) { viewModel.setMirrorMaxSize(it) }
+        if (optionsExpanded) {
+            // ── 画质/帧率选项（变更即用新参数无缝重启会话） ──
+            // 默认 1024（与 ViewModel 的 _mirrorMaxSize 初始值一致）：手表长边普遍 ~466，
+            // 1024 不损清晰度；大屏设备则避免按原生长边编码灌满 ADB 通道。
+            MirrorOptionRow(
+                label = s.mirrorOptionSize,
+                options = listOf(
+                    s.mirrorAuto to 0,
+                    "1024" to 1024,
+                    "720" to 720,
+                    "480" to 480
+                ),
+                selected = maxSize
+            ) { viewModel.setMirrorMaxSize(it) }
 
-        MirrorOptionRow(
-            label = s.mirrorOptionBitrate,
-            options = listOf(
-                "1M" to 1_000_000,
-                "2M" to 2_000_000,
-                "4M" to 4_000_000,
-                "8M" to 8_000_000,
-                "16M" to 16_000_000
-            ),
-            selected = bitRate
-        ) { viewModel.setMirrorBitRate(it) }
+            MirrorOptionRow(
+                label = s.mirrorOptionBitrate,
+                options = listOf(
+                    "1M" to 1_000_000,
+                    "2M" to 2_000_000,
+                    "4M" to 4_000_000,
+                    "8M" to 8_000_000,
+                    "16M" to 16_000_000
+                ),
+                selected = bitRate
+            ) { viewModel.setMirrorBitRate(it) }
 
-        MirrorOptionRow(
-            label = s.mirrorOptionFps,
-            options = listOf(
-                s.mirrorAuto to 0f,
-                "10" to 10f,
-                "15" to 15f,
-                "24" to 24f,
-                "30" to 30f,
-                "60" to 60f
-            ),
-            selected = maxFps
-        ) { viewModel.setMirrorMaxFps(it) }
+            MirrorOptionRow(
+                label = s.mirrorOptionFps,
+                options = listOf(
+                    s.mirrorAuto to 0f,
+                    "10" to 10f,
+                    "15" to 15f,
+                    "24" to 24f,
+                    "30" to 30f,
+                    "60" to 60f
+                ),
+                selected = maxFps
+            ) { viewModel.setMirrorMaxFps(it) }
 
-        // ── 会话开关（只读 / 熄屏 / 保持唤醒；变更即用新参数无缝重启会话） ──
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                s.mirrorOptionToggles,
-                style = MaterialTheme.typography.labelMedium,
-                color = c.onSurfaceVariant,
-                modifier = Modifier.width(52.dp)
-            )
+            // ── 会话开关（只读 / 熄屏 / 保持唤醒；变更即用新参数无缝重启会话） ──
             Row(
-                modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                FilterChip(
-                    selected = readOnly,
-                    onClick = { viewModel.setMirrorReadOnly(!readOnly) },
-                    label = { Text(s.mirrorOptionReadonly, style = MaterialTheme.typography.labelSmall) }
+                Text(
+                    s.mirrorOptionToggles,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = c.onSurfaceVariant,
+                    modifier = Modifier.width(52.dp)
                 )
-                FilterChip(
-                    selected = turnOffScreen,
-                    onClick = { viewModel.setMirrorTurnOffScreen(!turnOffScreen) },
-                    label = { Text(s.mirrorOptionScreenOff, style = MaterialTheme.typography.labelSmall) }
-                )
-                FilterChip(
-                    selected = stayAwake,
-                    onClick = { viewModel.setMirrorStayAwake(!stayAwake) },
-                    label = { Text(s.mirrorOptionStayAwake, style = MaterialTheme.typography.labelSmall) }
-                )
+                Row(
+                    modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = readOnly,
+                        onClick = { viewModel.setMirrorReadOnly(!readOnly) },
+                        label = { Text(s.mirrorOptionReadonly, style = MaterialTheme.typography.labelSmall) }
+                    )
+                    FilterChip(
+                        selected = turnOffScreen,
+                        onClick = { viewModel.setMirrorTurnOffScreen(!turnOffScreen) },
+                        label = { Text(s.mirrorOptionScreenOff, style = MaterialTheme.typography.labelSmall) }
+                    )
+                    FilterChip(
+                        selected = stayAwake,
+                        onClick = { viewModel.setMirrorStayAwake(!stayAwake) },
+                        label = { Text(s.mirrorOptionStayAwake, style = MaterialTheme.typography.labelSmall) }
+                    )
+                }
             }
         }
 
-        // ── 常用按键（只读模式下禁用注入） ──
+        // ── 常用按键 + 控制按钮（合并为一行，省下一整行高度） ──
+        // 按键组横向可滚：窄屏放不下 6 个键时自动可滑，不会挤掉右侧按钮。
+        // 只读模式下禁用注入。
         val keysEnabled = status is MirrorStatus.Streaming && !readOnly
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            MirrorKeyButton(Icons.Outlined.Home, s.mirrorKeyHome, keysEnabled) { viewModel.keyEvent(3) }
-            MirrorKeyButton(Icons.AutoMirrored.Outlined.ArrowBack, s.mirrorKeyBack, keysEnabled) { viewModel.keyEvent(4) }
-            MirrorKeyButton(Icons.Outlined.Layers, s.mirrorKeyRecents, keysEnabled) { viewModel.keyEvent(187) }
-            MirrorKeyButton(Icons.Outlined.PowerSettingsNew, s.mirrorKeyPower, keysEnabled) { viewModel.keyEvent(26) }
-            MirrorKeyButton(Icons.AutoMirrored.Outlined.VolumeUp, s.mirrorKeyVolUp, keysEnabled) { viewModel.keyEvent(24) }
-            MirrorKeyButton(Icons.AutoMirrored.Outlined.VolumeDown, s.mirrorKeyVolDown, keysEnabled) { viewModel.keyEvent(25) }
-        }
-
-        // ── 控制区 ──
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
+            Row(
+                modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                MirrorKeyButton(Icons.Outlined.Home, s.mirrorKeyHome, keysEnabled) { viewModel.mirrorKeyEvent(3) }
+                MirrorKeyButton(Icons.AutoMirrored.Outlined.ArrowBack, s.mirrorKeyBack, keysEnabled) { viewModel.mirrorKeyEvent(4) }
+                MirrorKeyButton(Icons.Outlined.Layers, s.mirrorKeyRecents, keysEnabled) { viewModel.mirrorKeyEvent(187) }
+                MirrorKeyButton(Icons.Outlined.PowerSettingsNew, s.mirrorKeyPower, keysEnabled) { viewModel.mirrorKeyEvent(26) }
+                MirrorKeyButton(Icons.AutoMirrored.Outlined.VolumeUp, s.mirrorKeyVolUp, keysEnabled) { viewModel.mirrorKeyEvent(24) }
+                MirrorKeyButton(Icons.AutoMirrored.Outlined.VolumeDown, s.mirrorKeyVolDown, keysEnabled) { viewModel.mirrorKeyEvent(25) }
+            }
             if (status is MirrorStatus.Streaming || status is MirrorStatus.Starting) {
                 Button(
                     onClick = { viewModel.stopMirror() },
-                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(WearAdbTheme.shape.cornerRadius)),
+                    modifier = Modifier.clip(RoundedCornerShape(WearAdbTheme.shape.cornerRadius)),
                     colors = ButtonDefaults.buttonColors(containerColor = c.error)
                 ) {
                     Text(s.mirrorStop)
@@ -360,7 +448,7 @@ fun ScreenMirrorScreen(
             } else if (surfaceReady) {
                 Button(
                     onClick = { tryStart() },
-                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(WearAdbTheme.shape.cornerRadius))
+                    modifier = Modifier.clip(RoundedCornerShape(WearAdbTheme.shape.cornerRadius))
                 ) {
                     Text(s.mirrorRetry)
                 }

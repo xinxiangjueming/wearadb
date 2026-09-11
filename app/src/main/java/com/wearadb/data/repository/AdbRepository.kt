@@ -1562,16 +1562,95 @@ class AdbRepository @Inject constructor(
 
     fun mirrorTransport(): com.wearadb.adb.MirrorTransport = WirelessMirrorTransport()
 
+    // ── 投屏快速注入（首选 control 通道，失败回退 input 命令） ──
+    // 无线侧比 USB 侧更依赖 control 通道：runSingleCommand 的 `input tap` 没有输出，
+    // 每次都会先试 exec: 再回退 shell 读标记，单次点击要两轮往返。
+    //
+    // 红线：control 通道的写是**同步阻塞**调用——libadb 3.1.1 的 `AdbStream.write()`
+    // 是 `while (!mWriteReady.compareAndSet(true, false)) wait();`，**没有超时**，只有
+    // 收到设备 OKAY 才返回；adbd 在本地 socket 背压时会扣住 OKAY。因此整段注入必须
+    // 跑在 IO 线程：历史版本由 ViewModel 的 deviceOp 在主线程直接调用，被拖成
+    // `AnrType=input.app`。这里统一切 IO，任何调用方都安全。
+
+    /** 触摸注入。control 通道优先；回退路径只在 ACTION_DOWN 时执行整段手势。 */
+    suspend fun touchInject(
+        action: Int,
+        x: Int,
+        y: Int,
+        realW: Int,
+        realH: Int,
+        pointerId: Long,
+        fallbackGesture: suspend () -> Unit = {}
+    ) = withContext(Dispatchers.IO) {
+        val msg = com.wearadb.adb.ScrcpyControlProtocol.injectTouch(action, x, y, realW, realH, pointerId)
+        if (mirrorEngine.sendControl(msg)) return@withContext
+        if (action == com.wearadb.adb.ScrcpyControlProtocol.ACTION_DOWN) fallbackGesture()
+    }
+
+    /** 按键注入（control 通道优先，回退 `input keyevent`）。 */
+    suspend fun keyInject(keycode: Int) = withContext(Dispatchers.IO) {
+        if (mirrorEngine.injectKey(keycode)) return@withContext
+        WearAdbLogger.w("AdbRepo", "投屏按键注入回退 input keyevent: keycode=$keycode")
+        keyEvent(keycode)
+    }
+
+    /** 文本注入（control 通道优先，回退 `input text`）。 */
+    suspend fun textInject(text: String) = withContext(Dispatchers.IO) {
+        if (mirrorEngine.sendControl(com.wearadb.adb.ScrcpyControlProtocol.injectText(text))) return@withContext
+        WearAdbLogger.w("AdbRepo", "投屏文本注入回退 input text")
+        inputText(text)
+    }
+
+    /** 旋转设备（只有 control 通道能表达；回退为 settings 命令）。 */
+    suspend fun rotateInject() = withContext(Dispatchers.IO) {
+        if (mirrorEngine.sendControl(com.wearadb.adb.ScrcpyControlProtocol.rotateDevice())) return@withContext
+        WearAdbLogger.w("AdbRepo", "投屏旋转注入回退 settings user_rotation")
+        runSingleCommand("settings put system user_rotation 1", 8000)
+    }
+
     private inner class WirelessMirrorTransport : com.wearadb.adb.MirrorTransport {
+
+        /**
+         * 镜像启动期的命令/推送串行化闸门。
+         *
+         * 起因：ScreenMirrorEngine 为了省掉一次串行往返，把「推送 server jar」与
+         * 「取设备分辨率」并行化了。USB 通道侧是自研实现（`UsbAdbConnection.nextLocalId`
+         * 用 AtomicInteger、流注册表为 ConcurrentHashMap），可安全并发；但无线侧的
+         * libadb-android 3.1.1 **不是线程安全的**（已核对源码）：
+         *   - `AdbConnection.open()` 的 `int localId = ++mLastLocalId`（mLastLocalId 是
+         *     普通 int，非原子）——并发调用会拿到**重复的 localId**，两条流互相顶掉；
+         *   - `AdbStream.read()` 的非阻塞快路径 `mReadBuffer.hasRemaining()/put()/flip()`
+         *     完全无锁，而 `mIsClosed` 是不加 volatile 的 boolean，跨线程发布不可见，
+         *     读线程可能永远不因对端 CLSE 而退出（表现为"当前投屏卡死到超时"）。
+         *
+         * 因此镜像启动阶段的批量命令一律走此闸门串行执行（代价：省下的那次往返又还
+         * 回去了，但换来正确性——并行化的收益主要在 USB 通道）。**投屏进行中的注入
+         * 路径不加锁**：control 流是单条流的单向写，且要让拖动跟手必须无锁。
+         */
+        private val startupGate = Mutex()
+
         override suspend fun executeCommand(cmd: String): String = runSingleCommand(cmd, 10000)
+
+        /** 启动期命令（可被并行调用方触发）：走闸门串行。 */
+        override suspend fun executeCommandSerialized(cmd: String): String =
+            startupGate.withLock { runSingleCommand(cmd, 10000) }
 
         override suspend fun pushFileTo(localFile: File, remotePath: String): Boolean =
             pushFile(localFile, remotePath).contains("成功")
 
+        /** 启动期推送：与同批命令共用闸门，避免与 `wm size` 抢 mLastLocalId。 */
+        override suspend fun pushFileToSerialized(localFile: File, remotePath: String): Boolean =
+            startupGate.withLock { pushFile(localFile, remotePath).contains("成功") }
+
         override suspend fun openShellStream(cmd: String): com.wearadb.adb.MirrorStream =
             WirelessMirrorStream(manager.openStream("shell:$cmd"))
 
-        override suspend fun openAbstractSocket(dest: String): com.wearadb.adb.MirrorStream? = try {
+        /**
+         * 连接抽象套接字。重试循环里失败连接会被立刻 close()，此时 libadb-android 的
+         * 连接线程可能正把 CLSE 分发给该流；这对库本身是常规路径，不做额外串行化
+         * （套接字连接本就要靠"失败即重试"发现 server 就绪）。
+         */
+        override suspend fun openAbstractSocket(dest: String, timeoutMs: Long): com.wearadb.adb.MirrorStream? = try {
             val s = manager.openStream(dest)
             if (!s.isClosed) WirelessMirrorStream(s) else null
         } catch (_: Exception) {
@@ -1579,12 +1658,25 @@ class AdbRepository @Inject constructor(
         }
     }
 
-    /** libadb-android AdbStream → MirrorStream 适配（InputStream 阻塞读）。 */
+    /**
+     * libadb-android AdbStream → MirrorStream 适配。
+     *
+     * **并发红线**：读取端（投屏读循环）与关闭端（stop()/引擎 finally）来自不同线程，
+     * 而 `input` 字段的"检查-再赋值"与底层库的 `read()` 快路径都不是线程安全的
+     * （见 WirelessMirrorTransport 注释）。这里用 `@Volatile`（保证跨线程可见性）
+     * + 局部变量（消除检查-再赋值竞态）把两端钉死，避免出现"两个 InputStream 竞争
+     * 同一个 mReadBuffer"或"关闭后仍持有旧流"。
+     */
     private class WirelessMirrorStream(private val s: AdbStream) : com.wearadb.adb.MirrorStream {
+
+        @Volatile
         private var input: java.io.InputStream? = null
+
+        @Volatile
         private var output: java.io.OutputStream? = null
 
         override fun readBlocking(timeoutMs: Long): ByteArray? = try {
+            // 先读 volatile 到局部变量，避免 close() 清空字段后 read 仍用旧引用
             val ins = input ?: s.openInputStream().also { input = it }
             val buf = ByteArray(64 * 1024)
             val n = ins.read(buf) // 阻塞直到 ≥1 字节 / EOF(-1)；流关闭时抛异常 → null
@@ -1604,9 +1696,18 @@ class AdbRepository @Inject constructor(
 
         override val isClosed: Boolean get() = s.isClosed
         override val isOpen: Boolean get() = !s.isClosed
+
+        /**
+         * 幂等关闭。先把字段置空再关（配合 readBlocking 的局部变量取用），
+         * 使并发读线程在字段被清空后不会再新开一条 InputStream。
+         */
         override fun close() {
-            try { input?.close() } catch (_: Exception) {}
-            try { output?.close() } catch (_: Exception) {}
+            val i = input
+            val o = output
+            input = null
+            output = null
+            try { i?.close() } catch (_: Exception) {}
+            try { o?.close() } catch (_: Exception) {}
             try { s.close() } catch (_: Exception) {}
         }
     }

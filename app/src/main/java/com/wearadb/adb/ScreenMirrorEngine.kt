@@ -9,7 +9,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +20,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
+import java.util.concurrent.Callable
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /** 屏幕查看状态机：Idle → Starting（推送/启动/连接）→ Streaming；任意态可入 Error。 */
 sealed class MirrorStatus {
@@ -61,8 +68,31 @@ interface MirrorTransport {
     suspend fun pushFileTo(localFile: File, remotePath: String): Boolean
     suspend fun openShellStream(cmd: String): MirrorStream
 
-    /** 单次连接抽象套接字；不可达返回 null（重试由 engine 负责）。 */
-    suspend fun openAbstractSocket(dest: String): MirrorStream?
+    /**
+     * **启动期**命令（批量并发调用场景使用）。
+     *
+     * 存在意义：引擎在启动阶段会并行发起「推送 server jar」与「取 wm size」以省掉
+     * 一次串行往返。USB 通道是自研实现、可安全并发；无线侧的 libadb-android 3.1.1
+     * 则**不是线程安全的**（`AdbConnection.open()` 里 `++mLastLocalId` 用的是普通
+     * int，并发会拿到重复 localId）。因此无线适配层把这两个方法实现为"经互斥闸门
+     * 串行"，USB 适配层保持默认直通。
+     *
+     * 默认实现 = 直通（USB / 其它线程安全通道无需覆写）。
+     */
+    suspend fun executeCommandSerialized(cmd: String): String = executeCommand(cmd)
+
+    /** 见 [executeCommandSerialized]；默认直通。 */
+    suspend fun pushFileToSerialized(localFile: File, remotePath: String): Boolean =
+        pushFileTo(localFile, remotePath)
+
+    /**
+     * 单次连接抽象套接字。
+     * @param timeoutMs 等待设备 OKAY 的超时（套接字未就绪时通常回 CLSE，此时同样按
+     *        超时上界耗时——见 UsbAdbStream.waitForOpen 的唤醒条件），
+     *        调用方用短超时 + 多次重试代替长超时单次等待。
+     * @return 不可达返回 null（重试由 engine 负责）。
+     */
+    suspend fun openAbstractSocket(dest: String, timeoutMs: Long = 2000L): MirrorStream?
 }
 
 /** USB 通道流适配（UsbAdbStream.write 需要父连接引用）。 */
@@ -89,8 +119,8 @@ internal class UsbMirrorStream(
  * 通道无关的 scrcpy-server 镜像会话引擎（USB / 无线 adb 共用）。
  *
  * 数据流：
- *   push assets jar → app_process 启动 scrcpy-server(tunnelForward, 监听抽象套接字 "scrcpy")
- *     → openStream("localabstract:scrcpy") 连 video（server accept 顺序：video → control）
+     *   push assets jar → app_process 启动 scrcpy-server(tunnelForward, 监听抽象套接字 "scrcpy_<scid>")
+     *     → openStream("localabstract:scrcpy_<scid>") 连 video（server accept 顺序：video → control）
  *     → 连 control（control=true 时必须连，server 才会开始发视频头；熄屏消息走此通道）
  *     → 读 12B 视频头 [codec_id:4][w:4][h:4] → 首个 CONFIG 包作 csd-0 配置 MediaCodec
  *     → 循环读 12B meta 包头 + 裸包 → ScreenMirrorDecoder 解码渲染到 Surface
@@ -107,11 +137,75 @@ class ScreenMirrorEngine(private val appContext: Context) {
         private const val SCRCPY_VERSION = "2.7"
         private const val SCRCPY_REMOTE_PATH = "/data/local/tmp/scrcpy-server.jar"
         private const val SCRCPY_ASSET_PATH = "scrcpy/scrcpy-server.jar"
-        private const val SCRCPY_ABSTRACT_DEST = "localabstract:scrcpy"
         private const val CODEC_ID_H264 = 0x68323634
+
+        /**
+         * 抽象套接字名格式（scrcpy v2.x 官方约定）。
+         *
+         * 官方 Server 用 `scid` 生成套接字名 `scrcpy_%08x`，客户端必须推导出同一名字
+         * 才能连上。此前本项目固定 `scid=-1` 且启动前 `pkill` 旧 server——那是为了
+         * 规避"旧进程占住套接字名"的权宜之计，代价是每次启动都白等 200ms、并且
+         * 一旦 pkill 没权限/没匹配到，新 server 会因名字被占直接失败。
+         *
+         * 现在改为**每次会话随机生成 scid**（与官方客户端 `sc_server_init` 一致：
+         * 随机 scid → 随机套接字名），旧 server 各自监听自己的名字互不干扰，
+         * 因此既不需要 pkill、也不需要等待。
+         *
+         * 注意：scrcpy 出于安全考虑，要求 scid 的**高 8 bit 不全为 0**（否则
+         * 与旧版本的固定名兼容路径冲突），故取 31 bit 随机数后强制置位 bit24。
+         */
+        private const val SCRCPY_SOCKET_NAME_FORMAT = "scrcpy_%08x"
+
+        /**
+         * `scid=` 命令行参数格式。
+         *
+         * 必须与 [SCRCPY_SOCKET_NAME_FORMAT] 的数值部分同源：server 侧 `Options.parse`
+         * 用 `Integer.parseInt(value, 16)` 解析该参数，再以 `%08x` 拼出监听的套接字名。
+         */
+        private const val SCRCPY_SCID_FORMAT = "%08x"
+
+        /** scrcpy `SCRCPY_SOCKET_NAME_PREFIX` + 8 位十六进制 scid。 */
+        private fun abstractDestFor(scid: Int): String =
+            "localabstract:" + String.format(SCRCPY_SOCKET_NAME_FORMAT, scid)
+
+        /**
+         * 生成 `scid=` 命令行参数值（8 位十六进制）。
+         *
+         * **必须传十六进制**：server 侧 `Options.parse` 用 radix 16 解析该参数，再用同一数值
+         * 以 `%08x` 拼出监听的套接字名。若此处传十进制字面量，server 解析出的数值与客户端
+         * [abstractDestFor] 使用的数值不同，两端名字错位——客户端去连 `scrcpy_01b0ae4d`，
+         * 而 server 实际监听 `scrcpy_28354765`，表现为连接重试全部失败（`socket NOT ready`）。
+         */
+        private fun scidArg(scid: Int): String = String.format(SCRCPY_SCID_FORMAT, scid)
         private const val SC_PACKET_HEADER_SIZE = 12
         private const val SC_PACKET_FLAG_CONFIG = 1L shl 63
         private const val SC_PACKET_PTS_MASK = (1L shl 62) - 1
+
+        /**
+         * 抽象套接字就绪探测参数。参考官方 scrcpy `sc_server_connect_to()`
+         * （attempts=100 / delay=100ms）：探测粒度要细、总预算要够。
+         * 本项目的失败代价是"每次失败 = openTimeoutMs 打满"（adbd 对不存在的
+         * localabstract 回 CLSE，而等待闩锁只在 OKAY 时唤醒），因此用
+         * 10 × (250+100) ≈ 3.5s 预算覆盖 server 启动的数百 ms，且失败代价可控。
+         */
+        private const val SOCKET_CONNECT_ATTEMPTS = 10
+        private const val SOCKET_OPEN_TIMEOUT_MS = 250L
+        private const val SOCKET_RETRY_DELAY_MS = 100L
+
+        /**
+         * 控制通道单次写入的有界等待上限。
+         *
+         * 与 USB 自研栈的 `WRITE_FLOW_CONTROL_TIMEOUT_MS`（1500ms）对齐：正常链路一次
+         * 往返只有几毫秒，超过该值基本可判定链路已背压或半死。超时语义不是"重试"而是
+         * **判定控制通道不可用**，让调用方改走 `input` 命令回退路径。
+         */
+        private const val CONTROL_WRITE_TIMEOUT_MS = 1500L
+
+        /** 控制写专用单线程（守护线程：即使卡住也不阻塞进程退出）。 */
+        private fun newControlWriteExecutor(): ExecutorService =
+            Executors.newSingleThreadExecutor { r ->
+                Thread(r, "ScrcpyControlWrite").apply { isDaemon = true }
+            }
 
         /** scrcpy 2.7 ControlMessage.TYPE_SET_SCREEN_POWER_MODE */
         private const val CTRL_TYPE_SET_SCREEN_POWER_MODE = 10
@@ -119,6 +213,15 @@ class ScreenMirrorEngine(private val appContext: Context) {
         /** SurfaceControl.POWER_MODE_OFF / POWER_MODE_NORMAL（Device.setScreenPowerMode 原样透传） */
         private const val POWER_MODE_OFF = 0
         private const val POWER_MODE_NORMAL = 2
+
+        /**
+         * 生成会话 scid（随机、非 -1）。
+         * scrcpy 要求 scid != -1 且高 8 bit 不为 0，这里取 31 bit 随机数 + 强制 bit24。
+         */
+        private fun newScid(): Int {
+            val r = java.util.Random().nextInt(0x7FFFFFFF)
+            return r or (1 shl 24)
+        }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -143,6 +246,20 @@ class ScreenMirrorEngine(private val appContext: Context) {
     private var running = false
 
     /**
+     * 控制写专用单线程。见 [sendControl] 的说明：libadb 的 `AdbStream.write()` 是
+     * **无超时的同步阻塞**，必须由独立线程承载，并在引擎层加有界等待。
+     */
+    private var controlWriteExecutor = newControlWriteExecutor()
+
+    /** 上一笔控制写是否仍未返回（链路背压时避免无限堆积待执行任务）。 */
+    @Volatile
+    private var controlWriteInFlight = false
+
+    /** 控制通道健康度：写超时/失败后置 false，下一次会话启动时复位。 */
+    @Volatile
+    private var controlHealthy = true
+
+    /**
      * 安全启动（画质/帧率/开关变更、重试均走此入口）：
      * 先停旧会话并 join 等其完全退场（旧任务 finally 会清理共享流/复位状态，
      * 与新会话重叠会误杀——join 线性化消除竞态），再起新会话。
@@ -151,7 +268,18 @@ class ScreenMirrorEngine(private val appContext: Context) {
     suspend fun startSafe(transport: MirrorTransport, surface: Surface, opts: MirrorOptions) {
         stop()
         try { withTimeoutOrNull(3000) { job?.join() } } catch (_: Exception) {}
+        // 新会话：复位控制通道健康度并换用全新写线程。旧线程可能仍卡在无超时的写里，
+        // shutdownNow() 会中断其 wait()；即便中断无效，也只是泄漏一条守护线程。
+        resetControlChannel()
         job = scope.launch { runLoop(transport, surface, opts) }
+    }
+
+    /** 复位控制通道健康度并换用全新写线程（新会话启动时调用）。 */
+    private fun resetControlChannel() {
+        controlHealthy = true
+        controlWriteInFlight = false
+        try { controlWriteExecutor.shutdownNow() } catch (_: Exception) {}
+        controlWriteExecutor = newControlWriteExecutor()
     }
 
     /** 停止投屏并释放资源（幂等）。屏幕恢复由会话 finally 负责。 */
@@ -168,10 +296,96 @@ class ScreenMirrorEngine(private val appContext: Context) {
         _status.value = MirrorStatus.Idle
     }
 
+    // ── 控制通道（触摸 / 按键的快速注入路径） ──
+
+    /**
+     * 控制通道是否可用（Streaming、通道健康且 control 流已建立）。
+     * 不可用时调用方应回退到 `input` 命令路径，否则触摸会静默失效。
+     */
+    val isControlReady: Boolean get() = running && controlHealthy && controlStream?.isOpen == true
+
+    /**
+     * 向 control 通道写一条控制消息。
+     * 返回 false 表示通道不可用（未就绪 / 超时 / 写失败 / 已被判定失效），
+     * 调用方**必须**回退到 `input` 命令路径；此后 [isControlReady] 同步转为 false。
+     *
+     * 【为什么必须专用线程 + 有界等待】
+     * 无线侧的 `AdbStream.write()`（libadb 3.1.1）是**无超时的同步阻塞**实现：
+     * ```
+     * synchronized (this) {
+     *     while (!mIsClosed && !mWriteReady.compareAndSet(true, false)) wait();
+     * }
+     * ```
+     * `mWriteReady` 只在连接线程收到设备的 **OKAY** 后置位；而 adbd 在对端读得慢、
+     * 本地 socket 背压时会**扣住 OKAY 不发**。因此链路抖动/背压时该调用可能**永不返回**
+     * ——历史版本直接在主线程调用，触发过 `AnrType=input.app`。
+     *
+     * 现在：写操作丢到专用单线程执行，这里最多等 [CONTROL_WRITE_TIMEOUT_MS]；超时即
+     * 判定通道不可用并返回 false。在途写同时只允许一笔，避免拖动时在背压链路上无限排队。
+     */
+    fun sendControl(msg: ByteArray): Boolean {
+        val c = controlStream ?: return false
+        if (!running || !c.isOpen) return false
+        if (!controlHealthy) return false
+        if (controlWriteInFlight) {
+            // 上一笔仍卡在等 OKAY：链路已背压，不再排队，直接判通道不可用。
+            controlHealthy = false
+            Log.w(TAG, "control 上一笔写入仍未返回 → 判定控制通道不可用，改用回退路径")
+            return false
+        }
+        controlWriteInFlight = true
+        return try {
+            val ok = controlWriteExecutor
+                .submit(Callable { c.writeBytes(msg) })
+                .get(CONTROL_WRITE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            if (!ok) {
+                controlHealthy = false
+                Log.w(TAG, "control 写入返回失败 → 判定控制通道不可用")
+            }
+            ok
+        } catch (e: TimeoutException) {
+            controlHealthy = false
+            Log.w(TAG, "control 写入超时(${CONTROL_WRITE_TIMEOUT_MS}ms) → 判定控制通道不可用")
+            false
+        } catch (e: Exception) {
+            controlHealthy = false
+            Log.w(TAG, "control 写入异常: ${e.message} → 判定控制通道不可用")
+            false
+        } finally {
+            controlWriteInFlight = false
+        }
+    }
+
+    /** 注入一次完整触摸（DOWN + UP），用于单击等无拖拽场景。 */
+    fun injectTap(x: Int, y: Int, w: Int, h: Int): Boolean {
+        if (!isControlReady) return false
+        val down = sendControl(
+            ScrcpyControlProtocol.injectTouch(ScrcpyControlProtocol.ACTION_DOWN, x, y, w, h)
+        )
+        if (!down) return false
+        return sendControl(
+            ScrcpyControlProtocol.injectTouch(ScrcpyControlProtocol.ACTION_UP, x, y, w, h)
+        )
+    }
+
+    /** 注入一次按键（自动配对 DOWN/UP）。 */
+    fun injectKey(keycode: Int): Boolean {
+        if (!isControlReady) return false
+        val down = sendControl(
+            ScrcpyControlProtocol.injectKeycode(ScrcpyControlProtocol.ACTION_DOWN, keycode)
+        )
+        if (!down) return false
+        return sendControl(
+            ScrcpyControlProtocol.injectKeycode(ScrcpyControlProtocol.ACTION_UP, keycode)
+        )
+    }
+
     /** 彻底销毁（repository destroy 时调用）。 */
     fun destroy() {
         stop()
         scope.cancel()
+        // 释放控制写线程（可能仍卡在无超时的写里，shutdownNow 会中断其 wait()）
+        try { controlWriteExecutor.shutdownNow() } catch (_: Exception) {}
     }
 
     private suspend fun runLoop(transport: MirrorTransport, surface: Surface, opts: MirrorOptions) {
@@ -183,25 +397,35 @@ class ScreenMirrorEngine(private val appContext: Context) {
         var screenTurnedOff = false
         val decoder = ScreenMirrorDecoder()
         try {
-            // 0. 清理残留 server（上次异常退出会占住抽象套接字名）
-            transport.executeCommand("pkill -f com.genymobile.scrcpy.Server 2>/dev/null; true")
-            delay(200)
+            // 0. 会话 scid：随机生成 → 套接字名随之唯一，天然避免与上一个 server 撞名。
+            //    因此不再需要 pkill 旧 server，也不再需要等 200ms（历史实现的两处固定开销）。
+            val scid = newScid()
+            val abstractDest = abstractDestFor(scid)
 
-            // 1. 推送 server jar（已存在则跳过）
-            if (!pushServerIfNeeded(transport)) {
+            // 1+2. 推送 server jar 与取设备真实分辨率互不依赖 → 并行，省掉一次往返的串行等待。
+            //      pushServerIfNeeded 内部含 `ls -l` 与可能的 push（数百 ms），
+            //      `wm size` 是一次轻量命令，并行后启动关键路径只取决于较慢的那个。
+            //      用 *Serialized 变体：USB 侧直通（真并行），无线侧经闸门串行
+            //      （libadb-android 非线程安全，并发会撞出重复 localId）。
+            val (pushed, realSize) = coroutineScope {
+                val pushDeferred = async { pushServerIfNeeded(transport) }
+                val sizeDeferred = async { parseWmSize(transport.executeCommandSerialized("wm size")) }
+                pushDeferred.await() to sizeDeferred.await()
+            }
+            if (!pushed) {
                 _status.value = MirrorStatus.Error("推送 scrcpy-server.jar 失败")
                 return
             }
-
-            // 2. 设备真实分辨率（触摸映射坐标系）
-            _realSize.value = parseWmSize(transport.executeCommand("wm size"))
+            _realSize.value = realSize
 
             // 3. 启动 server。control=true：control socket 必须连接（server 才会开始发视频头，
             //    熄屏也走此通道）；clipboard_autosync=false 抑制控制流上的设备消息；
             //    声音恒不转发（audio=false）；send_*_meta=false 使视频流直接从 12B codec 头开始。
             val launchCmd = buildString {
                 append("CLASSPATH=$SCRCPY_REMOTE_PATH app_process / com.genymobile.scrcpy.Server $SCRCPY_VERSION")
-                append(" scid=-1 log_level=info video=true audio=false control=true tunnel_forward=true cleanup=false")
+                // scid 必须以十六进制传入（server 用 radix 16 解析），且与套接字名同数值。
+                append(" scid=").append(scidArg(scid))
+                append(" log_level=info video=true audio=false control=true tunnel_forward=true cleanup=false")
                 append(" video_codec=h264 max_size=${opts.maxSize} video_bit_rate=${opts.bitRate} max_fps=${opts.maxFps}")
                 append(" send_device_meta=false send_dummy_byte=false send_frame_meta=true send_codec_meta=true")
                 append(" clipboard_autosync=false")
@@ -212,19 +436,20 @@ class ScreenMirrorEngine(private val appContext: Context) {
             startLaunchLogDrain(launchS)
 
             // 4. 连接 video 抽象套接字（server 启动需数百 ms，短超时+重试）
-            var v: MirrorStream? = null
-            repeat(20) {
-                if (!running) return
-                val s = transport.openAbstractSocket(SCRCPY_ABSTRACT_DEST)
-                if (s != null && s.isOpen) {
-                    v = s
-                    return@repeat
-                }
-                try { s?.close() } catch (_: Exception) {}
-                delay(400)
-            }
-            val video = v
+            //    注意：这里必须用 openAbstractSocketWithRetry（while + break），
+            //    不能用 `repeat(n) { … return@repeat }`——Kotlin 里 return@repeat 是
+            //    continue 而非 break，循环会跑满 n 次（本文件历史版本即因此每次启动
+            //    多开 19 条连接、并把 videoStream 覆盖成最后一条死连接）。
+            val video = openAbstractSocketWithRetry(
+                transport,
+                abstractDest,
+                label = "video",
+                attempts = SOCKET_CONNECT_ATTEMPTS,
+                timeoutMs = SOCKET_OPEN_TIMEOUT_MS,
+                retryDelayMs = SOCKET_RETRY_DELAY_MS
+            )
             if (video == null) {
+                if (!running) return
                 _status.value = MirrorStatus.Error("连接 scrcpy-server 失败（server 未就绪或不支持）")
                 return
             }
@@ -232,19 +457,16 @@ class ScreenMirrorEngine(private val appContext: Context) {
             videoStream = video
 
             // 5. 连接 control 套接字（server accept 顺序 video → control，必须成功）
-            var c: MirrorStream? = null
-            repeat(20) {
-                if (!running) return
-                val s = transport.openAbstractSocket(SCRCPY_ABSTRACT_DEST)
-                if (s != null && s.isOpen) {
-                    c = s
-                    return@repeat
-                }
-                try { s?.close() } catch (_: Exception) {}
-                delay(400)
-            }
-            val control = c
+            val control = openAbstractSocketWithRetry(
+                transport,
+                abstractDest,
+                label = "control",
+                attempts = SOCKET_CONNECT_ATTEMPTS,
+                timeoutMs = SOCKET_OPEN_TIMEOUT_MS,
+                retryDelayMs = SOCKET_RETRY_DELAY_MS
+            )
             if (control == null) {
+                if (!running) return
                 _status.value = MirrorStatus.Error("连接 scrcpy-server 控制通道失败")
                 return
             }
@@ -260,7 +482,9 @@ class ScreenMirrorEngine(private val appContext: Context) {
             }
 
             // 7. 读循环：统一累积器 → 12B 头/包 + 定长 payload
-            _status.value = MirrorStatus.Streaming
+            //    状态暂不上 Streaming：等到第一个非 CONFIG 包真的送进解码器后再置位，
+            //    避免"命令都通了但画面还没出来"的窗口期里 UI 已显示在投屏、
+            //    用户点上去却毫无反应。
             val acc = ByteAccumulator()
             var pendingMeta: ByteArray? = null
             var pendingLen = 0
@@ -331,6 +555,12 @@ class ScreenMirrorEngine(private val appContext: Context) {
                             // 已配置后的重复 CONFIG（罕见）忽略：SPS/PPS 已生效
                         } else {
                             decoder.feed(payload, false, pts)
+                            // 首帧真的进入解码器 → 画面即将出现，此时才置 Streaming。
+                            // 用一次性判断避免每帧都做状态比较。
+                            if (_status.value != MirrorStatus.Streaming) {
+                                _status.value = MirrorStatus.Streaming
+                                Log.i(TAG, "first video packet queued → Streaming (pts=$pts)")
+                            }
                         }
                         pendingMeta = null
                         progress = true
@@ -373,6 +603,39 @@ class ScreenMirrorEngine(private val appContext: Context) {
     }
 
     /**
+     * 轮询连接抽象套接字直到就绪，就绪即**立即返回**（真 break 语义）。
+     *
+     * 失败路径放弃的流一律 close：既避免 ADB 流泄漏，也避免多余连接被 server
+     * 按序 accept 后占掉 video/control 的坑位（见类头注释的 accept 顺序约定）。
+     * 调用方按返回值判空即可，不需要自己写循环。
+     */
+    private suspend fun openAbstractSocketWithRetry(
+        transport: MirrorTransport,
+        dest: String,
+        label: String,
+        attempts: Int,
+        timeoutMs: Long,
+        retryDelayMs: Long
+    ): MirrorStream? {
+        for (attempt in 1..attempts) {
+            if (!running) return null
+            val s = try {
+                transport.openAbstractSocket(dest, timeoutMs)
+            } catch (_: Exception) {
+                null
+            }
+            if (s != null && s.isOpen) {
+                Log.d(TAG, "socket ready[$label]: attempt=$attempt")
+                return s
+            }
+            try { s?.close() } catch (_: Exception) {}
+            if (attempt < attempts) delay(retryDelayMs)
+        }
+        Log.w(TAG, "socket NOT ready[$label]: ${attempts} attempts exhausted")
+        return null
+    }
+
+    /**
      * 消费 server 的 stdout/stderr（log_level=info 有持续输出）。
      * 不排空会填满 adbd 缓冲导致 server 写阻塞；同时保留日志便于诊断。
      */
@@ -393,13 +656,22 @@ class ScreenMirrorEngine(private val appContext: Context) {
     /** assets jar → 缓存文件 → push（已存在则跳过）。 */
     private suspend fun pushServerIfNeeded(transport: MirrorTransport): Boolean {
         return try {
-            val ls = transport.executeCommand("ls -l $SCRCPY_REMOTE_PATH 2>/dev/null")
-            if (ls.contains(SCRCPY_REMOTE_PATH)) return true
+            val ls = transport.executeCommandSerialized("ls -l $SCRCPY_REMOTE_PATH 2>/dev/null")
+            if (ls.contains(SCRCPY_REMOTE_PATH)) {
+                // 已存在：补一次轻量校验，避免上次 push 被截断却留下同名文件
+                val size = Regex("""(\d+)\s+.*scrcpy-server\.jar""").find(ls)
+                    ?.groupValues?.get(1)?.toLongOrNull()
+                if (size == null || size <= 0L) {
+                    Log.w(TAG, "远程 jar 存在但大小异常(size=$size)，重新推送")
+                } else {
+                    return true
+                }
+            }
             val tmp = File(appContext.cacheDir, "scrcpy-server.jar")
             appContext.assets.open(SCRCPY_ASSET_PATH).use { input ->
                 tmp.outputStream().use { input.copyTo(it) }
             }
-            val ok = transport.pushFileTo(tmp, SCRCPY_REMOTE_PATH)
+            val ok = transport.pushFileToSerialized(tmp, SCRCPY_REMOTE_PATH)
             tmp.delete()
             ok
         } catch (e: Exception) {

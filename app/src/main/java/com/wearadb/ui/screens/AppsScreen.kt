@@ -490,8 +490,11 @@ private fun ExportProgressBanner(
     val s = LocalStrings.current
     val cr = WearAdbTheme.shape.cornerRadius
     val shape = remember { RoundedCornerShape(cr) }
+    // 设备回报的 total 可能偏小（stat 低估或 Split APK 落盘为 zip 含额外头/目录），
+    // 展示时把 written 钳制到 total，避免进度条/文案出现"已传 > 总量"。
+    val shownWritten = if (st.total > 0L) st.written.coerceAtMost(st.total) else st.written
     val fraction = if (st.total > 0L) {
-        (st.written.toFloat() / st.total.toFloat()).coerceIn(0f, 1f)
+        (shownWritten.toFloat() / st.total.toFloat()).coerceIn(0f, 1f)
     } else null
 
     Surface(

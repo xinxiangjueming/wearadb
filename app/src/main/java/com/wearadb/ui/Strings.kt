@@ -171,6 +171,7 @@ data class MirrorStrings(
     val mirrorKeyPower: String,
     val mirrorKeyVolUp: String,
     val mirrorKeyVolDown: String,
+    val mirrorOptions: String,
 )
 
 @Immutable
@@ -490,6 +491,7 @@ class Strings(
     val mirrorKeyPower get() = mirror.mirrorKeyPower
     val mirrorKeyVolUp get() = mirror.mirrorKeyVolUp
     val mirrorKeyVolDown get() = mirror.mirrorKeyVolDown
+    val mirrorOptions get() = mirror.mirrorOptions
     // PairingScreen
     val pairTitle get() = pairing.pairTitle
     val pairWirelessTitle get() = pairing.pairWirelessTitle
@@ -808,6 +810,7 @@ private fun rememberMirrorStrings() = MirrorStrings(
     mirrorKeyPower = stringResource(R.string.mirror_key_power),
     mirrorKeyVolUp = stringResource(R.string.mirror_key_vol_up),
     mirrorKeyVolDown = stringResource(R.string.mirror_key_vol_down),
+    mirrorOptions = stringResource(R.string.mirror_options),
 )
 
 @Composable

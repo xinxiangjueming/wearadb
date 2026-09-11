@@ -12,6 +12,8 @@ import com.wearadb.data.model.*
 import com.wearadb.data.repository.AdbRepository
 import com.wearadb.adb.UsbAdbRepository
 import com.wearadb.adb.UsbAdbConnectionState
+import com.wearadb.R
+import com.wearadb.util.OperationNotifier
 import io.github.muntashirakon.adb.AdbStream
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -31,6 +33,9 @@ class ConnectionViewModel @Inject constructor(
     private val repository: AdbRepository,
     private val usbAdbRepository: UsbAdbRepository
 ) : ViewModel() {
+
+    /** 设备侧操作的状态栏通知封装（提取/安装/冻结/解冻/卸载等） */
+    private val notifier = OperationNotifier(appContext)
 
     // ── Wireless ADB connection ──
     val connectionState: StateFlow<ConnectionState> = repository.connectionState
@@ -444,20 +449,35 @@ class ConnectionViewModel @Inject constructor(
      * 有线会话下无线 manager 未连接 → runSingleCommand 吞掉异常返回空串，
      * 命令根本没发出去，UI 表现为"点了没反应 + 空白 toast"。
      * 两个通道都不可用时直接回传空串，由 UI 层给出"未连接/无响应"提示。
+     *
+     * 通知：每个操作发出「进行中 → 完成/失败」两条状态栏通知，文案走 [R.string] 多语言。
+     *
+     * @param pkg 包名（用于通知去重 id 与展示应用名）
+     * @param opLabelRes 操作名资源（冻结/卸载/…），用于通知标题
      */
     private fun appOp(
         tag: String,
+        pkg: String,
+        opLabelRes: Int,
         refreshApps: Boolean = false,
         usb: suspend () -> String,
         wireless: suspend () -> String,
         onResult: (String) -> Unit
     ) {
         viewModelScope.launch {
+            val id = OperationNotifier.idFor("$pkg:$tag")
+            val label = appContext.getString(opLabelRes)
+            val name = appLabels.value[pkg]?.takeIf { it.isNotBlank() } ?: pkg
             if (!anyAdbActive()) {
+                notifier.complete(
+                    id, appContext.getString(R.string.notif_op_failed, label),
+                    "$name：${appContext.getString(R.string.apps_not_connected)}"
+                )
                 android.util.Log.w("VM", "appOp($tag) skipped: no active adb channel")
                 onResult("")
                 return@launch
             }
+            notifier.start(id, appContext.getString(R.string.notif_op_in_progress, label), name)
             val result = try {
                 if (isUsbAdbActive) usb() else wireless()
             } catch (e: Exception) {
@@ -465,13 +485,27 @@ class ConnectionViewModel @Inject constructor(
                 "执行失败: ${e.message}"
             }
             android.util.Log.d("VM", "appOp($tag) usb=$isUsbAdbActive result=${result.take(120)}")
-            onResult(result.trim())
+            val trimmed = result.trim()
+            if (trimmed.isBlank()) {
+                notifier.complete(
+                    id, appContext.getString(R.string.notif_op_failed, label),
+                    "$name：${appContext.getString(R.string.apps_op_no_output)}"
+                )
+            } else {
+                // pm 命令成功常返回 "Success"/"new state: disabled" 等，无需重复进内容行
+                val extra = if (trimmed.equals("Success", true) || trimmed == "OK" ||
+                    trimmed.equals("new state: enabled", true) ||
+                    trimmed.equals("new state: disabled", true)
+                ) "" else "：${trimmed.take(120)}"
+                notifier.complete(id, appContext.getString(R.string.notif_op_success, label), "$name$extra")
+            }
+            onResult(trimmed)
             if (refreshApps) loadApps(force = true)
         }
     }
 
     fun uninstallApp(pkg: String, onResult: (String) -> Unit) = appOp(
-        tag = "uninstallApp",
+        tag = "uninstallApp", pkg = pkg, opLabelRes = R.string.apps_action_uninstall,
         refreshApps = true,
         usb = { usbAdbRepository.uninstallApp(pkg) },
         wireless = { repository.uninstallApp(pkg) },
@@ -480,7 +514,7 @@ class ConnectionViewModel @Inject constructor(
 
     /** 卸载但保留数据（pm uninstall -k），卸载后同样需要刷新列表 */
     fun uninstallAppKeepData(pkg: String, onResult: (String) -> Unit) = appOp(
-        tag = "uninstallAppKeepData",
+        tag = "uninstallAppKeepData", pkg = pkg, opLabelRes = R.string.apps_action_uninstall_keep,
         refreshApps = true,
         usb = { usbAdbRepository.uninstallAppKeepData(pkg) },
         wireless = { repository.uninstallAppKeepData(pkg) },
@@ -488,21 +522,21 @@ class ConnectionViewModel @Inject constructor(
     )
 
     fun clearAppData(pkg: String, onResult: (String) -> Unit) = appOp(
-        tag = "clearAppData",
+        tag = "clearAppData", pkg = pkg, opLabelRes = R.string.apps_action_clear,
         usb = { usbAdbRepository.clearAppData(pkg) },
         wireless = { repository.clearAppData(pkg) },
         onResult = onResult
     )
 
     fun forceStopApp(pkg: String, onResult: (String) -> Unit) = appOp(
-        tag = "forceStopApp",
+        tag = "forceStopApp", pkg = pkg, opLabelRes = R.string.apps_action_stop,
         usb = { usbAdbRepository.forceStopApp(pkg) },
         wireless = { repository.forceStopApp(pkg) },
         onResult = onResult
     )
 
     fun disableApp(pkg: String, onResult: (String) -> Unit) = appOp(
-        tag = "disableApp",
+        tag = "disableApp", pkg = pkg, opLabelRes = R.string.apps_action_disable,
         refreshApps = true,
         usb = { usbAdbRepository.disableApp(pkg) },
         wireless = { repository.disableApp(pkg) },
@@ -510,7 +544,7 @@ class ConnectionViewModel @Inject constructor(
     )
 
     fun enableApp(pkg: String, onResult: (String) -> Unit) = appOp(
-        tag = "enableApp",
+        tag = "enableApp", pkg = pkg, opLabelRes = R.string.apps_action_enable,
         refreshApps = true,
         usb = { usbAdbRepository.enableApp(pkg) },
         wireless = { repository.enableApp(pkg) },
@@ -531,86 +565,104 @@ class ConnectionViewModel @Inject constructor(
     suspend fun exportApk(
         pkg: String,
         onProgress: ((written: Long, total: Long) -> Unit)? = null
-    ): ApkExtractResult = withContext(Dispatchers.IO) {
-        try {
-            val paths = if (isUsbAdbActive) {
-                usbAdbRepository.packageApkPaths(pkg)
-            } else {
-                repository.packageApkPaths(pkg)
-            }
-            if (paths.isEmpty()) return@withContext ApkExtractResult.NoApkPath
+    ): ApkExtractResult {
+        val id = OperationNotifier.idFor("$pkg:export")
+        val name = appLabels.value[pkg]?.takeIf { it.isNotBlank() } ?: pkg
+        val title = appContext.getString(R.string.apps_extract_running, name)
+        return withContext(Dispatchers.IO) {
+            try {
+                notifier.start(id, title, null)
+                val paths = if (isUsbAdbActive) {
+                    usbAdbRepository.packageApkPaths(pkg)
+                } else {
+                    repository.packageApkPaths(pkg)
+                }
+                if (paths.isEmpty()) {
+                    notifier.complete(id, appContext.getString(R.string.apps_extract_no_path), null)
+                    return@withContext ApkExtractResult.NoApkPath
+                }
 
-            // 总大小用于百分比：逐个 stat，任一取不到就退化为"未知总量"
-            val sizes = paths.map { remoteFileSize(it) }
-            val total = if (sizes.all { it > 0L }) sizes.sum() else -1L
-            var writtenTotal = 0L
-            var lastReported = 0L
-            onProgress?.invoke(0L, total)
+                // 总大小用于百分比：单 APK 用精确大小；Split APK 落盘为 zip（含额外头/目录），
+                // 实际写出量 ≠ 各 split 之和，故退化为"未知总量"避免进度超过 100%。
+                val sizes = paths.map { remoteFileSize(it) }
+                val total = if (paths.size == 1 && sizes.all { it > 0L }) sizes.sum() else -1L
+                var writtenTotal = 0L
+                var lastReported = 0L
+                onProgress?.invoke(0L, total)
 
-            val (dir, isPublic) = resolveExportDir()
-            if (!dir.exists() && !dir.mkdirs()) {
-                return@withContext ApkExtractResult.Failure("无法创建目录: ${dir.absolutePath}")
-            }
-            val fileName = if (paths.size == 1) "$pkg.apk" else "$pkg.apks"
-            val dest = java.io.File(dir, fileName)
+                val (dir, isPublic) = resolveExportDir()
+                if (!dir.exists() && !dir.mkdirs()) {
+                    notifier.complete(id, appContext.getString(R.string.apps_extract_failed, "无法创建目录"), null)
+                    return@withContext ApkExtractResult.Failure("无法创建目录: ${dir.absolutePath}")
+                }
+                val fileName = if (paths.size == 1) "$pkg.apk" else "$pkg.apks"
+                val dest = java.io.File(dir, fileName)
 
-            // 用计数流包一层 sink：pullTo 无需改签名，进度按 PROGRESS_STEP 粒度上报
-            val pull: suspend (String, java.io.OutputStream) -> Boolean = { remote, sink ->
-                val counting = object : java.io.FilterOutputStream(sink) {
-                    override fun write(b: ByteArray, off: Int, len: Int) {
-                        super.write(b, off, len)
-                        writtenTotal += len
-                        if (writtenTotal - lastReported >= PROGRESS_STEP) {
-                            lastReported = writtenTotal
-                            onProgress?.invoke(writtenTotal, total)
+                // 用计数流包一层 sink：pullTo 无需改签名，进度按 PROGRESS_STEP 粒度上报，并同步刷新状态栏通知
+                val pull: suspend (String, java.io.OutputStream) -> Boolean = { remote, sink ->
+                    val counting = object : java.io.FilterOutputStream(sink) {
+                        override fun write(b: ByteArray, off: Int, len: Int) {
+                            super.write(b, off, len)
+                            writtenTotal += len
+                            if (writtenTotal - lastReported >= PROGRESS_STEP) {
+                                lastReported = writtenTotal
+                                onProgress?.invoke(writtenTotal, total)
+                                notifier.progress(id, title, null, writtenTotal, total)
+                            }
+                        }
+
+                        override fun write(b: Int) {
+                            super.write(b)
+                            writtenTotal += 1
                         }
                     }
-
-                    override fun write(b: Int) {
-                        super.write(b)
-                        writtenTotal += 1
+                    if (isUsbAdbActive) {
+                        usbAdbRepository.pullTo(remote, counting)
+                    } else {
+                        repository.pullTo(remote, counting)
                     }
                 }
-                if (isUsbAdbActive) {
-                    usbAdbRepository.pullTo(remote, counting)
+
+                var failedRemote: String? = null
+                if (paths.size == 1) {
+                    dest.outputStream().buffered().use { out ->
+                        if (!pull(paths[0], out)) failedRemote = paths[0]
+                    }
                 } else {
-                    repository.pullTo(remote, counting)
-                }
-            }
-
-            var failedRemote: String? = null
-            if (paths.size == 1) {
-                dest.outputStream().buffered().use { out ->
-                    if (!pull(paths[0], out)) failedRemote = paths[0]
-                }
-            } else {
-                // Split APK：打包成 .apks，逐个 split 流式写进 zip 条目（不落中间文件）
-                java.util.zip.ZipOutputStream(dest.outputStream().buffered()).use { zip ->
-                    for ((index, remote) in paths.withIndex()) {
-                        zip.putNextEntry(java.util.zip.ZipEntry(apkEntryName(remote, index)))
-                        val ok = pull(remote, zip)
-                        zip.closeEntry()
-                        if (!ok) { failedRemote = remote; break }
+                    // Split APK：打包成 .apks，逐个 split 流式写进 zip 条目（不落中间文件）
+                    java.util.zip.ZipOutputStream(dest.outputStream().buffered()).use { zip ->
+                        for ((index, remote) in paths.withIndex()) {
+                            zip.putNextEntry(java.util.zip.ZipEntry(apkEntryName(remote, index)))
+                            val ok = pull(remote, zip)
+                            zip.closeEntry()
+                            if (!ok) { failedRemote = remote; break }
+                        }
                     }
                 }
-            }
 
-            if (failedRemote != null || !dest.exists() || dest.length() == 0L) {
-                val reason = failedRemote?.let { "拉取失败: $it" } ?: "写入为空"
-                runCatching { dest.delete() }
-                return@withContext ApkExtractResult.Failure(reason)
+                if (failedRemote != null || !dest.exists() || dest.length() == 0L) {
+                    val reason = failedRemote?.let { "拉取失败: $it" } ?: "写入为空"
+                    runCatching { dest.delete() }
+                    notifier.complete(id, appContext.getString(R.string.apps_extract_failed, reason), null)
+                    return@withContext ApkExtractResult.Failure(reason)
+                }
+                // 收尾补一次终值到应用内进度条；状态栏通知直接发终态（不再多 post 一次 progress，
+                // 避免与 complete 用同一 ID 在毫秒内连发被系统合并、终态被进行中帧覆盖）
+                val finalTotal = if (total > 0L) total else writtenTotal
+                onProgress?.invoke(writtenTotal, finalTotal)
+                android.util.Log.d("VM", "exportApk ok: $fileName (${dest.length()} bytes, ${paths.size} apk)")
+                val savedAt = if (isPublic) "Download/WearAdb" else dir.absolutePath
+                notifier.complete(id, appContext.getString(R.string.apps_extract_saved, "$savedAt/$fileName"), null)
+                ApkExtractResult.Success(
+                    fileName = fileName,
+                    location = savedAt,
+                    fileCount = paths.size
+                )
+            } catch (e: Exception) {
+                notifier.complete(id, appContext.getString(R.string.apps_extract_failed, e.message ?: "unknown error"), null)
+                android.util.Log.e("VM", "exportApk exception: ${e.message}", e)
+                ApkExtractResult.Failure(e.message ?: "unknown error")
             }
-            // 收尾补一次终值：总量未知时用实际字节数充当 100%，避免进度条停在半途
-            onProgress?.invoke(writtenTotal, if (total > 0L) total else writtenTotal)
-            android.util.Log.d("VM", "exportApk ok: $fileName (${dest.length()} bytes, ${paths.size} apk)")
-            ApkExtractResult.Success(
-                fileName = fileName,
-                location = if (isPublic) "Download/WearAdb" else dir.absolutePath,
-                fileCount = paths.size
-            )
-        } catch (e: Exception) {
-            android.util.Log.e("VM", "exportApk exception: ${e.message}", e)
-            ApkExtractResult.Failure(e.message ?: "unknown error")
         }
     }
 
@@ -636,14 +688,31 @@ class ConnectionViewModel @Inject constructor(
         return java.io.File(base, "WearAdb") to (publicBase != null)
     }
 
+    // ── 安装状态栏通知辅助 ──
+    private fun installNotifyStart(id: Int, content: String?) =
+        notifier.start(id, appContext.getString(R.string.notif_install_in_progress), content)
+
+    private fun installNotifyEnd(id: Int, result: String) {
+        if (result.isBlank()) {
+            notifier.complete(
+                id, appContext.getString(R.string.notif_install_failed, appContext.getString(R.string.apps_op_no_output)), null
+            )
+        } else {
+            notifier.complete(id, appContext.getString(R.string.notif_install_done), result.take(160))
+        }
+    }
+
     fun installApk(apkData: ByteArray, onResult: (String) -> Unit) {
         viewModelScope.launch {
+            val id = OperationNotifier.idFor("install:bytearray")
+            installNotifyStart(id, null)
             onResult("正在安装...")
             val result = if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
                 usbAdbRepository.installApk(apkData)
             } else {
                 repository.installApk(apkData)
             }
+            installNotifyEnd(id, result)
             onResult(result)
             loadApps(force = true)
         }
@@ -651,12 +720,15 @@ class ConnectionViewModel @Inject constructor(
 
     fun installSplitApk(apkFiles: List<Pair<String, ByteArray>>, onResult: (String) -> Unit) {
         viewModelScope.launch {
+            val id = OperationNotifier.idFor("install:split:${apkFiles.size}")
+            installNotifyStart(id, null)
             onResult("正在安装 Split APK (${apkFiles.size} 个文件)...")
             val result = if (isUsbAdbActive) {
                 usbAdbRepository.installSplitApk(apkFiles)
             } else {
                 repository.installSplitApk(apkFiles)
             }
+            installNotifyEnd(id, result)
             onResult(result)
             loadApps(force = true)
         }
@@ -664,12 +736,15 @@ class ConnectionViewModel @Inject constructor(
 
     fun installApkFile(apkFile: java.io.File, onResult: (String) -> Unit) {
         viewModelScope.launch {
+            val id = OperationNotifier.idFor("install:file:${apkFile.absolutePath}")
+            installNotifyStart(id, apkFile.name)
             onResult("正在安装...")
             val result = if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
                 usbAdbRepository.installApk(apkFile)
             } else {
                 repository.installApk(apkFile)
             }
+            installNotifyEnd(id, result)
             onResult(result)
             loadApps(force = true)
         }
@@ -677,42 +752,52 @@ class ConnectionViewModel @Inject constructor(
 
     /** 同步版本：等待安装完成后才返回，用于临时文件需要在安装期间保持存在的场景 */
     suspend fun installApkFileSync(apkFile: java.io.File, onResult: (String) -> Unit) {
+        val id = OperationNotifier.idFor("install:file:${apkFile.absolutePath}")
+        installNotifyStart(id, apkFile.name)
         onResult("正在安装...")
         val result = if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
             usbAdbRepository.installApk(apkFile)
         } else {
             repository.installApk(apkFile)
         }
+        installNotifyEnd(id, result)
         onResult(result)
         loadApps(force = true)
     }
 
     fun installSplitApkFiles(apkFiles: List<Pair<String, java.io.File>>, onResult: (String) -> Unit) {
         viewModelScope.launch {
+            val id = OperationNotifier.idFor("install:splitfiles:${apkFiles.size}")
+            installNotifyStart(id, null)
             onResult("正在安装 Split APK (${apkFiles.size} 个文件)...")
             val result = if (isUsbAdbActive) {
                 usbAdbRepository.installSplitApkFiles(apkFiles)
             } else {
                 repository.installSplitApkFiles(apkFiles)
             }
+            installNotifyEnd(id, result)
             onResult(result)
             loadApps(force = true)
         }
     }
 
     suspend fun installSplitApkFromApks(apksFile: java.io.File, onStatus: (String) -> Unit): String? {
+        val id = OperationNotifier.idFor("install:apks:${apksFile.absolutePath}")
         return try {
+            installNotifyStart(id, apksFile.name)
             onStatus("正在解析 .apks...")
             val result = if (isUsbAdbActive) {
                 usbAdbRepository.installSplitApkFromApksFile(apksFile)
             } else {
                 repository.installSplitApkFromApksFile(apksFile)
             }
+            installNotifyEnd(id, result)
             onStatus(result)
             loadApps(force = true)
             result
         } catch (e: Exception) {
             val msg = "安装异常: ${e.message}"
+            notifier.complete(id, appContext.getString(R.string.notif_install_failed, e.message ?: "unknown error"), null)
             onStatus(msg)
             msg
         }
@@ -870,8 +955,15 @@ class ConnectionViewModel @Inject constructor(
         if (usbState == UsbAdbConnectionState.CONNECTED) usb else wl
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    // 画质/帧率选项：maxSize=0 不限制（scrcpy max_size，8 的倍数才有意义）；bitRate 单位 bps；maxFps=0 不限制
-    private val _mirrorMaxSize = MutableStateFlow(0)
+    // 画质/帧率选项：maxSize=0 不限制；bitRate 单位 bps；maxFps=0 不限制。
+    //
+    // maxSize 默认 1024：Wear OS 手表物理分辨率普遍 450~480（如 466x466），
+    // scrcpy 的 max_size 是对**长边**的缩放上限，1024 已高于常见手表长边，
+    // 因此不损失清晰度；而对宽屏/高分辨率设备它又能挡住"按原生长边编码"
+    // 带来的冗余码率与解码负担（H.264 编码耗时、传输量、手机端解码压力
+    // 都随像素数平方增长）。0（不限制）会让 1080p+ 设备把整个像素预算
+    // 灌进 USB 2.0 的 ADB 通道，是启动慢与拖影的直接放大器。
+    private val _mirrorMaxSize = MutableStateFlow(1024)
     val mirrorMaxSize: StateFlow<Int> = _mirrorMaxSize.asStateFlow()
 
     private val _mirrorBitRate = MutableStateFlow(4_000_000)
@@ -933,12 +1025,15 @@ class ConnectionViewModel @Inject constructor(
 
     private fun restartMirrorIfRunning() {
         val sf = mirrorSurface ?: return
-        val st = usbAdbRepository.mirrorStatus.value
+        // 按**当前通道**取状态：此前固定读 usbAdbRepository.mirrorStatus，无线通道下
+        // 该值永远是 Idle → 直接 return → 改画质/帧率/熄屏都不生效（真功能 bug）。
+        // currentMirror() 已按 isUsbAdbActive 选好 engine，用它自己的 status 判断。
+        val (engine, transport) = currentMirror()
+        val st = engine.status.value
         if (st !is com.wearadb.adb.MirrorStatus.Streaming &&
             st !is com.wearadb.adb.MirrorStatus.Starting
         ) return
         viewModelScope.launch(Dispatchers.IO) {
-            val (engine, transport) = currentMirror()
             engine.startSafe(transport, sf, buildMirrorOptions())
         }
     }
@@ -951,6 +1046,77 @@ class ConnectionViewModel @Inject constructor(
 
     fun keyEvent(code: Int) =
         deviceOp({ usbAdbRepository.keyEvent(code) }, { repository.keyEvent(code) })
+
+    // ── 投屏实时注入（scrcpy control 通道；未就绪时仓储内部回退 input 命令） ──
+    // 走独立协程而非 deviceOp：拖动会在几十毫秒内连发几十条，串行派发会让
+    // 设备侧手势"粘住"。control 通道本身是线程安全的单向写，直接并发即可。
+
+    /** 触摸按下。回退路径（无 control 通道）用整段"点击"近似，抬手时不再补发。 */
+    fun touchDown(x: Int, y: Int, pointerId: Long) = launchWithMirrorSize { w, h ->
+        if (isUsbAdbActive) usbAdbRepository.touchInject(
+            com.wearadb.adb.ScrcpyControlProtocol.ACTION_DOWN, x, y, w, h, pointerId
+        ) { usbAdbRepository.tap(x, y) }
+        else repository.touchInject(
+            com.wearadb.adb.ScrcpyControlProtocol.ACTION_DOWN, x, y, w, h, pointerId
+        ) { repository.tap(x, y) }
+    }
+
+    /** 触摸移动（逐帧注入，这就是"跟手"的来源）。 */
+    fun touchMove(x: Int, y: Int, pointerId: Long) = launchWithMirrorSize { w, h ->
+        if (isUsbAdbActive) usbAdbRepository.touchInject(
+            com.wearadb.adb.ScrcpyControlProtocol.ACTION_MOVE, x, y, w, h, pointerId
+        )
+        else repository.touchInject(
+            com.wearadb.adb.ScrcpyControlProtocol.ACTION_MOVE, x, y, w, h, pointerId
+        )
+    }
+
+    /** 触摸抬起。DOWN 与 UP 必须成对，否则设备侧手指会一直按着。 */
+    fun touchUp(x: Int, y: Int, pointerId: Long) = launchWithMirrorSize { w, h ->
+        if (isUsbAdbActive) usbAdbRepository.touchInject(
+            com.wearadb.adb.ScrcpyControlProtocol.ACTION_UP, x, y, w, h, pointerId
+        )
+        else repository.touchInject(
+            com.wearadb.adb.ScrcpyControlProtocol.ACTION_UP, x, y, w, h, pointerId
+        )
+    }
+
+    /** 手势被系统打断（返回手势等）时补发 CANCEL，避免设备侧残留按下状态。 */
+    fun touchCancel(pointerId: Long) = launchWithMirrorSize { w, h ->
+        val x = w / 2
+        val y = h / 2
+        if (isUsbAdbActive) usbAdbRepository.touchInject(
+            com.wearadb.adb.ScrcpyControlProtocol.ACTION_CANCEL, x, y, w, h, pointerId
+        )
+        else repository.touchInject(
+            com.wearadb.adb.ScrcpyControlProtocol.ACTION_CANCEL, x, y, w, h, pointerId
+        )
+    }
+
+    /** 投屏页按键/文本注入：control 通道优先，失败回退 input 命令（与 tap/swipe 同策略）。 */
+    fun mirrorKeyEvent(code: Int) =
+        deviceOp({ usbAdbRepository.keyInject(code) }, { repository.keyInject(code) })
+
+    fun mirrorInputText(text: String) =
+        deviceOp({ usbAdbRepository.textInject(text) }, { repository.textInject(text) })
+
+    fun mirrorRotate() =
+        deviceOp({ usbAdbRepository.rotateInject() }, { repository.rotateInject() })
+
+    /**
+     * 注入需要设备真实分辨率（线协议里的 w/h 字段，设备用它做坐标校验）。
+     * 尺寸还没探测到就直接跳过——此时画面都还没出来，注入没有意义。
+     */
+    private fun launchWithMirrorSize(block: suspend (Int, Int) -> Unit) {
+        val real = mirrorRealSize.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                block(real.first, real.second)
+            } catch (e: Exception) {
+                android.util.Log.w("VM", "mirror inject failed: ${e.message}")
+            }
+        }
+    }
 
     fun enableWifi() = deviceOp({ usbAdbRepository.enableWifi() }, { repository.enableWifi() })
     fun disableWifi() = deviceOp({ usbAdbRepository.disableWifi() }, { repository.disableWifi() })

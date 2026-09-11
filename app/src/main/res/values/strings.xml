@@ -182,6 +182,16 @@
     <string name="apps_extract_failed">提取失败：%1$s</string>
     <string name="apps_picker_timeout">文件选择超时，请重试</string>
 
+    <!-- 操作状态栏通知 -->
+    <string name="notif_channel_ops_name">WearAdb 操作</string>
+    <string name="notif_channel_ops_desc">提取、安装、冻结等操作的进度与结果通知</string>
+    <string name="notif_op_in_progress">正在%1$s…</string>
+    <string name="notif_op_success">%1$s成功</string>
+    <string name="notif_op_failed">%1$s失败</string>
+    <string name="notif_install_in_progress">正在安装…</string>
+    <string name="notif_install_done">安装完成</string>
+    <string name="notif_install_failed">安装失败：%1$s</string>
+
     <!-- FilesScreen -->
     <string name="files_title">文件管理</string>
     <string name="files_push_hint">推送文件到手表</string>
@@ -304,5 +314,6 @@
     <string name="mirror_key_power">电源</string>
     <string name="mirror_key_vol_up">音量+</string>
     <string name="mirror_key_vol_down">音量-</string>
+    <string name="mirror_options">设置</string>
 
 </resources>

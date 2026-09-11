@@ -33,6 +33,12 @@ class UsbAdbConnection(
     private val streams = ConcurrentHashMap<Int, UsbAdbStream>()
     private val pendingOpens = ConcurrentHashMap<Int, UsbAdbStream>()
 
+    /**
+     * 总线写锁：一条 ADB 消息的 header+payload 两次 bulkTransfer 必须成对原子写出，
+     * 否则多条流的写入交错会让设备侧字节流错位。所有写入（含 ACK）共用此锁。
+     */
+    private val busWriteLock = Any()
+
     @Volatile
     private var connected = false
     @Volatile
@@ -176,7 +182,11 @@ class UsbAdbConnection(
      *
      * openTimeoutMs: 等待设备 OKAY 的超时。对"目标套接字可能尚不存在"的场景
      * （如 localabstract:scrcpy 对接尚未就绪的 scrcpy-server），调用方应传短超时
-     * 并配合重试，避免每次失败都阻塞满 10s。
+     * 并配合重试，避免每次失败都阻塞满 10s——设备拒绝时回 CLSE，
+     * UsbAdbStream.onClosed() 会提前唤醒等待（见该类 waitForOpen 注释）。
+     *
+     * 未成功打开的流会从注册表摘除并 close，避免失败重试累积出
+     * "设备侧不可见的幽灵流"（曾导致投屏把 videoStream 指向死连接）。
      */
     fun openStream(destination: String, openTimeoutMs: Long = 10000): UsbAdbStream {
         val localId = nextLocalId.getAndIncrement()
@@ -191,6 +201,14 @@ class UsbAdbConnection(
         // Wait for OKAY response (with remoteId)
         val opened = stream.waitForOpen(openTimeoutMs)
         Log.d(TAG, "openStream: localId=$localId opened=$opened")
+
+        if (!opened) {
+            // 打不开的流不留在注册表里：否则后续 OKAY/WRTE 会被投递给一条死流，
+            // 且对端若已 CLSE 我们也无从回收。统一在这里摘除 + 关闭。
+            pendingOpens.remove(localId)
+            streams.remove(localId)
+            stream.close()
+        }
 
         return stream
     }
@@ -235,14 +253,42 @@ class UsbAdbConnection(
     // ── Message I/O ──
 
     /**
+     * Send a message on behalf of a stream, going through that stream's write lock
+     * (ADB flow control: one outstanding WRTE per stream).
+     */
+    internal fun sendStreamMessage(stream: UsbAdbStream, msg: AdbMessage) {
+        stream.write(msg.data, this)
+    }
+
+    /**
+     * Send the reader thread's OKAY acknowledgement.
+     *
+     * **必须绕开流的 writeLock**：读线程在投递 WRTE 数据后要立即回 OKAY，
+     * 若这条 ACK 去抢某条正在等流控（可能已排队数十条）的业务流写锁，
+     * 读线程本身就会被阻塞 —— 而所有流的数据投递都依赖这一个读线程，
+     * 于是形成「写等 OKAY、OKAY 等读线程、读线程等写锁」的死循环。
+     * 协议上 ACK 是设备侧流控的唯一释放手段，因此它必须是永不阻塞的直发路径。
+     */
+    internal fun sendAck(msg: AdbMessage) {
+        sendMessage(msg)
+    }
+
+    /**
      * Send ADB message as TWO separate bulk transfers (header + payload).
      * ADB-SafeScan: "writing header+payload as a single buffer produces
      * different results from writing them separately"
+     *
+     * **总线级串行化**：一条 ADB 消息 = header + payload 两次 bulkTransfer，
+     * 中途插入另一条消息的 header 会让设备侧把字节流解析错位（表现为随机的
+     * 协议错误 / 会话中断）。所有写入（业务包与 ACK）都从这里走同一把锁，
+     * 保证每次「header+payload」成对原子落总线。
      */
     internal fun sendMessage(msg: AdbMessage) {
         val header = msg.toHeaderBytes()
         val payload = if (msg.data.isNotEmpty()) msg.data else null
-        transport.writeMessage(header, payload)
+        synchronized(busWriteLock) {
+            transport.writeMessage(header, payload)
+        }
     }
 
     private fun readMessage(): AdbMessage? {
@@ -347,8 +393,9 @@ class UsbAdbConnection(
                 val stream = streams[localId]
                 if (stream != null) {
                     stream.onData(msg.data)
-                    // Send OKAY to acknowledge the write
-                    sendMessage(UsbAdbProtocol.okayMessage(localId, remoteId))
+                    // Send OKAY to acknowledge the write — 走直发路径，不经流的写锁
+                    // （否则读线程会被正在等流控的业务写阻塞，见 sendAck 注释）
+                    sendAck(UsbAdbProtocol.okayMessage(localId, remoteId))
                     Log.d(TAG, ">>> OKAY sent for WRTE localId=$localId")
                 } else {
                     Log.w(TAG, "<<< WRTE for unknown stream $localId, streams=${streams.keys}")
