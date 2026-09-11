@@ -79,8 +79,16 @@ object ScrcpyControlProtocol {
         }
 
     /**
-     * 注入触摸。坐标是**设备真实分辨率**下的像素（与 `wm size` 一致），
-     * 不是投屏画面尺寸——缩放映射由调用方（UI 层 mapToDevice）负责。
+     * 注入触摸。
+     *
+     * 【空间红线，2026-09-11 真机实修】scrcpy 服务端 `Device.getPhysicalPoint` 会把
+     * 消息里的 screenWidth/screenHeight 与当前**视频分辨率**（视频头尺寸）做严格
+     * `equals` 校验，**不相等则整条消息静默丢弃**（返回 null 不注入）——表现为
+     * 投屏画面正常、触摸完全无反应。因此：
+     *   - screenWidth/screenHeight 必须传**视频头尺寸**（engine.videoSize），
+     *     不是 `wm size` 真实分辨率；
+     *   - x/y 必须是同一视频空间下的坐标（调用方从真实坐标换算而来）。
+     * 官方客户端发送的正是视频头尺寸。
      *
      * @param pointerId 手指标识，同一次手势的 DOWN/MOVE/UP 必须一致
      * @param actionButton 触发本次事件的按键（触摸为 0）

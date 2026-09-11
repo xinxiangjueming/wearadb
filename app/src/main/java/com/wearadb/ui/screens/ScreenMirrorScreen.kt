@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -317,7 +318,11 @@ fun ScreenMirrorScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { optionsExpanded = !optionsExpanded }
+                .clickable(
+                    // 不带水波纹：展开/收起已有 AnimatedVisibility 过渡，再叠 ripple 视觉上重复
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { optionsExpanded = !optionsExpanded }
                 .padding(vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

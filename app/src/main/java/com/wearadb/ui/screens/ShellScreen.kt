@@ -254,11 +254,11 @@ private fun QuickCommandChip(label: String, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(cr),
-        color = c.accent.copy(alpha = 0.12f),
+        color = c.surfaceVariant,
         modifier = Modifier.height(36.dp)
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 14.dp)) {
-            Text(label, color = c.accent, fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
+            Text(label, color = c.onBackground, fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
         }
     }
 }

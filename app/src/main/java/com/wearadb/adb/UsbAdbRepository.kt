@@ -348,6 +348,11 @@ class UsbAdbRepository @Inject constructor(
      * 触摸注入。control 通道可用时走 scrcpy 线协议（单向写、数毫秒、支持实时拖动）；
      * 否则回退到 `input` 命令——慢（300-600ms）但保证功能不消失。
      * 命令注入只能用完整手势表达，故回退路径只能发"点击"或"滑动"。
+     *
+     * 【坐标/w/h 空间红线】服务端 `Device.getPhysicalPoint` 硬校验消息里的
+     * screenWidth/screenHeight 必须等于当前**视频分辨率**，否则整条消息静默丢弃
+     * （画面正常、触摸全无反应）。调用方传真实分辨率坐标（`input` 回退需要真实坐标），
+     * 这里换算到视频空间后再编码，与无线侧 [AdbRepository.touchInject] 同形。
      */
     suspend fun touchInject(
         action: Int,
@@ -358,7 +363,15 @@ class UsbAdbRepository @Inject constructor(
         pointerId: Long,
         fallbackGesture: suspend () -> Unit = {}
     ) = withContext(Dispatchers.IO) {
-        val msg = ScrcpyControlProtocol.injectTouch(action, x, y, realW, realH, pointerId)
+        val video = mirrorEngine.videoSize.value
+        if (video == null || video.first <= 0 || video.second <= 0 || realW <= 0 || realH <= 0) {
+            // 视频头还没到（画面未出）：control 不可用，走 input 回退
+            if (action == ScrcpyControlProtocol.ACTION_DOWN) fallbackGesture()
+            return@withContext
+        }
+        val vx = (x.toLong() * video.first / realW).toInt().coerceIn(0, video.first - 1)
+        val vy = (y.toLong() * video.second / realH).toInt().coerceIn(0, video.second - 1)
+        val msg = ScrcpyControlProtocol.injectTouch(action, vx, vy, video.first, video.second, pointerId)
         if (mirrorEngine.sendControl(msg)) return@withContext
         when (action) {
             ScrcpyControlProtocol.ACTION_DOWN -> fallbackGesture()

@@ -1572,7 +1572,15 @@ class AdbRepository @Inject constructor(
     // 跑在 IO 线程：历史版本由 ViewModel 的 deviceOp 在主线程直接调用，被拖成
     // `AnrType=input.app`。这里统一切 IO，任何调用方都安全。
 
-    /** 触摸注入。control 通道优先；回退路径只在 ACTION_DOWN 时执行整段手势。 */
+    /**
+     * 触摸注入。control 通道优先；回退路径只在 ACTION_DOWN 时执行整段手势。
+     *
+     * 【坐标/w/h 空间红线】scrcpy 服务端 `Device.getPhysicalPoint` 会**硬校验**
+     * 消息里的 screenWidth/screenHeight 是否等于当前**视频分辨率**（视频头尺寸），
+     * 不相等则整条消息**静默丢弃**（返回 null）——表现为画面正常、触摸全无反应。
+     * 因此线协议消息必须用视频分辨率 w/h + 视频空间坐标；调用方传入的是
+     * 真实分辨率坐标（`input tap` 回退命令需要真实坐标），这里先换算再编码。
+     */
     suspend fun touchInject(
         action: Int,
         x: Int,
@@ -1582,7 +1590,15 @@ class AdbRepository @Inject constructor(
         pointerId: Long,
         fallbackGesture: suspend () -> Unit = {}
     ) = withContext(Dispatchers.IO) {
-        val msg = com.wearadb.adb.ScrcpyControlProtocol.injectTouch(action, x, y, realW, realH, pointerId)
+        val video = mirrorEngine.videoSize.value
+        if (video == null || video.first <= 0 || video.second <= 0 || realW <= 0 || realH <= 0) {
+            // 视频头还没到（画面未出）：control 不可用，走 input 回退
+            if (action == com.wearadb.adb.ScrcpyControlProtocol.ACTION_DOWN) fallbackGesture()
+            return@withContext
+        }
+        val vx = (x.toLong() * video.first / realW).toInt().coerceIn(0, video.first - 1)
+        val vy = (y.toLong() * video.second / realH).toInt().coerceIn(0, video.second - 1)
+        val msg = com.wearadb.adb.ScrcpyControlProtocol.injectTouch(action, vx, vy, video.first, video.second, pointerId)
         if (mirrorEngine.sendControl(msg)) return@withContext
         if (action == com.wearadb.adb.ScrcpyControlProtocol.ACTION_DOWN) fallbackGesture()
     }

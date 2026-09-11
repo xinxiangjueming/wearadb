@@ -1119,7 +1119,9 @@ class ConnectionViewModel @Inject constructor(
     private val mirrorTouchDispatcher = Dispatchers.IO.limitedParallelism(1)
 
     /**
-     * 注入需要设备真实分辨率（线协议里的 w/h 字段，设备用它做坐标校验）。
+     * 注入需要设备真实分辨率：UI 的 mapToDevice 输出真实坐标，`input` 回退命令也用
+     * 真实坐标。scrcpy control 线协议所需的**视频分辨率** w/h 与视频空间坐标，
+     * 由仓储层 touchInject 内部换算（服务端硬校验 w/h 必须等于视频头尺寸）。
      * 尺寸还没探测到就直接跳过——此时画面都还没出来，注入没有意义。
      */
     private fun launchWithMirrorSize(block: suspend (Int, Int) -> Unit) {
