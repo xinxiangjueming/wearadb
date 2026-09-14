@@ -289,14 +289,8 @@ class ConnectionViewModel @Inject constructor(
             android.util.Log.d("VM", "pair() result: success=${result.success} host=${result.host} port=${result.port} msg=${result.message}")
             if (result.success) {
                 _pairingState.value = PairingState.Success(result.message)
-                android.util.Log.d("VM", "pair() result.port=${result.port} input port=$port willAutoConnect=${result.port > 0 && result.port != port}")
-                if (result.port > 0 && result.port != port) {
-                    delay(500)
-                    android.util.Log.d("VM", "pair() auto-connecting to ${result.host}:${result.port}")
-                    connect(result.host, result.port, useTls = true)
-                } else {
-                    android.util.Log.w("VM", "pair() NO auto-connect: result.port=${result.port} == input port=$port")
-                }
+                // 自动连接已由仓储在 repoScope 后台协程处理（解析连接端口 + 直连），
+                // 不放 viewModelScope：界面切走会取消协程、掐断连接（实测 "Job was cancelled"）
             } else {
                 _pairingState.value = PairingState.Error(result.message)
             }
@@ -823,9 +817,17 @@ class ConnectionViewModel @Inject constructor(
 
     fun navigateToPath(path: String) = loadFiles(path)
 
-    fun navigateUp() {
-        val parent = _currentPath.value.substringBeforeLast("/", "/")
+    /**
+     * 返回上级目录。返回值：是否发生了导航（已在根目录时为 false，调用方可据此退出页面）。
+     * 修复点："/sdcard".substringBeforeLast("/", "/") 原本返回空串而非 "/"，
+     * 现在先 trimEnd('/') 再取上级、空结果回退 "/"，保证父路径始终规范。
+     */
+    fun navigateUp(): Boolean {
+        val cur = _currentPath.value.trimEnd('/')
+        if (cur.isEmpty()) return false  // 已在根目录（"/" 或空串），无法再上
+        val parent = cur.substringBeforeLast('/', "/").ifEmpty { "/" }
         loadFiles(parent)
+        return true
     }
 
     fun deleteFile(path: String, onResult: (String) -> Unit) {

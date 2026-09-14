@@ -16,10 +16,12 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.muntashirakon.adb.AdbStream
 import io.github.muntashirakon.adb.LocalServices
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +33,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.BufferedReader
 import java.io.File
 import java.io.IOException
@@ -272,6 +275,87 @@ class AdbRepository @Inject constructor(
     }
 
     // ── 配对 ──
+
+    /**
+     * 配对成功后解析设备的无线调试连接端口。
+     *
+     * 背景：配对端口（_adb-tls-pairing）与连接端口（_adb-tls-connect）是两个不同的随机端口，
+     * 配对协议本身不会告知连接端口。实测（24031PN0DC / HyperOS）设备端 mdns 广播在配对完成后
+     * 有 ~10s 空窗期（配对服务注销后连接服务才重新应答），因此采用多轮发现重试。
+     *
+     * @return 连接端口；解析失败返回 null（调用方回退手动连接流程）
+     */
+    private suspend fun resolveConnectPort(host: String, maxRounds: Int = 4, roundTimeoutMs: Long = 5_000L, excludePorts: Set<Int> = emptySet()): Int? {
+        repeat(maxRounds) { round ->
+            // 先查扫描页缓存（发现结果可能早于本轮产生）；已试过的过期端口跳过
+            discovered.firstOrNull { !it.isPairing && it.host == host && it.port !in excludePorts }?.let {
+                WearAdbLogger.i("AdbRepo", "配对后从扫描结果解析连接端口(第${round + 1}轮): $host -> ${it.port}")
+                return it.port
+            }
+            if (_isDiscovering.value) {
+                // NSD 不允许并发同类型发现，本轮只等扫描页产出结果
+                val deadline = System.currentTimeMillis() + roundTimeoutMs
+                while (System.currentTimeMillis() < deadline) {
+                    discovered.firstOrNull { !it.isPairing && it.host == host && it.port !in excludePorts }?.let {
+                        WearAdbLogger.i("AdbRepo", "配对后从扫描结果解析连接端口(第${round + 1}轮): $host -> ${it.port}")
+                        return it.port
+                    }
+                    delay(300)
+                }
+            } else {
+                val port = discoverConnectPortOnce(host, roundTimeoutMs, excludePorts)
+                if (port != null) {
+                    WearAdbLogger.i("AdbRepo", "配对后解析连接端口(第${round + 1}轮): $host -> $port")
+                    return port
+                }
+                WearAdbLogger.w("AdbRepo", "配对后解析连接端口(第${round + 1}轮): $host -> 未发现")
+            }
+            if (round < maxRounds - 1) delay(1_000)
+        }
+        WearAdbLogger.w("AdbRepo", "配对后解析连接端口失败（$maxRounds 轮未发现 $host）")
+        return null
+    }
+
+    /** 单轮 _adb-tls-connect._tcp. mDNS 发现，只接受与配对主机一致的服务（防多设备局域网连错）；已试过的过期端口跳过。 */
+    private suspend fun discoverConnectPortOnce(host: String, timeoutMs: Long, excludePorts: Set<Int> = emptySet()): Int? = withContext(Dispatchers.IO) {
+        val resolved = CompletableDeferred<Int?>()
+        var listener: NsdManager.DiscoveryListener? = null
+        listener = object : NsdManager.DiscoveryListener {
+            override fun onDiscoveryStarted(regType: String) {}
+            override fun onDiscoveryStopped(serviceType: String) {}
+            override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
+                if (resolved.isActive) resolved.complete(null)
+            }
+            override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {}
+            override fun onServiceLost(service: NsdServiceInfo) {}
+
+            @Suppress("DEPRECATION")
+            override fun onServiceFound(service: NsdServiceInfo) {
+                nsdManager.resolveService(service, object : NsdManager.ResolveListener {
+                    override fun onResolveFailed(s: NsdServiceInfo, errorCode: Int) {}
+                    @Suppress("DEPRECATION")
+                    override fun onServiceResolved(s: NsdServiceInfo) {
+                        val h = s.host?.hostAddress ?: return
+                        // 只接受与配对主机一致的服务（防多设备连错），且排除已试过的过期端口
+                        if (h == host && s.port !in excludePorts && resolved.isActive) resolved.complete(s.port)
+                    }
+                })
+            }
+        }
+        try {
+            nsdManager.discoverServices(SERVICE_TYPE_CONNECT, NsdManager.PROTOCOL_DNS_SD, listener)
+        } catch (e: Exception) {
+            WearAdbLogger.w("AdbRepo", "解析连接端口失败: discover 异常 ${e.message}")
+            return@withContext null
+        }
+        val port = try {
+            withTimeoutOrNull(timeoutMs) { resolved.await() }
+        } finally {
+            try { listener?.let { nsdManager.stopServiceDiscovery(it) } } catch (_: Exception) {}
+        }
+        port
+    }
+
     suspend fun pair(host: String, port: Int, code: String): PairingResult = withContext(Dispatchers.IO) {
         val maxRetries = 3
         var lastException: Exception? = null
@@ -286,6 +370,33 @@ class AdbRepository @Inject constructor(
                 _connectionState.value = ConnectionState.DISCONNECTED
                 if (success) {
                     WearAdbLogger.i("AdbRepo", "配对成功: host=$host, port=$port")
+                    // 连接端口解析 + 自动连接全部放后台协程（repoScope，独立于 UI 生命周期）：
+                    // ① 设备端 mdns 广播在配对完成后有 ~10s 空窗期，需多轮重试；
+                    // ② 之前在 VM 的 viewModelScope 里连，界面切走会掐断连接（实测 "Job was cancelled"）；
+                    // ③ mDNS 解析到的端口可能过期（无线调试重启后端口变更，系统缓存仍回旧记录，
+                    //    实测 43995 已失效、真实端口 43859）→ 直连失败就换端口重试
+                    repoScope.launch {
+                        val triedPorts = mutableSetOf<Int>()
+                        var connected = false
+                        for (attempt in 1..3) {
+                            val connectPort = resolveConnectPort(host, excludePorts = triedPorts)
+                                ?: break
+                            WearAdbLogger.i("AdbRepo", "配对成功后自动连接(第${attempt}次尝试): $host:$connectPort")
+                            connect(host, connectPort, useTls = true, allowMdnsFallback = false)
+                            if (_connectionState.value == ConnectionState.CONNECTED) {
+                                connected = true
+                                break
+                            }
+                            triedPorts.add(connectPort)
+                            // 清掉疑似过期的缓存项，逼下一轮解析拿设备当前广播的新端口
+                            synchronized(discovered) {
+                                discovered.removeAll { it.host == host && it.port == connectPort }
+                            }
+                        }
+                        if (!connected) {
+                            WearAdbLogger.w("AdbRepo", "配对后自动连接失败，回退手动连接")
+                        }
+                    }
                     return@withContext PairingResult(true, host, port, "配对成功")
                 }
                 WearAdbLogger.w("AdbRepo", "配对失败: host=$host, port=$port")
@@ -308,7 +419,7 @@ class AdbRepository @Inject constructor(
     }
 
     // ── 连接 ──
-    suspend fun connect(host: String, port: Int = 55555, useTls: Boolean = false) = withContext(Dispatchers.IO) {
+    suspend fun connect(host: String, port: Int = 55555, useTls: Boolean = false, allowMdnsFallback: Boolean = true) = withContext(Dispatchers.IO) {
         // 互斥锁：防止并发连接请求堆叠产生连接风暴
         connectMutex.withLock {
             // 如果已经在连接或已连接，直接跳过
@@ -330,16 +441,34 @@ class AdbRepository @Inject constructor(
 
                 // 尝试 TLS 连接
                 if (useTls) {
+                    // 首选直连已知端口：AdbConnection 收到 A_STLS 会自动完成 TLS 升级（libadb-android 3.1.1 内建），
+                    // 无需 connectTls 的 jmDNS 组播发现——后者在 HyperOS 上经常 5s 超时（实测 2026-09-14）
                     try {
-                        android.util.Log.d("AdbRepo", "Connecting via TLS... host=$host")
-                        manager.setHostAddress(host)
-                        success = manager.connectTls(appContext, 5000)
-                        android.util.Log.d("AdbRepo", "TLS result: $success")
+                        android.util.Log.d("AdbRepo", "Connecting via TLS direct: host=$host, port=$port")
+                        success = manager.connect(host, port)
+                        android.util.Log.d("AdbRepo", "TLS direct result: $success")
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        android.util.Log.w("AdbRepo", "TLS exception: ${e.javaClass.simpleName}: ${e.message}")
+                        android.util.Log.w("AdbRepo", "TLS direct exception: ${e.javaClass.simpleName}: ${e.message}")
                         success = false
+                    }
+
+                    // 直连失败（可能端口不对/未知）→ 回退 connectTls 的 jmDNS 自动发现
+                    // （自动连接流程传 allowMdnsFallback=false：端口来自 mDNS，直连失败说明端口过期，
+                    //  应重走解析拿新端口而不是白等 5s jmDNS 超时——实测 2026-09-14 16:38）
+                    if (!success && allowMdnsFallback) {
+                        try {
+                            android.util.Log.d("AdbRepo", "Connecting via TLS mdns auto-discover...")
+                            manager.setHostAddress(host)
+                            success = manager.connectTls(appContext, 5000)
+                            android.util.Log.d("AdbRepo", "TLS mdns result: $success")
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            android.util.Log.w("AdbRepo", "TLS exception: ${e.javaClass.simpleName}: ${e.message}")
+                            success = false
+                        }
                     }
                 }
 

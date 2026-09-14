@@ -182,15 +182,30 @@ class ScreenMirrorEngine(private val appContext: Context) {
         private const val SC_PACKET_PTS_MASK = (1L shl 62) - 1
 
         /**
-         * 抽象套接字就绪探测参数。参考官方 scrcpy `sc_server_connect_to()`
-         * （attempts=100 / delay=100ms）：探测粒度要细、总预算要够。
-         * 本项目的失败代价是"每次失败 = openTimeoutMs 打满"（adbd 对不存在的
-         * localabstract 回 CLSE，而等待闩锁只在 OKAY 时唤醒），因此用
-         * 10 × (250+100) ≈ 3.5s 预算覆盖 server 启动的数百 ms，且失败代价可控。
+         * 抽象套接字就绪探测参数。与官方 scrcpy `sc_server_connect_to()` 完全一致
+         * （attempts=100 / delay=100ms，总预算 ~10s）。
+         *
+         * 【预算为何必须这么大——历史教训】
+         * 旧实现是 10 × (250ms 超时 + 100ms 间隔)，注释假设"每次失败 = 超时打满"，
+         * 由此得出 3.5s 预算。但该假设是错的：adbd 对未监听的 localabstract 回
+         * CLSE，而 UsbAdbStream.onClosed() 会立即 countDown 唤醒 waitForOpen
+         * （UsbAdbStream.kt），所以**每次失败探测的真实耗时 ≈ 0ms + 100ms 间隔**，
+         * 10 次的实际预算只有 ~1.1s。而 app_process 启动 scrcpy-server 在
+         * HyperOS 上有 ~2.8s 固定开销（AppInfoProbe 同机制实测），首次启动必然
+         * 探测耗尽 → 表现为"投屏大概率第一次失败、重试才成功"（重试时 ART 已
+         * 对 server jar 完成 dex 优化，启动变快落入预算内）。
+         * 日志证据：2026-09-14，从按下到报错仅 1.26s，探测循环恰好跑满 ~1.1s。
          */
-        private const val SOCKET_CONNECT_ATTEMPTS = 10
+        private const val SOCKET_CONNECT_ATTEMPTS = 100
         private const val SOCKET_OPEN_TIMEOUT_MS = 250L
         private const val SOCKET_RETRY_DELAY_MS = 100L
+
+        /**
+         * 探测总时长兜底。attempts=100 只在"CLSE 快速失败"路径下等于 ~10s 预算；
+         * 若 adbd 对 OPEN 完全无响应（链路半死），每次会打满 250ms 超时，
+         * 100 次就是 35s——用总时长上限提前止损。
+         */
+        private const val SOCKET_PROBE_TOTAL_BUDGET_MS = 15_000L
 
         /**
          * 控制通道单次写入的有界等待上限。
@@ -437,7 +452,8 @@ class ScreenMirrorEngine(private val appContext: Context) {
             launchStream = launchS
             startLaunchLogDrain(launchS)
 
-            // 4. 连接 video 抽象套接字（server 启动需数百 ms，短超时+重试）
+            // 4. 连接 video 抽象套接字（app_process 启动 server 在 HyperOS 上约 2.8s，
+            //    探测预算 100×100ms ≈ 10s 必须覆盖它，见常量处注释）
             //    注意：这里必须用 openAbstractSocketWithRetry（while + break），
             //    不能用 `repeat(n) { … return@repeat }`——Kotlin 里 return@repeat 是
             //    continue 而非 break，循环会跑满 n 次（本文件历史版本即因此每次启动
@@ -628,6 +644,7 @@ class ScreenMirrorEngine(private val appContext: Context) {
         timeoutMs: Long,
         retryDelayMs: Long
     ): MirrorStream? {
+        val startMs = System.currentTimeMillis()
         for (attempt in 1..attempts) {
             if (!running) return null
             val s = try {
@@ -636,10 +653,16 @@ class ScreenMirrorEngine(private val appContext: Context) {
                 null
             }
             if (s != null && s.isOpen) {
-                Log.d(TAG, "socket ready[$label]: attempt=$attempt")
+                Log.d(TAG, "socket ready[$label]: attempt=$attempt, elapsed=${System.currentTimeMillis() - startMs}ms")
                 return s
             }
             try { s?.close() } catch (_: Exception) {}
+            // 总时长兜底：adbd 对 OPEN 无响应时每次打满 timeoutMs，
+            // attempts 次会远超预算，此时提前判定失败
+            if (System.currentTimeMillis() - startMs > SOCKET_PROBE_TOTAL_BUDGET_MS) {
+                Log.w(TAG, "socket NOT ready[$label]: probe budget(${SOCKET_PROBE_TOTAL_BUDGET_MS}ms) exceeded at attempt=$attempt")
+                return null
+            }
             if (attempt < attempts) delay(retryDelayMs)
         }
         Log.w(TAG, "socket NOT ready[$label]: ${attempts} attempts exhausted")

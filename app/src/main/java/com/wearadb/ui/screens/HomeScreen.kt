@@ -405,9 +405,9 @@ private fun DeviceCard(
             }
             IconButton(onClick = onToggleFavorite) {
                 Icon(
-                    if (device.isFavorite) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder,
+                    if (device.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
                     s.actionFavorite,
-                    tint = if (device.isFavorite) c.accent else c.onSurfaceVariant,
+                    tint = if (device.isFavorite) c.error else c.onSurfaceVariant,
                     modifier = Modifier.size(20.dp)
                 )
             }

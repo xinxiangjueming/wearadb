@@ -86,11 +86,13 @@ fun FilesScreen(
         snackbarMessage?.let { snackbarHostState.showSnackbar(it); snackbarMessage = null }
     }
 
-    // 返回拦截：在子目录时返回上级，到根目录才退出
-    val isAtRoot = currentPath == "/" || currentPath.isEmpty()
-    BackHandler(enabled = !isAtRoot) {
-        viewModel.navigateUp()
+    // 返回拦截：逐级返回上级，回到入口路径（默认 /sdcard）后左滑直接退出文件管理；
+    // navigateUp 失败（已到文件系统根，如经快捷路径跳到 / 后再上）时也直接退出兜底
+    val entryPath = remember { currentPath }
+    val isAtEntry = currentPath == entryPath
+    BackHandler(enabled = !isAtEntry) {
         selectedFile = null
+        if (!viewModel.navigateUp()) onBack()
     }
 
     // 推送文件：从手机选择文件推送到手表当前目录
@@ -122,8 +124,10 @@ fun FilesScreen(
             // ── Top Bar ──
             Row(modifier = Modifier.fillMaxWidth().padding(top = statusBarPad + 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = {
-                    if (!isAtRoot) { viewModel.navigateUp(); selectedFile = null }
-                    else onBack()
+                    if (!isAtEntry) {
+                        selectedFile = null
+                        if (!viewModel.navigateUp()) onBack()
+                    } else onBack()
                 }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, s.btnBack, tint = c.onBackground) }
                 Spacer(Modifier.width(8.dp))
                 SharedTitle(Routes.FILES, s.filesTitle, MaterialTheme.typography.headlineMedium, c.onBackground)
@@ -140,7 +144,7 @@ fun FilesScreen(
             // ── 路径栏 ──
             WearCard(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { viewModel.navigateUp(); selectedFile = null }, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = { if (viewModel.navigateUp()) selectedFile = null }, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Outlined.ArrowUpward, s.filesParent, tint = c.accent, modifier = Modifier.size(18.dp))
                     }
                     Spacer(Modifier.width(8.dp))
