@@ -185,6 +185,18 @@ class ConnectionViewModel @Inject constructor(
             _lastHost.value = repository.getLastHost()
             _lastPort.value = repository.getLastPort()
         }
+        // 配对成功后的自动连接在仓储后台协程里直接调 repository.connect()，
+        // 不经过 VM.connect()（pendingConnectRequest 不会被置位），
+        // 所以这里用回调补上"Wear OS 设备 → 蓝牙询问弹窗"的触发
+        repository.onAutoConnectSuccess = {
+            viewModelScope.launch {
+                val wearOs = repository.isWearOs()
+                android.util.Log.d("VM", "auto-connect success callback, isWearOs=$wearOs")
+                if (wearOs) {
+                    _showBluetoothDialog.value = true
+                }
+            }
+        }
         // Clear loaded data when connection drops; show bluetooth dialog when connection succeeds
         viewModelScope.launch {
             repository.connectionState.collect { state ->
@@ -986,6 +998,12 @@ class ConnectionViewModel @Inject constructor(
     private val _mirrorStayAwake = MutableStateFlow(false)
     val mirrorStayAwake: StateFlow<Boolean> = _mirrorStayAwake.asStateFlow()
 
+    // 显示形态：0=自动（视频比例 ≈ 1:1 即视为圆形设备 → 圆形显示）、1=强制矩形、2=强制圆形。
+    // 纯显示层状态：不改变 scrcpy 会话参数、不触碰注入坐标系（坐标映射仍是 letterbox 全图），
+    // 因此变更无需重启会话。
+    private val _mirrorDisplayMode = MutableStateFlow(0)
+    val mirrorDisplayMode: StateFlow<Int> = _mirrorDisplayMode.asStateFlow()
+
     /** 投屏页当前 Surface（运行中变更选项 → 无缝重启会话需要） */
     @Volatile
     private var mirrorSurface: android.view.Surface? = null
@@ -1050,6 +1068,8 @@ class ConnectionViewModel @Inject constructor(
     }
 
     fun setMirrorReadOnly(v: Boolean) { _mirrorReadOnly.value = v }
+
+    fun setMirrorDisplayMode(v: Int) { _mirrorDisplayMode.value = v }
 
     fun setMirrorTurnOffScreen(v: Boolean) {
         if (_mirrorTurnOffScreen.value == v) return

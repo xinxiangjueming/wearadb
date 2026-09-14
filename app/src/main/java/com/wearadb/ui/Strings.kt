@@ -167,6 +167,9 @@ data class MirrorStrings(
     val mirrorOptionSize: String,
     val mirrorOptionBitrate: String,
     val mirrorOptionFps: String,
+    val mirrorOptionShape: String,
+    val mirrorShapeRect: String,
+    val mirrorShapeCircle: String,
     val mirrorAuto: String,
     val mirrorOptionToggles: String,
     val mirrorOptionReadonly: String,
@@ -494,6 +497,9 @@ class Strings(
     val mirrorOptionSize get() = mirror.mirrorOptionSize
     val mirrorOptionBitrate get() = mirror.mirrorOptionBitrate
     val mirrorOptionFps get() = mirror.mirrorOptionFps
+    val mirrorOptionShape get() = mirror.mirrorOptionShape
+    val mirrorShapeRect get() = mirror.mirrorShapeRect
+    val mirrorShapeCircle get() = mirror.mirrorShapeCircle
     val mirrorAuto get() = mirror.mirrorAuto
     val mirrorOptionToggles get() = mirror.mirrorOptionToggles
     val mirrorOptionReadonly get() = mirror.mirrorOptionReadonly
@@ -820,6 +826,9 @@ private fun rememberMirrorStrings() = MirrorStrings(
     mirrorOptionSize = stringResource(R.string.mirror_option_size),
     mirrorOptionBitrate = stringResource(R.string.mirror_option_bitrate),
     mirrorOptionFps = stringResource(R.string.mirror_option_fps),
+    mirrorOptionShape = stringResource(R.string.mirror_option_shape),
+    mirrorShapeRect = stringResource(R.string.mirror_shape_rect),
+    mirrorShapeCircle = stringResource(R.string.mirror_shape_circle),
     mirrorAuto = stringResource(R.string.mirror_auto),
     mirrorOptionToggles = stringResource(R.string.mirror_option_toggles),
     mirrorOptionReadonly = stringResource(R.string.mirror_option_readonly),

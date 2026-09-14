@@ -8,6 +8,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,6 +16,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -31,7 +33,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
@@ -84,6 +89,18 @@ fun ScreenMirrorScreen(
     val readOnly by viewModel.mirrorReadOnly.collectAsState()
     val turnOffScreen by viewModel.mirrorTurnOffScreen.collectAsState()
     val stayAwake by viewModel.mirrorStayAwake.collectAsState()
+    val displayMode by viewModel.mirrorDisplayMode.collectAsState()
+
+    // 显示形态：自动档下视频比例 ≈ 1:1 视为圆形设备（投的是一块圆表）→ 圆形显示。
+    // 圆形只是**显示层**的裁切（遮罩 + API 31+ outline 裁剪），不改变触摸映射坐标系。
+    val encAspect = encSize
+        ?.takeIf { it.first > 0 && it.second > 0 }
+        ?.let { it.first.toFloat() / it.second }
+    val circleMode = when (displayMode) {
+        1 -> false
+        2 -> true
+        else -> encAspect != null && kotlin.math.abs(encAspect - 1f) < 0.01f
+    }
 
     // Surface 生命周期锚点
     var currentSurface by remember { mutableStateOf<android.view.Surface?>(null) }
@@ -109,6 +126,13 @@ fun ScreenMirrorScreen(
         val enc = encSize ?: return null
         val real = realSize ?: return null
         if (enc.first <= 0 || enc.second <= 0 || real.first <= 0 || real.second <= 0) return null
+        // 圆形显示：圆外触摸与起手一致拒绝（视频坐标映射本身不变，只是视觉裁切）
+        if (circleMode) {
+            val r = minOf(vs.width, vs.height) / 2f
+            val dx = viewPos.x - vs.width / 2f
+            val dy = viewPos.y - vs.height / 2f
+            if (dx * dx + dy * dy > r * r) return null
+        }
         val scale = minOf(vs.width.toFloat() / enc.first, vs.height.toFloat() / enc.second)
         if (scale <= 0f) return null
         val dispW = enc.first * scale
@@ -171,9 +195,13 @@ fun ScreenMirrorScreen(
         // 填满自身边界，容器比例 ≠ 视频比例时画面就会变形（手表 464x464 会被拉成
         // "矮胖"）。等比之后 mapToDevice 的 letterbox 偏移恒为 0，触摸映射也更精确。
         // Column 已设 CenterHorizontally，比例不匹配时在剩余空间内水平居中。
+        // 圆形显示（circleMode）：容器形状切换为圆形。注意 SurfaceView 渲染在独立
+        // 硬件层、Compose 的 Modifier.clip 对它无效，真正的圆形裁切靠下方 Canvas
+        // 黑角遮罩（全版本）+ SurfaceView 自身 outline oval（API 31+，见 AndroidView.update）。
         val areaAspect: Float? =
             encSize?.takeIf { it.second > 0 }?.let { it.first.toFloat() / it.second }
                 ?: realSize?.takeIf { it.second > 0 }?.let { it.first.toFloat() / it.second }
+        val boxShape = if (circleMode) CircleShape else cardShape
 
         Box(
             modifier = Modifier
@@ -182,9 +210,9 @@ fun ScreenMirrorScreen(
                     if (areaAspect != null) Modifier.aspectRatio(areaAspect)
                     else Modifier.fillMaxWidth()
                 )
-                .clip(cardShape)
-                .background(Color.Black, cardShape)
-                .border(1.dp, c.outlineVariant, cardShape)
+                .clip(boxShape)
+                .background(Color.Black, boxShape)
+                .border(1.dp, c.outlineVariant, boxShape)
                 .onSizeChanged { viewSize = it }
                 .pointerInput(readOnly) {
                     // 只读模式禁用触摸回控注入。
@@ -268,8 +296,39 @@ fun ScreenMirrorScreen(
                         })
                     }
                 },
+                update = { sv ->
+                    // SurfaceView 只有 Android 12(API 31) 起才支持 outline 裁剪；
+                    // 设在自身上（父容器 clipToOutline 对 SurfaceView 无效）。
+                    // 低版本交给上方 Canvas 黑角遮罩，视觉等效（容器底为纯黑）。
+                    if (circleMode && android.os.Build.VERSION.SDK_INT >= 31) {
+                        sv.outlineProvider = object : android.view.ViewOutlineProvider() {
+                            override fun getOutline(view: android.view.View, outline: android.graphics.Outline) {
+                                outline.setOval(0, 0, view.width, view.height)
+                            }
+                        }
+                        sv.clipToOutline = true
+                    } else {
+                        sv.clipToOutline = false
+                    }
+                },
                 modifier = Modifier.fillMaxSize()
             )
+
+            // 圆形显示：圆外四角遮罩（画容器底色黑）。放在 AndroidView 之后，
+            // 位于 SurfaceView 之上（SurfaceView 默认在 window 层之下，overlay 可覆盖）。
+            if (circleMode) {
+                Canvas(Modifier.matchParentSize()) {
+                    val r = minOf(size.width, size.height) / 2f
+                    val cx = size.width / 2f
+                    val cy = size.height / 2f
+                    val circle = Path().apply { addOval(Rect(cx - r, cy - r, cx + r, cy + r)) }
+                    val full = Path().apply { addRect(Rect(0f, 0f, size.width, size.height)) }
+                    drawPath(
+                        Path.combine(PathOperation.Difference, full, circle),
+                        Color.Black
+                    )
+                }
+            }
 
             // ── 非流态遮罩 ──
             when (val st = status) {
@@ -398,6 +457,17 @@ fun ScreenMirrorScreen(
                     ),
                     selected = maxFps
                 ) { viewModel.setMirrorMaxFps(it) }
+
+                // ── 显示形态（纯显示层：圆形 = 视觉裁切，不改会话参数、不重启投屏） ──
+                MirrorOptionRow(
+                    label = s.mirrorOptionShape,
+                    options = listOf(
+                        s.mirrorAuto to 0,
+                        s.mirrorShapeRect to 1,
+                        s.mirrorShapeCircle to 2
+                    ),
+                    selected = displayMode
+                ) { viewModel.setMirrorDisplayMode(it) }
 
                 // ── 会话开关（只读 / 熄屏 / 保持唤醒；变更即用新参数无缝重启会话） ──
                 Row(

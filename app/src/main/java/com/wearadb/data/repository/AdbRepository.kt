@@ -144,6 +144,12 @@ class AdbRepository @Inject constructor(
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+    /**
+     * 配对成功后自动连接成功的回调。
+     * 自动连接走 repoScope 后台协程直接调 connect()，不经过 VM.connect()，
+     * VM 的 pendingConnectRequest 不会被置位 → VM 通过本回调补触发 Wear OS 蓝牙询问弹窗。
+     */
+    var onAutoConnectSuccess: (() -> Unit)? = null
 
     private val _deviceBanner = MutableStateFlow("")
     val deviceBanner: StateFlow<String> = _deviceBanner.asStateFlow()
@@ -385,6 +391,8 @@ class AdbRepository @Inject constructor(
                             connect(host, connectPort, useTls = true, allowMdnsFallback = false)
                             if (_connectionState.value == ConnectionState.CONNECTED) {
                                 connected = true
+                                WearAdbLogger.i("AdbRepo", "配对成功后自动连接成功: $host:$connectPort")
+                                onAutoConnectSuccess?.invoke()
                                 break
                             }
                             triedPorts.add(connectPort)

@@ -308,6 +308,9 @@
     <string name="mirror_option_size">Resolution</string>
     <string name="mirror_option_bitrate">Bitrate</string>
     <string name="mirror_option_fps">Frame rate</string>
+    <string name="mirror_option_shape">Shape</string>
+    <string name="mirror_shape_rect">Rectangle</string>
+    <string name="mirror_shape_circle">Circle</string>
     <string name="mirror_auto">Auto</string>
 
     <!-- ScreenMirrorScreen toggles & quick keys -->
