@@ -148,7 +148,7 @@ fun AppsScreen(
                         }
                         android.util.Log.d("AppsScreen", "apks copyTo: $copied bytes, file size=${tmpApks.length()}")
                         if (copied <= 0L || !tmpApks.exists() || tmpApks.length() == 0L) {
-                            launch(Dispatchers.Main) { snackbarMessage = "读取 .apks 失败" }
+                            launch(Dispatchers.Main) { snackbarMessage = s.appsReadApksFailed }
                             return@launch
                         }
 
@@ -175,7 +175,7 @@ fun AppsScreen(
                         }
                         android.util.Log.d("AppsScreen", "apk copyTo: $copied bytes, file size=${tmpApk.length()}")
                         if (copied <= 0L || !tmpApk.exists() || tmpApk.length() == 0L) {
-                            launch(Dispatchers.Main) { snackbarMessage = "读取 APK 失败" }
+                            launch(Dispatchers.Main) { snackbarMessage = s.appsReadApkFailed }
                             return@launch
                         }
                         // 同步执行安装，确保临时文件在安装完成前不被删除
@@ -188,7 +188,7 @@ fun AppsScreen(
                 }
             } catch (e: Exception) {
                 android.util.Log.e("AppsScreen", "install error: ${e.message}", e)
-                launch(Dispatchers.Main) { snackbarMessage = "安装异常: ${e.message}" }
+                launch(Dispatchers.Main) { snackbarMessage = s.installException(e.message ?: "") }
             }
         }
     }

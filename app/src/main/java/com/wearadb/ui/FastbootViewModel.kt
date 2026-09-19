@@ -1,11 +1,14 @@
 package com.wearadb.ui
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.wearadb.R
 import com.wearadb.fastboot.FastbootConnectionState
 import com.wearadb.fastboot.FastbootDevice
 import com.wearadb.fastboot.FastbootRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -16,6 +19,7 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class FastbootViewModel @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val fastbootRepository: FastbootRepository
 ) : ViewModel() {
 
@@ -31,6 +35,10 @@ class FastbootViewModel @Inject constructor(
 
     private val _result = MutableSharedFlow<String>()
     val result: SharedFlow<String> = _result.asSharedFlow()
+
+    /** 刷入成功的结构化信号：界面据此弹重启确认，不再靠文案关键字判断。 */
+    private val _flashDone = MutableSharedFlow<Unit>()
+    val flashDone: SharedFlow<Unit> = _flashDone.asSharedFlow()
 
     private val _flashProgress = MutableStateFlow(-1)
     val flashProgress: StateFlow<Int> = _flashProgress.asStateFlow()
@@ -48,10 +56,10 @@ class FastbootViewModel @Inject constructor(
                 if (success) {
                     loadInfo()
                 } else {
-                    _result.emit("连接失败: 请检查手机是否弹出了USB权限对话框并点击允许。如果没有弹窗，试试拔掉USB线重新插入后再连接。查看Logcat(FastbootManager)可获取详细日志。")
+                    _result.emit(appContext.getString(R.string.fb_connect_failed_detail))
                 }
             } catch (e: Exception) {
-                _result.emit("连接异常: ${e.message}")
+                _result.emit(appContext.getString(R.string.fb_connect_exception, e.message ?: ""))
             }
         }
     }
@@ -68,7 +76,7 @@ class FastbootViewModel @Inject constructor(
             try {
                 _info.value = fastbootRepository.getDeviceInfo()
             } catch (e: Exception) {
-                _result.emit("获取设备信息失败: ${e.message}")
+                _result.emit(appContext.getString(R.string.fb_getvar_failed, e.message ?: ""))
             }
         }
     }
@@ -101,10 +109,11 @@ class FastbootViewModel @Inject constructor(
     fun flash(partition: String, data: ByteArray) {
         viewModelScope.launch {
             _flashProgress.value = 0
-            val r = fastbootRepository.flash(partition, data) { progress ->
+            val (ok, message) = fastbootRepository.flash(partition, data) { progress ->
                 _flashProgress.value = progress
             }
-            _result.emit(r)
+            _result.emit(message)
+            if (ok) _flashDone.emit(Unit)
             _flashProgress.value = -1
         }
     }

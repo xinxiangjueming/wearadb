@@ -149,14 +149,14 @@ fun AdvancedOpsScreen(
                         showRebootDialog = false
                         onNavigateToHome()
                     }) {
-                        Text("Recovery 模式", color = c.warning)
+                        Text(s.opsRecoveryMode, color = c.warning)
                     }
                     TextButton(onClick = {
                         viewModel.reboot("bootloader")
                         showRebootDialog = false
                         onNavigateToHome()
                     }) {
-                        Text("Bootloader 模式", color = c.warning)
+                        Text(s.opsBootloaderMode, color = c.warning)
                     }
                     TextButton(onClick = {
                         viewModel.reboot("shutdown")

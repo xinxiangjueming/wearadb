@@ -115,11 +115,11 @@ class FastbootRepository @Inject constructor(
         manager.erase(partition)
     }
 
-    suspend fun flash(partition: String, data: ByteArray, progressCallback: ((Int) -> Unit)? = null): String =
+    suspend fun flash(partition: String, data: ByteArray, progressCallback: ((Int) -> Unit)? = null): Pair<Boolean, String> =
         withContext(Dispatchers.IO) {
             WearAdbLogger.i("Fastboot", "Fastboot刷写分区: $partition, size=${data.size}")
             val result = manager.flash(partition, data, progressCallback)
-            WearAdbLogger.i("Fastboot", "Fastboot刷写结果: $partition - $result")
+            WearAdbLogger.i("Fastboot", "Fastboot刷写结果: $partition - ${result.second}")
             result
         }
 

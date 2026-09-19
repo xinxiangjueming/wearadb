@@ -73,9 +73,9 @@ fun FilesScreen(
         pendingPullData = null
         try {
             context.contentResolver.openOutputStream(uri)?.use { it.write(data) }
-            snackbarMessage = "已保存: $name (${formatBytes(data.size.toLong())})"
+            snackbarMessage = s.filesSaved(name, formatBytes(data.size.toLong()))
         } catch (e: Exception) {
-            snackbarMessage = "保存失败: ${e.message}"
+            snackbarMessage = s.filesSaveFailed(e.message ?: "")
         }
     }
 
@@ -103,11 +103,11 @@ fun FilesScreen(
             if (bytes != null) {
                 val fileName = uri.lastPathSegment ?: "uploaded_file"
                 val remotePath = if (currentPath.endsWith("/")) "$currentPath$fileName" else "$currentPath/$fileName"
-                snackbarMessage = "正在推送 $fileName..."
+                snackbarMessage = s.filesPushing(fileName)
                 viewModel.pushFile(bytes, remotePath) { result -> snackbarMessage = result }
             }
         } catch (e: Exception) {
-            snackbarMessage = "推送失败: ${e.message}"
+            snackbarMessage = s.filesPushFailed(e.message ?: "")
         }
     }
 
@@ -195,7 +195,7 @@ fun FilesScreen(
                                             pendingPullData = file.name to result.data
                                             saveLauncher.launch(file.name)
                                         } else {
-                                            snackbarMessage = "拉取失败: ${result.message}"
+                                            snackbarMessage = s.filesPullFailed(result.message)
                                         }
                                     }
                                 },
@@ -207,13 +207,13 @@ fun FilesScreen(
                                                 if (apkParts.isNotEmpty()) {
                                                     viewModel.installSplitApk(apkParts) { msg -> snackbarMessage = msg }
                                                 } else {
-                                                    snackbarMessage = "⚠️ .apks 文件中未找到 APK"
+                                                    snackbarMessage = s.filesNoApkInApks
                                                 }
                                             } else {
                                                 viewModel.installApk(result.data) { msg -> snackbarMessage = msg }
                                             }
                                         } else {
-                                            snackbarMessage = "拉取失败: ${result.message}"
+                                            snackbarMessage = s.filesPullFailed(result.message)
                                         }
                                     }
                                 }
@@ -243,7 +243,7 @@ fun FilesScreen(
                                             pendingPullData = selectedFile!!.name to result.data
                                             saveLauncher.launch(selectedFile!!.name)
                                         } else {
-                                            snackbarMessage = "拉取失败: ${result.message}"
+                                            snackbarMessage = s.filesPullFailed(result.message)
                                         }
                                     }
                                 }
@@ -256,13 +256,13 @@ fun FilesScreen(
                                                     if (apkParts.isNotEmpty()) {
                                                         viewModel.installSplitApk(apkParts) { msg -> snackbarMessage = msg }
                                                     } else {
-                                                        snackbarMessage = "⚠️ .apks 文件中未找到 APK"
+                                                        snackbarMessage = s.filesNoApkInApks
                                                     }
                                                 } else {
                                                     viewModel.installApk(result.data) { msg -> snackbarMessage = msg }
                                                 }
                                             } else {
-                                                snackbarMessage = "拉取失败: ${result.message}"
+                                                snackbarMessage = s.filesPullFailed(result.message)
                                             }
                                         }
                                     }
@@ -299,7 +299,7 @@ fun FilesScreen(
                                         pendingPullData = file.name to result.data
                                         saveLauncher.launch(file.name)
                                     } else {
-                                        snackbarMessage = "拉取失败: ${result.message}"
+                                        snackbarMessage = s.filesPullFailed(result.message)
                                     }
                                 }
                             },
@@ -311,13 +311,13 @@ fun FilesScreen(
                                             if (apkParts.isNotEmpty()) {
                                                 viewModel.installSplitApk(apkParts) { msg -> snackbarMessage = msg }
                                             } else {
-                                                snackbarMessage = "⚠️ .apks 文件中未找到 APK"
+                                                snackbarMessage = s.filesNoApkInApks
                                             }
                                         } else {
                                             viewModel.installApk(result.data) { msg -> snackbarMessage = msg }
                                         }
                                     } else {
-                                        snackbarMessage = "拉取失败: ${result.message}"
+                                        snackbarMessage = s.filesPullFailed(result.message)
                                     }
                                 }
                             }

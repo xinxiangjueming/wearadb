@@ -1,6 +1,8 @@
 package com.wearadb.adb
 
+import android.content.Context
 import android.util.Log
+import com.wearadb.R
 import com.wearadb.adb.UsbAdbProtocol.AdbMessage
 import java.security.PrivateKey
 import java.security.Signature
@@ -16,6 +18,8 @@ class UsbAdbConnection(
     private val transport: UsbAdbTransport,
     private val privateKey: PrivateKey,
     private val certificate: Certificate,
+    /** 仅用于把协议过程日志本地化（getString），不参与协议逻辑。 */
+    private val appContext: Context,
     private val deviceName: String = "wear-adb",
     private val logCallback: ((String) -> Unit)? = null,
     /** 链路死亡回调（读取线程 EOF/异常退出时触发；用户主动 disconnect 不触发）。 */
@@ -55,33 +59,33 @@ class UsbAdbConnection(
     fun connect(): Boolean {
         try {
             // 1. Send CNXN
-            log("[1] 构造CNXN消息...")
+            log(appContext.getString(R.string.usb_proto_cnxn_build))
             val cnxn = UsbAdbProtocol.cnxnMessage(MAX_PAYLOAD)
             val cnxnBytes = cnxn.toByteArray()
-            log("[2] CNXN消息: ${cnxnBytes.size} bytes = ${cnxnBytes.joinToString("") { "%02x".format(it) }}")
+            log(appContext.getString(R.string.usb_proto_cnxn_msg, cnxnBytes.size, cnxnBytes.joinToString("") { "%02x".format(it) }))
             try {
                 sendMessage(cnxn)
-                log("[3] CNXN发送成功")
+                log(appContext.getString(R.string.usb_proto_cnxn_sent))
             } catch (e: Exception) {
-                log("[3] CNXN发送失败: ${e.javaClass.simpleName}: ${e.message}")
+                log(appContext.getString(R.string.usb_proto_cnxn_failed, e.javaClass.simpleName, e.message ?: ""))
                 return false
             }
 
             // 2. Read response (expect CNXN or AUTH)
-            log("[4] 等待200ms...")
+            log(appContext.getString(R.string.usb_proto_wait))
             Thread.sleep(200)
-            log("[5] 开始读取响应 (最多15秒)...")
+            log(appContext.getString(R.string.usb_proto_read_resp))
             val response = readMessage()
             if (response == null) {
-                log("[5] 读取超时, 设备无响应")
+                log(appContext.getString(R.string.usb_proto_read_timeout))
                 return false
             }
-            log("[6] 收到: ${UsbAdbProtocol.commandName(response.command)} arg0=${response.arg0} arg1=${response.arg1} dataLen=${response.data.size}")
+            log(appContext.getString(R.string.usb_proto_got, UsbAdbProtocol.commandName(response.command), response.arg0, response.arg1, response.data.size))
 
             when (response.command) {
                 UsbAdbProtocol.CMD_CNXN -> {
                     connected = true
-                    log("已连接 (无需认证)")
+                    log(appContext.getString(R.string.usb_proto_connected_noauth))
                     startReaderThread()
                     return true
                 }
@@ -89,12 +93,12 @@ class UsbAdbConnection(
                     return handleAuth(response)
                 }
                 else -> {
-                    log("CNXN收到意外响应: ${UsbAdbProtocol.commandName(response.command)}")
+                    log(appContext.getString(R.string.usb_proto_cnxn_unexpected, UsbAdbProtocol.commandName(response.command)))
                     return false
                 }
             }
         } catch (e: Exception) {
-            log("连接异常: ${e.javaClass.simpleName}: ${e.message}")
+            log(appContext.getString(R.string.usb_proto_conn_exception, e.javaClass.simpleName, e.message ?: ""))
             return false
         }
     }
@@ -103,7 +107,7 @@ class UsbAdbConnection(
         when (authMsg.arg0) {
             UsbAdbProtocol.AUTH_TYPE_TOKEN -> {
                 val token = authMsg.data
-                log("AUTH TOKEN (${token.size} bytes), 签名中...")
+                log(appContext.getString(R.string.usb_proto_auth_token, token.size))
 
                 // adbd 用 SHA-1 (RSA_sign/NID_sha1) 校验签名，必须用 SHA1withRSA；
                 // 用 SHA256 会被永远拒绝，即使设备已保存本公钥也会重新弹授权
@@ -118,7 +122,7 @@ class UsbAdbConnection(
                 Thread.sleep(100)
                 val response = readMessage()
                 if (response == null) {
-                    log("AUTH签名后无响应")
+                    log(appContext.getString(R.string.usb_proto_auth_noresp))
                     return false
                 }
                 log("<<< ${UsbAdbProtocol.commandName(response.command)}")
@@ -126,22 +130,22 @@ class UsbAdbConnection(
                 return when (response.command) {
                     UsbAdbProtocol.CMD_CNXN -> {
                         connected = true
-                        log("已连接 (签名认证)")
+                        log(appContext.getString(R.string.usb_proto_connected_sig))
                         startReaderThread()
                         true
                     }
                     UsbAdbProtocol.CMD_AUTH -> {
-                        log("签名被拒绝, 发送公钥...")
+                        log(appContext.getString(R.string.usb_proto_sig_rejected))
                         sendPublicKey()
                     }
                     else -> {
-                        log("AUTH后收到意外响应: ${UsbAdbProtocol.commandName(response.command)}")
+                        log(appContext.getString(R.string.usb_proto_auth_unexpected, UsbAdbProtocol.commandName(response.command)))
                         false
                     }
                 }
             }
             else -> {
-                log("未知AUTH类型 ${authMsg.arg0}, 发送公钥...")
+                log(appContext.getString(R.string.usb_proto_auth_unknown, authMsg.arg0))
                 return sendPublicKey()
             }
         }
@@ -159,7 +163,7 @@ class UsbAdbConnection(
         Thread.sleep(100)
         val response = readMessage()
         if (response == null) {
-            log("公钥发送后无响应")
+            log(appContext.getString(R.string.usb_proto_pubkey_noresp))
             return false
         }
         log("<<< ${UsbAdbProtocol.commandName(response.command)}")
@@ -167,12 +171,12 @@ class UsbAdbConnection(
         return when (response.command) {
             UsbAdbProtocol.CMD_CNXN -> {
                 connected = true
-                log("已连接 (公钥认证)")
+                log(appContext.getString(R.string.usb_proto_connected_pubkey))
                 startReaderThread()
                 true
             }
             else -> {
-                log("公钥后收到意外响应: ${UsbAdbProtocol.commandName(response.command)}")
+                log(appContext.getString(R.string.usb_proto_pubkey_unexpected, UsbAdbProtocol.commandName(response.command)))
                 false
             }
         }
@@ -295,12 +299,12 @@ class UsbAdbConnection(
 
     private fun readMessage(): AdbMessage? {
         // Step 1: Read the 24-byte header (UsbRequest, blocks until data)
-        log("  readMessage: 读取header...")
+        log(appContext.getString(R.string.usb_proto_read_header))
         val header = ByteArray(UsbAdbProtocol.HEADER_SIZE)
         try {
             transport.readExactly(header, 0, UsbAdbProtocol.HEADER_SIZE)
         } catch (e: Exception) {
-            log("  readMessage: header读取失败: ${e.message}")
+            log(appContext.getString(R.string.usb_proto_header_failed, e.message ?: ""))
             return null
         }
 
@@ -314,14 +318,14 @@ class UsbAdbConnection(
         // Step 2: Read the payload (if any)
         val data = if (dataLen > 0) {
             if (dataLen > MAX_PAYLOAD) {
-                log("  payload过大: $dataLen")
+                log(appContext.getString(R.string.usb_proto_payload_too_large, dataLen))
                 return null
             }
             val payload = ByteArray(dataLen)
             try {
                 transport.readExactly(payload, 0, dataLen)
             } catch (e: Exception) {
-                log("  payload读取失败: ${e.message}")
+                log(appContext.getString(R.string.usb_proto_payload_failed, e.message ?: ""))
                 return null
             }
             payload
@@ -336,7 +340,7 @@ class UsbAdbConnection(
 
     private fun startReaderThread() {
         Thread({
-            log("读取线程启动")
+            log(appContext.getString(R.string.usb_proto_reader_start))
             while (connected && !closed) {
                 try {
                     val msg = readMessage()

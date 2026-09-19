@@ -2,6 +2,7 @@ package com.wearadb.adb
 
 import android.content.Context
 import android.util.Log
+import com.wearadb.R
 import android.view.Surface
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -430,7 +431,7 @@ class ScreenMirrorEngine(private val appContext: Context) {
                 pushDeferred.await() to sizeDeferred.await()
             }
             if (!pushed) {
-                _status.value = MirrorStatus.Error("推送 scrcpy-server.jar 失败")
+                _status.value = MirrorStatus.Error(appContext.getString(R.string.mirror_err_push_server))
                 return
             }
             _realSize.value = realSize
@@ -468,7 +469,7 @@ class ScreenMirrorEngine(private val appContext: Context) {
             )
             if (video == null) {
                 if (!running) return
-                _status.value = MirrorStatus.Error("连接 scrcpy-server 失败（server 未就绪或不支持）")
+                _status.value = MirrorStatus.Error(appContext.getString(R.string.mirror_err_connect_server))
                 return
             }
             videoS = video
@@ -485,7 +486,7 @@ class ScreenMirrorEngine(private val appContext: Context) {
             )
             if (control == null) {
                 if (!running) return
-                _status.value = MirrorStatus.Error("连接 scrcpy-server 控制通道失败")
+                _status.value = MirrorStatus.Error(appContext.getString(R.string.mirror_err_connect_control))
                 return
             }
             controlS = control
@@ -527,19 +528,19 @@ class ScreenMirrorEngine(private val appContext: Context) {
                         val codecId = readIntBE(head, 0)
                         when {
                             codecId == 0 -> {
-                                _status.value = MirrorStatus.Error("设备禁用了视频流"); return
+                                _status.value = MirrorStatus.Error(appContext.getString(R.string.mirror_err_video_disabled)); return
                             }
                             codecId == 1 -> {
-                                _status.value = MirrorStatus.Error("设备视频配置错误"); return
+                                _status.value = MirrorStatus.Error(appContext.getString(R.string.mirror_err_video_config)); return
                             }
                             codecId != CODEC_ID_H264 -> {
-                                _status.value = MirrorStatus.Error(String.format("不支持的编码: 0x%08X", codecId)); return
+                                _status.value = MirrorStatus.Error(appContext.getString(R.string.mirror_err_codec_unsupported, codecId)); return
                             }
                         }
                         encW = readIntBE(head, 4)
                         encH = readIntBE(head, 8)
                         if (encW <= 0 || encH <= 0) {
-                            _status.value = MirrorStatus.Error("非法视频尺寸 ${encW}x${encH}"); return
+                            _status.value = MirrorStatus.Error(appContext.getString(R.string.mirror_err_size_invalid, encW, encH)); return
                         }
                         _videoSize.value = encW to encH
                         headerRead = true
@@ -552,7 +553,7 @@ class ScreenMirrorEngine(private val appContext: Context) {
                         val m = acc.tryRead(SC_PACKET_HEADER_SIZE) ?: break
                         val plen = readIntBE(m, 8)
                         if (plen <= 0 || plen > 16 * 1024 * 1024) {
-                            _status.value = MirrorStatus.Error("非法包长度: $plen"); return
+                            _status.value = MirrorStatus.Error(appContext.getString(R.string.mirror_err_length_invalid, plen)); return
                         }
                         pendingMeta = m
                         pendingLen = plen
@@ -567,7 +568,7 @@ class ScreenMirrorEngine(private val appContext: Context) {
                             // 首个 CONFIG 包（SPS+PPS, Annex-B）作为 csd-0 配置解码器
                             if (!decoder.isConfigured) {
                                 if (!decoder.configure(surface, encW, encH, payload)) {
-                                    _status.value = MirrorStatus.Error("解码器初始化失败"); return
+                                    _status.value = MirrorStatus.Error(appContext.getString(R.string.mirror_err_decoder_init)); return
                                 }
                             }
                             // 已配置后的重复 CONFIG（罕见）忽略：SPS/PPS 已生效
@@ -589,7 +590,7 @@ class ScreenMirrorEngine(private val appContext: Context) {
             // 正常停止
         } catch (e: Exception) {
             if (running) {
-                _status.value = MirrorStatus.Error("投屏中断: ${e.message}")
+                _status.value = MirrorStatus.Error(appContext.getString(R.string.mirror_err_interrupted, e.message ?: ""))
             }
         } finally {
             // 区分退场原因：stop()（用户/仓储主动停止）会先把 running 置 false；
@@ -620,7 +621,7 @@ class ScreenMirrorEngine(private val appContext: Context) {
                 val cur = _status.value
                 if (cur == MirrorStatus.Streaming || cur == MirrorStatus.Starting) {
                     _status.value = if (abnormalExit) {
-                        MirrorStatus.Error("连接已断开（链路失效或设备拔出）")
+                        MirrorStatus.Error(appContext.getString(R.string.mirror_err_link_lost))
                     } else {
                         MirrorStatus.Idle
                     }

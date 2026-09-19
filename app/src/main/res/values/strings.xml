@@ -95,6 +95,18 @@
     <string name="info_health">健康状态</string>
     <string name="info_battery_level">电量</string>
     <string name="info_battery_status">状态</string>
+    <!-- 电池状态/健康：痛点此前被硬编码在 AdbOutputParser，此处统一走多语言 -->
+    <string name="battery_status_charging">充电中</string>
+    <string name="battery_status_discharging">未充电</string>
+    <string name="battery_status_full">充满</string>
+    <string name="battery_status_unknown">未知</string>
+    <string name="battery_health_good">良好</string>
+    <string name="battery_health_overheat">过热</string>
+    <string name="battery_health_dead">已损坏</string>
+    <string name="battery_health_over_voltage">过压</string>
+    <string name="battery_health_failure">未知故障</string>
+    <string name="battery_health_cold">低温</string>
+    <string name="info_android_version">Android 版本</string>
     <string name="info_voltage">电压</string>
     <string name="info_temperature">温度</string>
     <string name="info_chip_platform">芯片平台</string>
@@ -325,5 +337,241 @@
     <string name="mirror_key_vol_up">音量+</string>
     <string name="mirror_key_vol_down">音量-</string>
     <string name="mirror_options">设置</string>
+
+    <!-- P1：原先硬编码在代码里的结果 / 状态文案，现统一走多语言 -->
+    <string name="msg_pull_failed">拉取失败: %1$s</string>
+    <string name="shell_executing">执行中…</string>
+    <string name="shell_no_output">(无输出)</string>
+    <string name="shell_exec_failed">执行失败: %1$s</string>
+    <string name="install_progress_split">正在安装 Split APK (%1$d 个文件)…</string>
+    <string name="install_parsing_apks">正在解析 .apks…</string>
+    <string name="install_exception">安装异常: %1$s</string>
+    <string name="extract_reason_mkdir">无法创建目录</string>
+    <string name="extract_reason_mkdir_path">无法创建目录: %1$s</string>
+    <string name="extract_write_empty">写入为空</string>
+    <string name="files_saved">已保存: %1$s (%2$s)</string>
+    <string name="files_save_failed">保存失败: %1$s</string>
+    <string name="files_pushing">正在推送 %1$s…</string>
+    <string name="files_push_failed">推送失败: %1$s</string>
+    <string name="files_no_apk_in_apks">⚠️ .apks 文件中未找到 APK</string>
+    <string name="apps_read_apks_failed">读取 .apks 失败</string>
+    <string name="apps_read_apk_failed">读取 APK 失败</string>
+    <string name="ops_recovery_mode">Recovery 模式</string>
+    <string name="ops_bootloader_mode">Bootloader 模式</string>
+    <string name="mirror_err_push_server">推送 scrcpy-server.jar 失败</string>
+    <string name="mirror_err_connect_server">连接 scrcpy-server 失败（server 未就绪或不支持）</string>
+    <string name="mirror_err_connect_control">连接 scrcpy-server 控制通道失败</string>
+    <string name="mirror_err_video_disabled">设备禁用了视频流</string>
+    <string name="mirror_err_video_config">设备视频配置错误</string>
+    <string name="mirror_err_codec_unsupported">不支持的编码: 0x%1$08X</string>
+    <string name="mirror_err_size_invalid">非法视频尺寸 %1$dx%2$d</string>
+    <string name="mirror_err_length_invalid">非法包长度: %1$d</string>
+    <string name="mirror_err_decoder_init">解码器初始化失败</string>
+    <string name="mirror_err_interrupted">投屏中断: %1$s</string>
+    <string name="mirror_err_link_lost">连接已断开（链路失效或设备拔出）</string>
+    <string name="fb_connect_failed_detail">连接失败: 请检查手机是否弹出了USB权限对话框并点击允许。如果没有弹窗，试试拔掉USB线重新插入后再连接。查看Logcat(FastbootManager)可获取详细日志。</string>
+    <string name="fb_connect_exception">连接异常: %1$s</string>
+    <string name="fb_getvar_failed">获取设备信息失败: %1$s</string>
+    <string name="pair_tip_aborted">连接被目标设备中断，通常是以下原因：\n• 端口不是「配对用配对码」弹窗中的端口\n• 配对码已过期（需重新打开配对弹窗获取新码）\n• 目标设备无线调试服务已重启</string>
+    <string name="pair_tip_refused">目标设备拒绝连接，请确认无线调试已开启</string>
+    <string name="pair_tip_timeout">连接超时，请确认手机和目标设备在同一 WiFi 网络下</string>
+    <string name="pair_tip_unreachable">无法到达目标设备，请确认 IP 地址正确且在同一局域网</string>
+
+    <!-- P3：连接日志面板文案（LOG-UI，既进 logcat 也在 App 内显示）Fastboot 部分 -->
+    <string name="fb_log_connecting">连接 %1$s…</string>
+    <string name="fb_log_iface">接口[%1$d]: class=0x%2$s sub=0x%3$s proto=0x%4$s 端点=%5$d</string>
+    <string name="fb_log_open_device">打开设备: hasPermission=%1$s</string>
+    <string name="fb_log_need_permission">需要USB权限，正在请求…</string>
+    <string name="fb_log_permission_ok">权限获取成功 (%1$dms)</string>
+    <string name="fb_log_permission_ok_broadcast">权限获取成功(广播)</string>
+    <string name="fb_log_permission_timeout">权限超时, hasPermission=%1$s</string>
+    <string name="fb_log_authorized_open">设备已授权，直接打开成功</string>
+    <string name="fb_log_finding_iface">查找fastboot接口…</string>
+    <string name="fb_log_iface_std">找到标准fastboot接口 (index %1$d)</string>
+    <string name="fb_log_iface_std_miss">标准匹配未命中，宽松匹配中…</string>
+    <string name="fb_log_iface_loose">宽松匹配成功 (index %1$d, sub=0x%2$s)</string>
+    <string name="fb_log_no_iface">未找到可用的USB接口(需要bulk IN+OUT端点)</string>
+    <string name="fb_log_claim_failed">claimInterface失败</string>
+    <string name="fb_log_iface_claimed">接口已获取</string>
+    <string name="fb_log_activating">激活USB接口…</string>
+    <string name="fb_log_device_reset">USB设备reset…</string>
+    <string name="fb_log_getstatus_error">GET_STATUS 异常: %1$s</string>
+    <string name="fb_log_clear_in">清空IN端点缓冲区…</string>
+    <string name="fb_log_cleared_bytes">清空了 %1$d 字节残留数据</string>
+    <string name="fb_log_test_comm">测试通信: getvar:product…</string>
+    <string name="fb_log_comm_failed">通信失败: %1$s</string>
+    <string name="fb_log_test_on_pc">请在电脑上测试: fastboot getvar product</string>
+    <string name="fb_log_maybe_otg">如果电脑OK，可能是手机OTG/USB口问题</string>
+    <string name="fb_log_connected">连接成功!</string>
+    <string name="fb_log_connect_exception">连接异常: %1$s</string>
+    <string name="fb_log_test_sent">test: 已发送 %1$d 字节</string>
+    <string name="fb_log_test_read">test: usbRead返回 %1$d</string>
+    <string name="fb_log_test_tag">test: 收到标签 \'%1$s\'，共 %2$d 字节</string>
+    <string name="fb_log_send_retry">发送失败(sent=%1$d)，清除halt后重试…</string>
+    <string name="fb_log_send_cmd_failed">发送命令失败: %1$s (%2$s)</string>
+    <string name="fb_log_sent_bytes">已发送 %1$d 字节</string>
+    <string name="fb_log_response">响应: %1$s</string>
+    <string name="fb_log_flashing">刷入 %1$s: %2$dMB (%3$d 字节)</string>
+    <string name="fb_log_cmd_sent">%1$s 命令: sent=%2$d</string>
+    <string name="fb_log_data_response">DATA响应: %1$s</string>
+    <string name="fb_log_transfer_start">开始传输数据 (%1$d 字节)…</string>
+    <string name="fb_log_chunk_retry">大块传输失败(len=%1$d)，尝试小块(4096)…</string>
+    <string name="fb_log_transfer_failed">传输失败: offset=%1$d/%2$d</string>
+    <string name="fb_log_transfer_done">数据传输完成: %1$d 字节</string>
+    <string name="fb_log_final_response">最终响应: %1$s</string>
+    <string name="fb_log_error_prefix">[ERROR] %1$s</string>
+
+    <!-- P2：仓储层结果文案（原先硬编码在仓储里；成败判据已由 PushResult 等结构化结果承载，文案仅用于展示） -->
+    <string name="op_not_connected">未连接</string>
+    <string name="usb_msg_not_connected">USB 未连接</string>
+    <string name="op_exec_failed">执行失败: %1$s</string>
+    <string name="push_success">推送成功: %1$s</string>
+    <string name="push_failed">推送失败</string>
+    <string name="push_done">推送完成</string>
+    <string name="push_exception">推送异常: %1$s</string>
+    <string name="push_failed_with">推送失败: %1$s</string>
+    <string name="push_failed_name">推送失败 (%1$s): %2$s</string>
+    <string name="install_ok">安装成功</string>
+    <string name="install_no_response">安装失败: 无响应</string>
+    <string name="install_failed_with">安装失败: %1$s</string>
+    <string name="install_split_ok">Split APK 安装成功 (%1$d 个文件)</string>
+    <string name="session_create_failed">创建会话失败: %1$s</string>
+    <string name="write_failed_with">写入失败 (%1$s): %2$s</string>
+    <string name="apks_no_valid_apk">.apks 中未找到有效 APK 文件</string>
+    <string name="pull_ok">拉取成功: %1$s</string>
+    <string name="pull_failed_with">拉取失败: %1$s</string>
+    <string name="pull_exception">拉取异常: %1$s</string>
+    <string name="op_reboot">重启设备</string>
+    <string name="op_reboot_recovery">重启到 Recovery</string>
+    <string name="op_reboot_bootloader">重启到 Bootloader</string>
+    <string name="op_shutdown">关机</string>
+    <string name="op_wifi_on">开启 WiFi</string>
+    <string name="op_wifi_off">关闭 WiFi</string>
+    <string name="op_bt_on">开启蓝牙</string>
+    <string name="op_bt_off">关闭蓝牙</string>
+
+    <string name="pair_ok">配对成功</string>
+    <string name="pair_exception">配对异常: %1$s</string>
+    <string name="unknown_error">未知错误</string>
+    <string name="install_split_ok_size">Split APK 安装成功 (%1$d 个文件, %2$dMB)</string>
+    <string name="pull_failed">拉取失败</string>
+
+    <!-- Fastboot 变量显示名（key → label 映射表） -->
+    <string name="fb_var_product">设备代号</string>
+    <string name="fb_var_serialno">序列号</string>
+    <string name="fb_var_variant">存储类型</string>
+    <string name="fb_var_slot_count">分区槽数</string>
+    <string name="fb_var_current_slot">当前槽位</string>
+    <string name="fb_var_secure">安全启动</string>
+    <string name="fb_var_unlocked">BL已解锁</string>
+    <string name="fb_var_battery_voltage">电池电压(mV)</string>
+    <string name="fb_var_battery_soc_ok">电池电量充足</string>
+    <string name="fb_var_hw_revision">硬件版本</string>
+    <string name="fb_var_erase_block_size">擦除块大小</string>
+    <string name="fb_var_logical_block_size">逻辑块大小</string>
+    <string name="fb_var_max_download_size">最大下载大小</string>
+    <string name="fb_var_kernel">内核类型</string>
+    <string name="fb_var_has_slot_boot">Boot分区A/B</string>
+    <string name="fb_var_has_slot_modem">Modem分区A/B</string>
+    <string name="fb_var_has_slot_system">System分区A/B</string>
+    <string name="fb_var_version_bootloader">Bootloader版本</string>
+    <string name="fb_var_version_baseband">基带版本</string>
+    <string name="fb_var_dpstatus">DP状态</string>
+    <string name="fb_var_socid">SoC ID</string>
+    <string name="fb_var_snapshot_update_status">快照更新状态</string>
+    <string name="fb_var_is_userspace">用户空间模式</string>
+    <!-- Fastboot 操作结果文案（成败判据已由 Pair<Boolean,String> 承载；ERR:/OK: 前缀是后续 replace 依赖的 ASCII 标记，务必保留） -->
+    <string name="fb_r_test_send_failed">失败: 发送失败(sent=%1$d)</string>
+    <string name="fb_r_test_resp_short">失败: 响应太短 (%1$d 字节)</string>
+    <string name="fb_r_test_fail">失败: FAIL %1$s</string>
+    <string name="fb_r_test_unknown_tag">失败: 未知标签 \'%1$s\'</string>
+    <string name="fb_r_test_exception">异常: %1$s</string>
+    <string name="fb_r_disconnected">连接已断开</string>
+    <string name="fb_r_send_cmd_failed">发送命令失败 (%1$s)</string>
+    <string name="fb_r_read_resp_failed">读取响应失败 (read=%1$d)</string>
+    <string name="fb_r_unknown_resp_tag">未知响应标签: %1$s</string>
+    <string name="fb_r_rebooting">重启中…</string>
+    <string name="fb_r_reboot_sent">已发送重启命令</string>
+    <string name="fb_r_rebooting_recovery">重启到 Recovery…</string>
+    <string name="fb_r_rebooting_bootloader">重启到 Bootloader…</string>
+    <string name="fb_r_erase_ok">擦除 %1$s 成功</string>
+    <string name="fb_r_erase_failed">擦除失败: %1$s</string>
+    <string name="fb_r_erase_done">擦除完成</string>
+    <string name="fb_r_oem_ok">OEM 命令执行成功</string>
+    <string name="fb_r_oem_failed">OEM 命令失败: %1$s</string>
+    <string name="fb_r_oem_done">OEM 命令已执行</string>
+    <string name="fb_r_flash_op_name">刷入</string>
+    <string name="fb_r_flash_ok">刷入 %1$s 成功 (%2$dKB)</string>
+    <string name="fb_r_flash_failed_prefix">刷入失败:</string>
+    <string name="fb_r_unlock_ok">Bootloader 解锁成功</string>
+    <string name="fb_r_unlock_failed">解锁失败: %1$s</string>
+    <string name="fb_r_unlock_sent">解锁命令已发送（设备可能需要确认）</string>
+    <string name="fb_r_lock_ok">Bootloader 已锁定</string>
+    <string name="fb_r_lock_failed">锁定失败: %1$s</string>
+    <string name="fb_r_lock_sent">锁定命令已发送</string>
+    <string name="fb_r_tempboot_ok">临时启动成功，设备正在重启…</string>
+    <string name="fb_r_stage_ok">数据已上传到设备 (%1$dKB)</string>
+    <string name="fb_r_err_disconnected">ERR: 连接已断开</string>
+    <string name="fb_r_err_not_connected">ERR: 未连接</string>
+    <string name="fb_r_err_no_out_ep">ERR: 无 OUT endpoint</string>
+    <string name="fb_r_err_no_in_ep">ERR: 无 IN endpoint</string>
+    <string name="fb_r_err_send_failed">ERR: 发送命令失败</string>
+    <string name="fb_r_err_request_rejected">ERR: %1$s请求被拒绝: %2$s</string>
+    <string name="fb_r_err_transfer_aborted">ERR: 传输中断</string>
+    <string name="fb_r_err_transfer_failed">ERR: 数据传输失败 (offset=%1$d)</string>
+    <string name="fb_r_not_connected">未连接</string>
+    <string name="fb_r_no_out_ep">无 OUT endpoint</string>
+    <string name="fb_r_no_in_ep">无 IN endpoint</string>
+    <string name="fb_r_fetch_rejected">fetch 请求被拒绝</string>
+    <string name="fb_r_recv_failed">数据接收失败 (offset=%1$d)</string>
+    <string name="fb_r_download_ok">数据下载成功 (%1$dKB)</string>
+
+    <!-- USB 连接日志（既进 logcat 也显示在 App 内的连接日志面板） -->
+    <string name="usb_log_detached">USB设备已拔出: %1$s</string>
+    <string name="usb_log_scanned">扫描到 %1$d 个有线ADB设备</string>
+    <string name="usb_log_connecting">连接有线ADB设备: %1$s…</string>
+    <string name="usb_log_open_device">打开设备… hasPermission=%1$s</string>
+    <string name="usb_log_need_permission">需要USB权限，正在请求…</string>
+    <string name="usb_log_permission_failed">USB权限获取失败</string>
+    <string name="usb_log_device_opened">设备已打开</string>
+    <string name="usb_log_no_iface">未找到ADB接口</string>
+    <string name="usb_log_claim_failed">claimInterface失败</string>
+    <string name="usb_log_iface">ADB接口: id=%1$d OUT=0x%2$s(%3$d) IN=0x%4$s(%5$d)</string>
+    <string name="usb_log_clear_in">清空IN端点…</string>
+    <string name="usb_log_cleared">清空了 %1$d 字节</string>
+    <string name="usb_log_creating">创建ADB连接…</string>
+    <string name="usb_log_handshake">开始ADB握手…</string>
+    <string name="usb_log_handshake_failed">ADB握手失败</string>
+    <string name="usb_log_connect_exception">connect()异常: %1$s: %2$s</string>
+    <string name="usb_log_connected">有线ADB连接成功!</string>
+    <string name="usb_log_conn_exception">连接异常: %1$s</string>
+    <string name="usb_log_link_dead">链路失效，清理连接（device=%1$s）</string>
+
+    <!-- USB ADB 协议握手/读线程日志（技术性过程日志，显示在连接日志面板） -->
+    <string name="usb_proto_cnxn_build">[1] 构造CNXN消息…</string>
+    <string name="usb_proto_cnxn_msg">[2] CNXN消息: %1$d bytes = %2$s</string>
+    <string name="usb_proto_cnxn_sent">[3] CNXN发送成功</string>
+    <string name="usb_proto_cnxn_failed">[3] CNXN发送失败: %1$s: %2$s</string>
+    <string name="usb_proto_wait">[4] 等待200ms…</string>
+    <string name="usb_proto_read_resp">[5] 开始读取响应 (最多15秒)…</string>
+    <string name="usb_proto_read_timeout">[5] 读取超时, 设备无响应</string>
+    <string name="usb_proto_got">[6] 收到: %1$s arg0=%2$d arg1=%3$d dataLen=%4$d</string>
+    <string name="usb_proto_connected_noauth">已连接 (无需认证)</string>
+    <string name="usb_proto_cnxn_unexpected">CNXN收到意外响应: %1$s</string>
+    <string name="usb_proto_conn_exception">连接异常: %1$s: %2$s</string>
+    <string name="usb_proto_auth_token">AUTH TOKEN (%1$d bytes), 签名中…</string>
+    <string name="usb_proto_auth_noresp">AUTH签名后无响应</string>
+    <string name="usb_proto_connected_sig">已连接 (签名认证)</string>
+    <string name="usb_proto_sig_rejected">签名被拒绝, 发送公钥…</string>
+    <string name="usb_proto_auth_unexpected">AUTH后收到意外响应: %1$s</string>
+    <string name="usb_proto_auth_unknown">未知AUTH类型 %1$d, 发送公钥…</string>
+    <string name="usb_proto_pubkey_noresp">公钥发送后无响应</string>
+    <string name="usb_proto_connected_pubkey">已连接 (公钥认证)</string>
+    <string name="usb_proto_pubkey_unexpected">公钥后收到意外响应: %1$s</string>
+    <string name="usb_proto_read_header">readMessage: 读取header…</string>
+    <string name="usb_proto_header_failed">readMessage: header读取失败: %1$s</string>
+    <string name="usb_proto_payload_too_large">payload过大: %1$d</string>
+    <string name="usb_proto_payload_failed">payload读取失败: %1$s</string>
+    <string name="usb_proto_reader_start">读取线程启动</string>
 
 </resources>

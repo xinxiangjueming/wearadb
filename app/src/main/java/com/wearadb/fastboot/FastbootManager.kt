@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.hardware.usb.*
 import android.os.Build
 import android.util.Log
+import com.wearadb.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -60,34 +61,38 @@ class FastbootManager(
         private val TAG_DATA = "DATA".toByteArray()
         private val TAG_INFO = "INFO".toByteArray()
 
-        /** fastboot 变量名 → 中文显示名 */
-        private val LABELS = mapOf(
-            "product" to "设备代号",
-            "serialno" to "序列号",
-            "variant" to "存储类型",
-            "slot-count" to "分区槽数",
-            "current-slot" to "当前槽位",
-            "secure" to "安全启动",
-            "unlocked" to "BL已解锁",
-            "battery-voltage" to "电池电压(mV)",
-            "battery-soc-ok" to "电池电量充足",
-            "hw-revision" to "硬件版本",
-            "erase-block-size" to "擦除块大小",
-            "logical-block-size" to "逻辑块大小",
-            "max-download-size" to "最大下载大小",
-            "kernel" to "内核类型",
-            "has-slot:boot" to "Boot分区A/B",
-            "has-slot:modem" to "Modem分区A/B",
-            "has-slot:system" to "System分区A/B",
-            "version-bootloader" to "Bootloader版本",
-            "version-baseband" to "基带版本",
-            "dpstatus" to "DP状态",
-            "socid" to "SoC ID",
-            "snapshot-update-status" to "快照更新状态",
-            "is-userspace" to "用户空间模式"
+        /** fastboot 变量名 → 显示名资源 id（文案走多语言，不再硬编码中文） */
+        private val LABEL_RES = mapOf(
+            "product" to R.string.fb_var_product,
+            "serialno" to R.string.fb_var_serialno,
+            "variant" to R.string.fb_var_variant,
+            "slot-count" to R.string.fb_var_slot_count,
+            "current-slot" to R.string.fb_var_current_slot,
+            "secure" to R.string.fb_var_secure,
+            "unlocked" to R.string.fb_var_unlocked,
+            "battery-voltage" to R.string.fb_var_battery_voltage,
+            "battery-soc-ok" to R.string.fb_var_battery_soc_ok,
+            "hw-revision" to R.string.fb_var_hw_revision,
+            "erase-block-size" to R.string.fb_var_erase_block_size,
+            "logical-block-size" to R.string.fb_var_logical_block_size,
+            "max-download-size" to R.string.fb_var_max_download_size,
+            "kernel" to R.string.fb_var_kernel,
+            "has-slot:boot" to R.string.fb_var_has_slot_boot,
+            "has-slot:modem" to R.string.fb_var_has_slot_modem,
+            "has-slot:system" to R.string.fb_var_has_slot_system,
+            "version-bootloader" to R.string.fb_var_version_bootloader,
+            "version-baseband" to R.string.fb_var_version_baseband,
+            "dpstatus" to R.string.fb_var_dpstatus,
+            "socid" to R.string.fb_var_socid,
+            "snapshot-update-status" to R.string.fb_var_snapshot_update_status,
+            "is-userspace" to R.string.fb_var_is_userspace
         )
+    }
 
-        private fun label(key: String) = LABELS[key] ?: key
+    /** 变量名 → 本地化显示名；未知 key 原样返回。 */
+    private fun label(key: String): String {
+        val res = LABEL_RES[key] ?: return key
+        return context.getString(res)
     }
 
     private val usbManager: UsbManager =
@@ -186,7 +191,7 @@ class FastbootManager(
      */
     suspend fun connect(device: FastbootDevice): Boolean = withContext(Dispatchers.IO) {
         try {
-            log("连接 ${device.serialNumber}...")
+            log(context.getString(R.string.fb_log_connecting, device.serialNumber))
             disconnect()
             closed = false  // 重置，允许新连接
 
@@ -195,20 +200,26 @@ class FastbootManager(
             // 打印设备所有接口信息
             for (i in 0 until usbDevice.interfaceCount) {
                 val iface = usbDevice.getInterface(i)
-                log("  接口[$i]: class=0x${iface.interfaceClass.toString(16)} " +
-                    "sub=0x${iface.interfaceSubclass.toString(16)} " +
-                    "proto=0x${iface.interfaceProtocol.toString(16)} " +
-                    "端点=${iface.endpointCount}")
+                log(
+                    context.getString(
+                        R.string.fb_log_iface,
+                        i,
+                        iface.interfaceClass.toString(16),
+                        iface.interfaceSubclass.toString(16),
+                        iface.interfaceProtocol.toString(16),
+                        iface.endpointCount
+                    )
+                )
             }
 
             // 1. 尝试直接打开
             val hasPerm = usbManager.hasPermission(usbDevice)
-            log("打开设备: hasPermission=$hasPerm")
+            log(context.getString(R.string.fb_log_open_device, hasPerm))
             var conn = tryOpenDevice(usbDevice)
 
             // 2. 没权限则请求并轮询
             if (conn == null) {
-                log("需要USB权限, 正在请求...")
+                log(context.getString(R.string.fb_log_need_permission))
                 permissionGranted = false
                 pendingDevice = usbDevice
                 val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -222,29 +233,29 @@ class FastbootManager(
                     delay(500)
                     conn = tryOpenDevice(usbDevice)
                     if (conn != null) {
-                        log("权限获取成功 (${System.currentTimeMillis() - waitStart}ms)")
+                        log(context.getString(R.string.fb_log_permission_ok, System.currentTimeMillis() - waitStart))
                         break
                     }
                     if (permissionGranted) {
                         delay(300)
                         conn = tryOpenDevice(usbDevice)
                         if (conn != null) {
-                            log("权限获取成功(广播)")
+                            log(context.getString(R.string.fb_log_permission_ok_broadcast))
                             break
                         }
                     }
                 }
 
                 if (conn == null) {
-                    logError("权限超时, hasPermission=${usbManager.hasPermission(usbDevice)}")
+                    logError(context.getString(R.string.fb_log_permission_timeout, usbManager.hasPermission(usbDevice)))
                     return@withContext false
                 }
             } else {
-                log("设备已授权, 直接打开成功")
+                log(context.getString(R.string.fb_log_authorized_open))
             }
 
             // 3. 查找 fastboot 接口
-            log("查找fastboot接口...")
+            log(context.getString(R.string.fb_log_finding_iface))
             var foundInterface: UsbInterface? = null
             var outEp: UsbEndpoint? = null
             var inEp: UsbEndpoint? = null
@@ -263,13 +274,13 @@ class FastbootManager(
                             else if (ep.direction == UsbConstants.USB_DIR_IN) inEp = ep
                         }
                     }
-                    log("找到标准fastboot接口 (index $i)")
+                    log(context.getString(R.string.fb_log_iface_std, i))
                     break
                 }
             }
 
             if (foundInterface == null) {
-                log("标准匹配未命中, 宽松匹配中...")
+                log(context.getString(R.string.fb_log_iface_std_miss))
                 for (i in 0 until usbDevice.interfaceCount) {
                     val iface = usbDevice.getInterface(i)
                     if (iface.interfaceClass == FASTBOOT_INTERFACE_CLASS && iface.endpointCount >= 2) {
@@ -286,7 +297,7 @@ class FastbootManager(
                             foundInterface = iface
                             outEp = tmpOut
                             inEp = tmpIn
-                            log("宽松匹配成功 (index $i, sub=0x${iface.interfaceSubclass.toString(16)})")
+                            log(context.getString(R.string.fb_log_iface_loose, i, iface.interfaceSubclass.toString(16)))
                             break
                         }
                     }
@@ -294,7 +305,7 @@ class FastbootManager(
             }
 
             if (foundInterface == null || outEp == null || inEp == null) {
-                logError("未找到可用的USB接口(需要bulk IN+OUT端点)")
+                logError(context.getString(R.string.fb_log_no_iface))
                 conn.close()
                 return@withContext false
             }
@@ -302,7 +313,7 @@ class FastbootManager(
             // 4. 先释放再 claim（确保内核驱动完全脱离）
             try { conn.releaseInterface(foundInterface) } catch (_: Exception) {}
             if (!conn.claimInterface(foundInterface, true)) {
-                logError("claimInterface失败")
+                logError(context.getString(R.string.fb_log_claim_failed))
                 conn.close()
                 return@withContext false
             }
@@ -316,13 +327,13 @@ class FastbootManager(
                 endpointIn = inEp
             }
 
-            log("接口已获取")
+            log(context.getString(R.string.fb_log_iface_claimed))
             log("  iface: id=${foundInterface.id} alt=${foundInterface.alternateSetting}")
             log("  OUT: 0x${outEp.address.toString(16)} maxPkt=${outEp.maxPacketSize}")
             log("  IN:  0x${inEp.address.toString(16)} maxPkt=${inEp.maxPacketSize}")
 
             // 5. 尝试激活接口（兼容 TWRP 等非标准实现）
-            log("激活USB接口...")
+            log(context.getString(R.string.fb_log_activating))
             // 5a. SET_INTERFACE — 某些设备需要显式激活 alternate setting
             try {
                 val r1 = conn.controlTransfer(0x01, 0x0B,
@@ -341,7 +352,7 @@ class FastbootManager(
             delay(300)
 
             // 7. USB 设备 reset（唤醒设备的收发状态）
-            log("USB设备reset...")
+            log(context.getString(R.string.fb_log_device_reset))
             try {
                 // USB_RESET = 4 (ioctl)
                 // 通过 controlTransfer GET_STATUS 模拟设备唤醒
@@ -354,7 +365,7 @@ class FastbootManager(
                 )
                 log("  GET_STATUS result=$getStatusResult, data=${statusBuf.joinToString { "%02x".format(it) }}")
             } catch (e: Exception) {
-                log("  GET_STATUS 异常: ${e.message}")
+                log(context.getString(R.string.fb_log_getstatus_error, e.message ?: ""))
             }
             Thread.sleep(300)
 
@@ -364,31 +375,31 @@ class FastbootManager(
             Thread.sleep(200)
 
             // 9. 消费 IN 端点上可能残留的数据
-            log("清空IN端点缓冲区...")
+            log(context.getString(R.string.fb_log_clear_in))
             val drainBuf = ByteArray(512)
             while (true) {
                 val n = conn.bulkTransfer(inEp, drainBuf, 512, 100)
                 if (n <= 0) break
-                log("  清空了 $n 字节残留数据")
+                log(context.getString(R.string.fb_log_cleared_bytes, n))
             }
 
             // 10. 验证通信（失败则重新扫描设备后重试）
-            log("测试通信: getvar:product...")
+            log(context.getString(R.string.fb_log_test_comm))
             var testResp = trySendTestCommand(conn, outEp, inEp)
-            log("getvar:product → $testResp")
+            log("getvar:product → ${testResp.second}")
 
-            if (testResp.startsWith("失败") || testResp.startsWith("异常")) {
-                logError("通信失败: $testResp")
-                logError("请在电脑上测试: fastboot getvar product")
-                logError("如果电脑OK，可能是手机OTG/USB口问题")
+            if (!testResp.first) {
+                logError(context.getString(R.string.fb_log_comm_failed, testResp.second))
+                logError(context.getString(R.string.fb_log_test_on_pc))
+                logError(context.getString(R.string.fb_log_maybe_otg))
                 disconnect()
                 return@withContext false
             }
 
-            log("连接成功!")
+            log(context.getString(R.string.fb_log_connected))
             true
         } catch (e: Exception) {
-            logError("连接异常: ${e.message}")
+            logError(context.getString(R.string.fb_log_connect_exception, e.message ?: ""))
             false
         }
     }
@@ -418,46 +429,50 @@ class FastbootManager(
 
     private fun logError(msg: String) {
         Log.e(TAG, msg)
-        logCallback?.invoke("[错误] $msg")
+        logCallback?.invoke(context.getString(R.string.fb_log_error_prefix, msg))
     }
 
-    /** 直接发送测试命令（使用 UsbRequest 异步读取） */
+    /**
+     * 直接发送测试命令（使用 UsbRequest 异步读取）。
+     * 返回 `(是否成功, 展示文案)`：成功判定由 Boolean 承载，
+     * 文案仅供展示（可本地化），调用方不得再靠中文关键字判断成败。
+     */
     private fun trySendTestCommand(
         conn: UsbDeviceConnection, outEp: UsbEndpoint, inEp: UsbEndpoint
-    ): String {
+    ): Pair<Boolean, String> {
         return try {
             // 1. 发送命令
             val cmd = "getvar:product".toByteArray()
             val sent = conn.bulkTransfer(outEp, cmd, cmd.size, TIMEOUT_MS)
-            if (sent < 0) return "失败: 发送失败(sent=$sent)"
-            log("  test: 已发送 ${cmd.size} 字节")
+            if (sent < 0) return false to context.getString(R.string.fb_r_test_send_failed, sent)
+            log(context.getString(R.string.fb_log_test_sent, cmd.size))
 
             // 2. 读取响应（不加延迟，立即读取）
             val readBuf = ByteArray(4096)
             val bytesRead = usbRead(conn, inEp, readBuf, TIMEOUT_MS)
-            log("  test: usbRead返回 $bytesRead")
-            if (bytesRead < 4) return "失败: 响应太短 ($bytesRead 字节)"
+            log(context.getString(R.string.fb_log_test_read, bytesRead))
+            if (bytesRead < 4) return false to context.getString(R.string.fb_r_test_resp_short, bytesRead)
 
             val tag = String(readBuf, 0, 4)
-            log("  test: 收到标签 '$tag', 共 $bytesRead 字节")
+            log(context.getString(R.string.fb_log_test_tag, tag, bytesRead))
 
             return when (tag) {
                 "OKAY" -> {
                     val data = if (bytesRead > 4) String(readBuf, 4, bytesRead - 4).trim() else ""
-                    "OK: $data"
+                    true to "OK: $data"
                 }
                 "FAIL" -> {
                     val data = if (bytesRead > 4) String(readBuf, 4, bytesRead - 4).trim() else ""
-                    "失败: FAIL $data"
+                    false to context.getString(R.string.fb_r_test_fail, data)
                 }
                 "INFO" -> {
                     val info = if (bytesRead > 4) String(readBuf, 4, bytesRead - 4).trim() else ""
-                    "OK: (INFO: $info)"
+                    true to "OK: (INFO: $info)"
                 }
-                else -> "失败: 未知标签 '$tag'"
+                else -> false to context.getString(R.string.fb_r_test_unknown_tag, tag)
             }
         } catch (e: Exception) {
-            "异常: ${e.message}"
+            false to context.getString(R.string.fb_r_test_exception, e.message ?: "")
         }
     }
 
@@ -496,7 +511,7 @@ class FastbootManager(
      */
     private fun executeCommand(command: String): FastbootResponse {
         synchronized(usbLock) {
-            if (closed) return FastbootResponse.Error("连接已断开")
+            if (closed) return FastbootResponse.Error(context.getString(R.string.fb_r_disconnected))
             val conn = connection ?: return FastbootResponse.Error("Not connected")
             val outEp = endpointOut ?: return FastbootResponse.Error("No OUT endpoint")
             val inEp = endpointIn ?: return FastbootResponse.Error("No IN endpoint")
@@ -507,22 +522,22 @@ class FastbootManager(
             val cmdBytes = command.toByteArray()
             var sent = conn.bulkTransfer(outEp, cmdBytes, cmdBytes.size, TIMEOUT_MS)
             if (sent < 0 && !closed) {
-                log("发送失败(sent=$sent), 清除halt后重试...")
+                log(context.getString(R.string.fb_log_send_retry, sent))
                 clearEndpointHalt(conn, outEp)
                 clearEndpointHalt(conn, inEp)
                 Thread.sleep(300)
                 sent = conn.bulkTransfer(outEp, cmdBytes, cmdBytes.size, TIMEOUT_MS)
             }
             if (sent < 0) {
-                val reason = if (closed) "连接已断开" else "sent=$sent"
-                logError("发送命令失败: $command ($reason)")
-                return FastbootResponse.Error("发送命令失败 ($reason)")
+                val reason = if (closed) context.getString(R.string.fb_r_disconnected) else "sent=$sent"
+                logError(context.getString(R.string.fb_log_send_cmd_failed, command, reason))
+                return FastbootResponse.Error(context.getString(R.string.fb_r_send_cmd_failed, reason))
             }
-            log("  已发送 $sent 字节")
+            log(context.getString(R.string.fb_log_sent_bytes, sent))
 
             // 读取响应
             val resp = readResponse(conn, inEp)
-            log("  响应: $resp")
+            log(context.getString(R.string.fb_log_response, resp))
             return resp
         }
     }
@@ -589,7 +604,7 @@ class FastbootManager(
             val read = usbRead(conn, inEp, buf, TIMEOUT_MS)
             if (read < 4) {
                 Log.e(TAG, "readResponse: read=$read, closed=$closed")
-                return FastbootResponse.Error("读取响应失败 (read=$read)")
+                return FastbootResponse.Error(context.getString(R.string.fb_r_read_resp_failed, read))
             }
 
             val tag = String(buf, 0, 4)
@@ -607,7 +622,7 @@ class FastbootManager(
                     infoMessages.add(payload)
                     Log.d(TAG, "INFO: $payload")
                 }
-                else -> return FastbootResponse.Error("未知响应标签: $tag")
+                else -> return FastbootResponse.Error(context.getString(R.string.fb_r_unknown_resp_tag, tag))
             }
         }
     }
@@ -638,9 +653,9 @@ class FastbootManager(
     fun reboot(): String {
         val resp = executeCommand("reboot")
         return when (resp) {
-            is FastbootResponse.Okay -> "重启中..."
+            is FastbootResponse.Okay -> context.getString(R.string.fb_r_rebooting)
             is FastbootResponse.Error -> resp.message
-            else -> "已发送重启命令"
+            else -> context.getString(R.string.fb_r_reboot_sent)
         }
     }
 
@@ -650,9 +665,9 @@ class FastbootManager(
     fun rebootRecovery(): String {
         val resp = executeCommand("reboot-recovery")
         return when (resp) {
-            is FastbootResponse.Okay -> "重启到 Recovery..."
+            is FastbootResponse.Okay -> context.getString(R.string.fb_r_rebooting_recovery)
             is FastbootResponse.Error -> resp.message
-            else -> "已发送重启命令"
+            else -> context.getString(R.string.fb_r_reboot_sent)
         }
     }
 
@@ -662,9 +677,9 @@ class FastbootManager(
     fun rebootBootloader(): String {
         val resp = executeCommand("reboot-bootloader")
         return when (resp) {
-            is FastbootResponse.Okay -> "重启到 Bootloader..."
+            is FastbootResponse.Okay -> context.getString(R.string.fb_r_rebooting_bootloader)
             is FastbootResponse.Error -> resp.message
-            else -> "已发送重启命令"
+            else -> context.getString(R.string.fb_r_reboot_sent)
         }
     }
 
@@ -674,9 +689,9 @@ class FastbootManager(
     fun erase(partition: String): String {
         val resp = executeCommand("erase:$partition")
         return when (resp) {
-            is FastbootResponse.Okay -> "擦除 $partition 成功"
-            is FastbootResponse.Error -> "擦除失败: ${resp.message}"
-            else -> "擦除完成"
+            is FastbootResponse.Okay -> context.getString(R.string.fb_r_erase_ok, partition)
+            is FastbootResponse.Error -> context.getString(R.string.fb_r_erase_failed, resp.message)
+            else -> context.getString(R.string.fb_r_erase_done)
         }
     }
 
@@ -686,9 +701,9 @@ class FastbootManager(
     fun oem(command: String): String {
         val resp = executeCommand("oem $command")
         return when (resp) {
-            is FastbootResponse.Okay -> resp.data.ifEmpty { "OEM 命令执行成功" }
-            is FastbootResponse.Error -> "OEM 命令失败: ${resp.message}"
-            else -> "OEM 命令已执行"
+            is FastbootResponse.Okay -> resp.data.ifEmpty { context.getString(R.string.fb_r_oem_ok) }
+            is FastbootResponse.Error -> context.getString(R.string.fb_r_oem_failed, resp.message)
+            else -> context.getString(R.string.fb_r_oem_done)
         }
     }
 
@@ -697,13 +712,17 @@ class FastbootManager(
      * 协议流程: download <size> → DATA → 发送数据 → OKAY
      * @param progressCallback 进度回调 (0-100)
      */
-    fun flash(partition: String, data: ByteArray, progressCallback: ((Int) -> Unit)? = null): String {
-        log("刷入 $partition: ${data.size / 1024 / 1024}MB (${data.size} 字节)")
+    fun flash(partition: String, data: ByteArray, progressCallback: ((Int) -> Unit)? = null): Pair<Boolean, String> {
+        log(context.getString(R.string.fb_log_flashing, partition, data.size / 1024 / 1024, data.size))
         val sizeHex = String.format("%08x", data.size)
-        val result = downloadToDevice("download:$sizeHex", data, "刷入", progressCallback)
-        return when {
-            result.startsWith("OK:") -> "刷入 $partition 成功 (${data.size / 1024}KB)"
-            else -> result.replace("OK:", "刷入").replace("ERR:", "刷入失败:")
+        val result = downloadToDevice("download:$sizeHex", data, context.getString(R.string.fb_r_flash_op_name), progressCallback)
+        // 成败判据来自 ASCII 协议标记 "OK:"，与本地化文案无关；文案仅用于展示
+        return if (result.startsWith("OK:")) {
+            true to context.getString(R.string.fb_r_flash_ok, partition, data.size / 1024)
+        } else {
+            // "OK:"/"ERR:" 是 downloadToDevice 的 ASCII 协议标记，本地化时仍把它作为被替换对象
+            false to result.replace("OK:", context.getString(R.string.fb_r_flash_op_name))
+                .replace("ERR:", context.getString(R.string.fb_r_flash_failed_prefix))
         }
     }
 
@@ -803,9 +822,9 @@ class FastbootManager(
     fun flashingUnlock(): String {
         val resp = executeCommand("flashing unlock")
         return when (resp) {
-            is FastbootResponse.Okay -> "Bootloader 解锁成功"
-            is FastbootResponse.Error -> "解锁失败: ${resp.message}"
-            else -> "解锁命令已发送（设备可能需要确认）"
+            is FastbootResponse.Okay -> context.getString(R.string.fb_r_unlock_ok)
+            is FastbootResponse.Error -> context.getString(R.string.fb_r_unlock_failed, resp.message)
+            else -> context.getString(R.string.fb_r_unlock_sent)
         }
     }
 
@@ -816,9 +835,9 @@ class FastbootManager(
     fun flashingLock(): String {
         val resp = executeCommand("flashing lock")
         return when (resp) {
-            is FastbootResponse.Okay -> "Bootloader 已锁定"
-            is FastbootResponse.Error -> "锁定失败: ${resp.message}"
-            else -> "锁定命令已发送"
+            is FastbootResponse.Okay -> context.getString(R.string.fb_r_lock_ok)
+            is FastbootResponse.Error -> context.getString(R.string.fb_r_lock_failed, resp.message)
+            else -> context.getString(R.string.fb_r_lock_sent)
         }
     }
 
@@ -830,7 +849,7 @@ class FastbootManager(
     fun boot(data: ByteArray, progressCallback: ((Int) -> Unit)? = null): String {
         val result = downloadToDevice("boot", data, "boot", progressCallback)
         return when {
-            result.startsWith("OK:") -> "临时启动成功，设备正在重启..."
+            result.startsWith("OK:") -> context.getString(R.string.fb_r_tempboot_ok)
             else -> result
         }
     }
@@ -844,7 +863,7 @@ class FastbootManager(
         val sizeHex = String.format("%08x", data.size)
         val result = downloadToDevice("stage:$sizeHex", data, "stage", progressCallback)
         return when {
-            result.startsWith("OK:") -> "数据已上传到设备 (${data.size / 1024}KB)"
+            result.startsWith("OK:") -> context.getString(R.string.fb_r_stage_ok, data.size / 1024)
             else -> result
         }
     }
@@ -860,49 +879,49 @@ class FastbootManager(
         operationName: String,
         progressCallback: ((Int) -> Unit)? = null
     ): String = synchronized(usbLock) {
-        if (closed) return@synchronized "ERR: 连接已断开"
-        val conn = connection ?: return@synchronized "ERR: 未连接"
-        val outEp = endpointOut ?: return@synchronized "ERR: 无 OUT endpoint"
-        val inEp = endpointIn ?: return@synchronized "ERR: 无 IN endpoint"
+        if (closed) return@synchronized context.getString(R.string.fb_r_err_disconnected)
+        val conn = connection ?: return@synchronized context.getString(R.string.fb_r_err_not_connected)
+        val outEp = endpointOut ?: return@synchronized context.getString(R.string.fb_r_err_no_out_ep)
+        val inEp = endpointIn ?: return@synchronized context.getString(R.string.fb_r_err_no_in_ep)
 
         // 1. Send command
         val cmdBytes = command.toByteArray()
         val cmdSent = conn.bulkTransfer(outEp, cmdBytes, cmdBytes.size, TIMEOUT_MS)
-        log("$operationName 命令: sent=$cmdSent")
-        if (cmdSent < 0) return@synchronized "ERR: 发送命令失败"
+        log(context.getString(R.string.fb_log_cmd_sent, operationName, cmdSent))
+        if (cmdSent < 0) return@synchronized context.getString(R.string.fb_r_err_send_failed)
         Thread.sleep(50)
 
         // 2. Read DATA response
         val resp = readResponse(conn, inEp)
-        log("DATA响应: $resp")
+        log(context.getString(R.string.fb_log_data_response, resp))
         if (resp !is FastbootResponse.DataReady) {
-            return@synchronized "ERR: ${operationName}请求被拒绝: ${(resp as? FastbootResponse.Error)?.message ?: "未知错误"}"
+            return@synchronized context.getString(R.string.fb_r_err_request_rejected, operationName, (resp as? FastbootResponse.Error)?.message ?: context.getString(R.string.unknown_error))
         }
         Thread.sleep(200) // Wait for device to prepare receive buffer
 
         // 3. Send data in chunks
-        log("开始传输数据 (${data.size} 字节)...")
+        log(context.getString(R.string.fb_log_transfer_start, data.size))
         var offset = 0
         while (offset < data.size) {
-            if (closed) return@synchronized "ERR: 传输中断"
+            if (closed) return@synchronized context.getString(R.string.fb_r_err_transfer_aborted)
             val len = minOf(FLASH_CHUNK_SIZE, data.size - offset)
             var sent = conn.bulkTransfer(outEp, data, offset, len, TIMEOUT_MS * 3)
             if (sent < 0 && len > 4096) {
-                log("大块传输失败(len=$len), 尝试小块(4096)...")
+                log(context.getString(R.string.fb_log_chunk_retry, len))
                 sent = conn.bulkTransfer(outEp, data, offset, 4096, TIMEOUT_MS * 3)
             }
             if (sent < 0) {
-                logError("传输失败: offset=$offset/${data.size}")
-                return@synchronized "ERR: 数据传输失败 (offset=$offset)"
+                logError(context.getString(R.string.fb_log_transfer_failed, offset, data.size))
+                return@synchronized context.getString(R.string.fb_r_err_transfer_failed, offset)
             }
             offset += sent
             progressCallback?.invoke((offset.toLong() * 100 / data.size).toInt())
         }
-        log("数据传输完成: $offset 字节")
+        log(context.getString(R.string.fb_log_transfer_done, offset))
 
         // 4. Read final response
         val finalResp = readResponse(conn, inEp)
-        log("最终响应: $finalResp")
+        log(context.getString(R.string.fb_log_final_response, finalResp))
         when (finalResp) {
             is FastbootResponse.Okay -> {
                 progressCallback?.invoke(100)
@@ -920,10 +939,10 @@ class FastbootManager(
      */
     fun fetch(): Pair<String, ByteArray?> {
     synchronized(usbLock) {
-        if (closed) return "连接已断开" to null
-        val conn = connection ?: return "未连接" to null
-        val outEp = endpointOut ?: return "无 OUT endpoint" to null
-        val inEp = endpointIn ?: return "无 IN endpoint" to null
+        if (closed) return context.getString(R.string.fb_r_disconnected) to null
+        val conn = connection ?: return context.getString(R.string.fb_r_not_connected) to null
+        val outEp = endpointOut ?: return context.getString(R.string.fb_r_no_out_ep) to null
+        val inEp = endpointIn ?: return context.getString(R.string.fb_r_no_in_ep) to null
 
         Log.d(TAG, ">>> fetch")
         val cmdBytes = "fetch".toByteArray()
@@ -933,7 +952,7 @@ class FastbootManager(
         // 读取 DATA 响应
         val resp = readResponse(conn, inEp)
         if (resp !is FastbootResponse.DataReady) {
-            val msg = (resp as? FastbootResponse.Error)?.message ?: "fetch 请求被拒绝"
+            val msg = (resp as? FastbootResponse.Error)?.message ?: context.getString(R.string.fb_r_fetch_rejected)
             return msg to null
         }
 
@@ -946,7 +965,7 @@ class FastbootManager(
             val toRead = minOf(FLASH_CHUNK_SIZE, dataSize - totalRead)
             val chunk = ByteArray(toRead)
             val n = usbRead(conn, inEp, chunk, TIMEOUT_MS * 3)
-            if (n < 0) return "数据接收失败 (offset=$totalRead)" to null
+            if (n < 0) return context.getString(R.string.fb_r_recv_failed, totalRead) to null
             System.arraycopy(chunk, 0, buffer, totalRead, n)
             totalRead += n
         }
@@ -954,7 +973,7 @@ class FastbootManager(
         // 读取最终 OKAY
         readResponse(conn, inEp)
         Log.d(TAG, "fetch: received $totalRead bytes")
-        return "数据下载成功 (${totalRead / 1024}KB)" to buffer
+        return context.getString(R.string.fb_r_download_ok, totalRead / 1024) to buffer
     }
     }
 

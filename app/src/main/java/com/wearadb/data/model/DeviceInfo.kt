@@ -9,8 +9,8 @@ data class DeviceInfo(
     val buildId: String = "",
     val fingerprint: String = "",
     val batteryLevel: Int = -1,
-    val batteryStatus: String = "",
-    val batteryHealth: String = "",
+    val batteryStatusCode: Int = -1,  // BatteryManager.BATTERY_STATUS_* 原始码，-1 = 未解析到；文案由 UI 层按 code 走多语言
+    val batteryHealthCode: Int = -1,  // BatteryManager.BATTERY_HEALTH_* 原始码，-1 = 未解析到
     val batteryTechnology: String = "",
     val batteryDesignCapacity: Int = 0,  // 设计容量 mAh
     val batteryCurrentCapacity: Int = 0, // 当前容量 mAh

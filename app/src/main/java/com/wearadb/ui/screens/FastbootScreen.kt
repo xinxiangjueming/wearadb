@@ -65,11 +65,12 @@ fun FastbootScreen(
     LaunchedEffect(Unit) {
         viewModel.result.collect { msg ->
             resultMessage = msg
-            // 刷入成功后弹出重启确认
-            if (msg.contains("成功") && msg.contains("刷入")) {
-                showRebootDialog = true
-            }
         }
+    }
+
+    // 刷入成功 → 弹出重启确认（结构化信号，不再解析文案关键字）
+    LaunchedEffect(Unit) {
+        viewModel.flashDone.collect { showRebootDialog = true }
     }
 
     // 进入页面自动扫描
@@ -713,7 +714,8 @@ private fun ConnectLogCard(
 ) {
     val colors = WearAdbTheme.colors
     val s = LocalStrings.current
-    val hasError = log.contains("[错误]") || log.contains("失败")
+    // 错误行标记恒为 ASCII 的 "[ERROR] "（三语一致，属机器标记非文案），故可稳定判定
+    val hasError = log.contains("[ERROR]")
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -756,7 +758,10 @@ private fun ResultCard(
 ) {
     val colors = WearAdbTheme.colors
     val s = LocalStrings.current
-    val isError = message.contains("失败") || message.contains("错误") || message.contains("Error")
+    // 注意：fastboot 各操作目前仍返回文案字符串，尚无结构化成败标记，
+    // 故此处用「中英文错误关键字」兜底（不再是纯中文判据，文案本地化后仍能命中）。
+    // 待 fastboot 各操作统一返回 (Boolean, String) 后，isError 应由调用方显式传入并删掉本判据。
+    val isError = listOf("失败", "错误", "Error", "error", "Failed", "failed").any { message.contains(it) }
     val bgColor = if (isError) colors.error.copy(alpha = 0.1f) else colors.accent.copy(alpha = 0.1f)
     val borderColor = if (isError) colors.error.copy(alpha = 0.3f) else colors.accent.copy(alpha = 0.3f)
     val textColor = if (isError) colors.error else colors.onSurface

@@ -136,13 +136,13 @@ fun PairingScreen(
             is PairingState.Error -> {
                 val specificTip = when {
                     state.message.contains("ECONNABORTED") ->
-                        "连接被目标设备中断，通常是以下原因：\n• 端口不是「配对用配对码」弹窗中的端口\n• 配对码已过期（需重新打开配对弹窗获取新码）\n• 目标设备无线调试服务已重启"
+                        s.pairTipAborted
                     state.message.contains("ECONNREFUSED") ->
-                        "目标设备拒绝连接，请确认无线调试已开启"
+                        s.pairTipRefused
                     state.message.contains("ETIMEDOUT") || state.message.contains("timed out") ->
-                        "连接超时，请确认手机和目标设备在同一 WiFi 网络下"
+                        s.pairTipTimeout
                     state.message.contains("ENETUNREACH") || state.message.contains("Host is unreachable") ->
-                        "无法到达目标设备，请确认 IP 地址正确且在同一局域网"
+                        s.pairTipUnreachable
                     else -> null
                 }
                 WearCard {

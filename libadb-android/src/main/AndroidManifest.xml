@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later OR Apache-2.0 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 与原 AAR 的 manifest 等价（原文件另含 minSdkVersion=1，此处由 build.gradle.kts 的 minSdk 接管） -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+</manifest>

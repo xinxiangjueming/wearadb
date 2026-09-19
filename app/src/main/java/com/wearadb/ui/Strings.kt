@@ -104,6 +104,17 @@ data class DeviceInfoStrings(
     val infoHealth: String,
     val infoBatteryLevel: String,
     val infoBatteryStatus: String,
+    val batteryStatusCharging: String,
+    val batteryStatusDischarging: String,
+    val batteryStatusFull: String,
+    val batteryStatusUnknown: String,
+    val batteryHealthGood: String,
+    val batteryHealthOverheat: String,
+    val batteryHealthDead: String,
+    val batteryHealthOverVoltage: String,
+    val batteryHealthFailure: String,
+    val batteryHealthCold: String,
+    val infoAndroidVersion: String,
     val infoVoltage: String,
     val infoTemperature: String,
     val infoChipPlatform: String,
@@ -153,6 +164,8 @@ data class AdvancedOpsStrings(
     val screenshotSuccess: String,
     val screenshotFailed: String,
     val screenshotSave: String,
+    val opsRecoveryMode: String,
+    val opsBootloaderMode: String,
 )
 
 @Immutable
@@ -204,6 +217,10 @@ data class PairingStrings(
     val pairTip4: String,
     val btnRetry: String,
     val manualConnectTitle: String,
+    val pairTipAborted: String,
+    val pairTipRefused: String,
+    val pairTipTimeout: String,
+    val pairTipUnreachable: String,
 )
 
 @Immutable
@@ -233,6 +250,9 @@ data class AppsStrings(
     val appsExtractNoPath: String,
     val appsExtractFailed: (String) -> String,
     val appsPickerTimeout: String,
+    val appsReadApksFailed: String,
+    val appsReadApkFailed: String,
+    val installException: (String) -> String,
 )
 
 @Immutable
@@ -250,6 +270,12 @@ data class FilesStrings(
     val filesActionDelete: String,
     val filesContentTitle: String,
     val filesContentTooLong: (Int, Int) -> String,
+    val filesSaved: (String, String) -> String,
+    val filesSaveFailed: (String) -> String,
+    val filesPushing: (String) -> String,
+    val filesPushFailed: (String) -> String,
+    val filesPullFailed: (String) -> String,
+    val filesNoApkInApks: String,
 )
 
 @Immutable
@@ -440,6 +466,42 @@ class Strings(
     val infoHealth get() = deviceInfo.infoHealth
     val infoBatteryLevel get() = deviceInfo.infoBatteryLevel
     val infoBatteryStatus get() = deviceInfo.infoBatteryStatus
+    val batteryStatusCharging get() = deviceInfo.batteryStatusCharging
+    val batteryStatusDischarging get() = deviceInfo.batteryStatusDischarging
+    val batteryStatusFull get() = deviceInfo.batteryStatusFull
+    val batteryStatusUnknown get() = deviceInfo.batteryStatusUnknown
+    val batteryHealthGood get() = deviceInfo.batteryHealthGood
+    val batteryHealthOverheat get() = deviceInfo.batteryHealthOverheat
+    val batteryHealthDead get() = deviceInfo.batteryHealthDead
+    val batteryHealthOverVoltage get() = deviceInfo.batteryHealthOverVoltage
+    val batteryHealthFailure get() = deviceInfo.batteryHealthFailure
+    val batteryHealthCold get() = deviceInfo.batteryHealthCold
+    val infoAndroidVersion get() = deviceInfo.infoAndroidVersion
+
+    /**
+     * BatteryManager.BATTERY_HEALTH_* 原始码 → 多语言文案。
+     * 返回空串表示该状态不单独展示（-1 未解析到 / 1 UNKNOWN），调用方据此隐藏整行。
+     */
+    fun batteryHealthText(code: Int): String = when (code) {
+        2 -> batteryHealthGood        // GOOD
+        3 -> batteryHealthOverheat    // OVERHEAT
+        4 -> batteryHealthDead        // DEAD
+        5 -> batteryHealthOverVoltage // OVER_VOLTAGE
+        6 -> batteryHealthFailure     // UNSPECIFIED_FAILURE
+        7 -> batteryHealthCold        // COLD
+        else -> ""
+    }
+
+    /**
+     * BatteryManager.BATTERY_STATUS_* 原始码 → 多语言文案。
+     * 未识别的状态（-1 / 1 UNKNOWN / 4 NOT_CHARGING）沿用"未知"，与改版前行为一致。
+     */
+    fun batteryStatusText(code: Int): String = when (code) {
+        2 -> batteryStatusCharging    // CHARGING
+        3 -> batteryStatusDischarging // DISCHARGING
+        5 -> batteryStatusFull        // FULL
+        else -> batteryStatusUnknown
+    }
     val infoVoltage get() = deviceInfo.infoVoltage
     val infoTemperature get() = deviceInfo.infoTemperature
     val infoChipPlatform get() = deviceInfo.infoChipPlatform
@@ -486,6 +548,8 @@ class Strings(
     val screenshotSuccess get() = advanced.screenshotSuccess
     val screenshotFailed get() = advanced.screenshotFailed
     val screenshotSave get() = advanced.screenshotSave
+    val opsRecoveryMode get() = advanced.opsRecoveryMode
+    val opsBootloaderMode get() = advanced.opsBootloaderMode
     // ScreenMirrorScreen（B1 有线投屏）
     val mirrorTitle get() = mirror.mirrorTitle
     val mirrorStatusIdle get() = mirror.mirrorStatusIdle
@@ -531,6 +595,10 @@ class Strings(
     val pairTip4 get() = pairing.pairTip4
     val btnRetry get() = pairing.btnRetry
     val manualConnectTitle get() = pairing.manualConnectTitle
+    val pairTipAborted get() = pairing.pairTipAborted
+    val pairTipRefused get() = pairing.pairTipRefused
+    val pairTipTimeout get() = pairing.pairTipTimeout
+    val pairTipUnreachable get() = pairing.pairTipUnreachable
     // AppsScreen
     val appsTitle get() = apps.appsTitle
     val appsInstallApk get() = apps.appsInstallApk
@@ -557,6 +625,9 @@ class Strings(
     val appsExtractNoPath get() = apps.appsExtractNoPath
     val appsExtractFailed get() = apps.appsExtractFailed
     val appsPickerTimeout get() = apps.appsPickerTimeout
+    val appsReadApksFailed get() = apps.appsReadApksFailed
+    val appsReadApkFailed get() = apps.appsReadApkFailed
+    val installException get() = apps.installException
     // FilesScreen
     val filesTitle get() = files.filesTitle
     val filesPushHint get() = files.filesPushHint
@@ -571,6 +642,12 @@ class Strings(
     val filesActionDelete get() = files.filesActionDelete
     val filesContentTitle get() = files.filesContentTitle
     val filesContentTooLong get() = files.filesContentTooLong
+    val filesSaved get() = files.filesSaved
+    val filesSaveFailed get() = files.filesSaveFailed
+    val filesPushing get() = files.filesPushing
+    val filesPushFailed get() = files.filesPushFailed
+    val filesPullFailed get() = files.filesPullFailed
+    val filesNoApkInApks get() = files.filesNoApkInApks
     // DiscoveryScreen
     val discoveryTitle get() = discovery.discoveryTitle
     val discoveryScanning get() = discovery.discoveryScanning
@@ -759,6 +836,17 @@ private fun rememberDeviceInfoStrings() = DeviceInfoStrings(
     infoHealth = stringResource(R.string.info_health),
     infoBatteryLevel = stringResource(R.string.info_battery_level),
     infoBatteryStatus = stringResource(R.string.info_battery_status),
+    batteryStatusCharging = stringResource(R.string.battery_status_charging),
+    batteryStatusDischarging = stringResource(R.string.battery_status_discharging),
+    batteryStatusFull = stringResource(R.string.battery_status_full),
+    batteryStatusUnknown = stringResource(R.string.battery_status_unknown),
+    batteryHealthGood = stringResource(R.string.battery_health_good),
+    batteryHealthOverheat = stringResource(R.string.battery_health_overheat),
+    batteryHealthDead = stringResource(R.string.battery_health_dead),
+    batteryHealthOverVoltage = stringResource(R.string.battery_health_over_voltage),
+    batteryHealthFailure = stringResource(R.string.battery_health_failure),
+    batteryHealthCold = stringResource(R.string.battery_health_cold),
+    infoAndroidVersion = stringResource(R.string.info_android_version),
     infoVoltage = stringResource(R.string.info_voltage),
     infoTemperature = stringResource(R.string.info_temperature),
     infoChipPlatform = stringResource(R.string.info_chip_platform),
@@ -808,6 +896,8 @@ private fun rememberAdvancedOpsStrings() = AdvancedOpsStrings(
     screenshotSuccess = stringResource(R.string.screenshot_success),
     screenshotFailed = stringResource(R.string.screenshot_failed),
     screenshotSave = stringResource(R.string.screenshot_save),
+    opsRecoveryMode = stringResource(R.string.ops_recovery_mode),
+    opsBootloaderMode = stringResource(R.string.ops_bootloader_mode),
 )
 
 @Composable
@@ -863,6 +953,10 @@ private fun rememberPairingStrings() = PairingStrings(
     pairTip4 = stringResource(R.string.pair_tip4),
     btnRetry = stringResource(R.string.btn_retry),
     manualConnectTitle = stringResource(R.string.manual_connect_title),
+    pairTipAborted = stringResource(R.string.pair_tip_aborted),
+    pairTipRefused = stringResource(R.string.pair_tip_refused),
+    pairTipTimeout = stringResource(R.string.pair_tip_timeout),
+    pairTipUnreachable = stringResource(R.string.pair_tip_unreachable),
 )
 
 @Composable
@@ -892,6 +986,9 @@ private fun rememberAppsStrings() = AppsStrings(
     appsExtractNoPath = stringResource(R.string.apps_extract_no_path),
     appsExtractFailed = run { val f = stringResource(R.string.apps_extract_failed); { n: String -> f.format(n) } },
     appsPickerTimeout = stringResource(R.string.apps_picker_timeout),
+    appsReadApksFailed = stringResource(R.string.apps_read_apks_failed),
+    appsReadApkFailed = stringResource(R.string.apps_read_apk_failed),
+    installException = run { val f = stringResource(R.string.install_exception); { m: String -> f.format(m) } },
 )
 
 @Composable
@@ -909,6 +1006,12 @@ private fun rememberFilesStrings() = FilesStrings(
     filesActionDelete = stringResource(R.string.files_action_delete),
     filesContentTitle = stringResource(R.string.files_content_title),
     filesContentTooLong = run { val f = stringResource(R.string.files_content_too_long); { shown: Int, total: Int -> f.format(shown, total) } },
+    filesSaved = run { val f = stringResource(R.string.files_saved); { name: String, size: String -> f.format(name, size) } },
+    filesSaveFailed = run { val f = stringResource(R.string.files_save_failed); { m: String -> f.format(m) } },
+    filesPushing = run { val f = stringResource(R.string.files_pushing); { n: String -> f.format(n) } },
+    filesPushFailed = run { val f = stringResource(R.string.files_push_failed); { m: String -> f.format(m) } },
+    filesPullFailed = run { val f = stringResource(R.string.msg_pull_failed); { m: String -> f.format(m) } },
+    filesNoApkInApks = stringResource(R.string.files_no_apk_in_apks),
 )
 
 @Composable

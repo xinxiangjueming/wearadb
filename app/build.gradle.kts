@@ -90,10 +90,11 @@ dependencies {
     // DataStore
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
-    // ADB 协议库 (替代手写的 ADB 协议层)
-    implementation("com.github.MuntashirAkon:libadb-android:3.1.1") {
-        exclude(group = "org.bouncycastle", module = "bcprov-jdk15to18")
-    }
+    // ADB 协议库：改用本地化模块（libadb-android/，源码 = 上游 3.1.1 + generateOpen 修复）。
+    // 原 Maven 依赖 com.github.MuntashirAkon:libadb-android:3.1.1 的 AdbProtocol.generateOpen()
+    // 按字符数分配 A_OPEN 缓冲区却写入 UTF-8 字节 → 命令含非 ASCII（中文文件名/路径）时
+    // 在发包前抛 BufferOverflowException（上游 issue #25，3.1.1 未修）。
+    implementation(project(":libadb-android"))
 
     // Conscrypt (独立版, libadb-android 配对需要 exportKeyingMaterial API)
     implementation("org.conscrypt:conscrypt-android:2.5.3")

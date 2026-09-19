@@ -34,20 +34,23 @@ object AdbOutputParser {
             .firstOrNull { it.contains("level:") }
         val batteryLevel = batteryLine
             ?.substringAfter("level:")?.substringBefore(",")?.trim()?.toIntOrNull() ?: -1
-        val batteryStatus = when {
-            output.contains("status: 2") -> "充电中"
-            output.contains("status: 3") -> "未充电"
-            output.contains("status: 5") -> "充满"
-            else -> "未知"
+        // 此处只产出 BatteryManager.BATTERY_STATUS_* / BATTERY_HEALTH_* 的原始码（-1 = 未解析到）。
+        // 文案不再于数据层拼中文，统一交给 UI 层 Strings.batteryStatusText / batteryHealthText
+        // 按 code 走 stringResource，否则英文 / 繁体界面会出现半英半中的串味。
+        val batteryStatusCode = when {
+            output.contains("status: 2") -> 2
+            output.contains("status: 3") -> 3
+            output.contains("status: 5") -> 5
+            else -> -1
         }
-        val batteryHealth = when {
-            output.contains("health: 2") -> "良好"
-            output.contains("health: 3") -> "过热"
-            output.contains("health: 4") -> "已损坏"
-            output.contains("health: 5") -> "过压"
-            output.contains("health: 6") -> "未知故障"
-            output.contains("health: 7") -> "低温"
-            else -> ""
+        val batteryHealthCode = when {
+            output.contains("health: 2") -> 2
+            output.contains("health: 3") -> 3
+            output.contains("health: 4") -> 4
+            output.contains("health: 5") -> 5
+            output.contains("health: 6") -> 6
+            output.contains("health: 7") -> 7
+            else -> -1
         }
         val batteryTechnology = output.lineSequence()
             .firstOrNull { it.trim().startsWith("technology:") }
@@ -155,8 +158,8 @@ object AdbOutputParser {
             abi = props["ro.product.cpu.abi"] ?: "",
             serialno = props["ro.serialno"] ?: "",
             batteryLevel = batteryLevel,
-            batteryStatus = batteryStatus,
-            batteryHealth = batteryHealth,
+            batteryStatusCode = batteryStatusCode,
+            batteryHealthCode = batteryHealthCode,
             batteryTechnology = batteryTechnology,
             batteryDesignCapacity = batteryDesignCapacity,
             batteryCurrentCapacity = batteryCurrentCapacity,
@@ -354,6 +357,12 @@ object AdbOutputParser {
                         name = recovered
                     }
                 }
+                // toybox 的 ls 在 **stdout 不是 TTY** 时（无线通道用的 raw `exec:` 正是如此）会把
+                // 文件名里的空格写成 `\ `、反斜杠写成 `\\`（PTY/`shell:` 通道不转义）。不还原的话
+                // FileEntry.name/path 会带着反斜杠进 UI，而且后续 rm/cat 能否成功完全取决于
+                // 接收端 shell 会不会把 `\ ` 还原回去 —— 换个通道或实现就坏，必须在这里还原。
+                // 实测 toybox 0.8.12-android 只转义这两种序列（[ ] $ ' " * ? ; | & ( ) 等一律不动）。
+                name = unescapeLsQuoting(name)
                 FileEntry(
                     name = name,
                     path = if (basePath.endsWith("/")) "$basePath$name" else "$basePath/$name",
@@ -367,6 +376,37 @@ object AdbOutputParser {
             // LazyColumn 按 path 作 key，重复即崩，这里保证唯一。
             .distinctBy { it.path }
             .sortedWith(compareByDescending<FileEntry> { it.isDirectory }.thenBy { it.name })
+    }
+
+    /**
+     * 还原设备端 `ls` 在非 TTY（raw `exec:` 通道）下对文件名的转义。
+     *
+     * 实测 toybox 0.8.12-android（手机 Android 15 + 手表 Wear 一致）只会转义两种序列：
+     *   空格 → `\ `（`a b` 显示为 `a\ b`，` a` 显示为 `\ a`）
+     *   反斜杠 → `\\`（`a\b` 显示为 `a\\b`）
+     * 方括号、`$`、引号、`*`、`?`、`;`、`|`、`&`、`(`、`)`、`{}`、`~`、`#` 等一律原样输出。
+     * 控制字符走 C 风格转义（制表符 `\t`、0x01 → `\001`、ESC → `\e`）。
+     *
+     * 这里**保守处理**：只还原 `\ ` 与 `\\`，其它 `\X` 原样保留 —— 保证不会把合法文件名改错；
+     * 带控制字符的文件名极罕见，维持现状（其 `\t` 等仍会原样显示）。
+     */
+    private fun unescapeLsQuoting(raw: String): String {
+        if (!raw.contains('\\')) return raw
+        val sb = StringBuilder(raw.length)
+        var i = 0
+        while (i < raw.length) {
+            val ch = raw[i]
+            if (ch == '\\' && i + 1 < raw.length) {
+                when (raw[i + 1]) {
+                    ' ' -> { sb.append(' '); i += 2 }        // `\ ` → 空格
+                    '\\' -> { sb.append('\\'); i += 2 }      // `\\` → 反斜杠
+                    else -> { sb.append(ch).append(raw[i + 1]); i += 2 }  // 其它 \X 原样保留
+                }
+            } else {
+                sb.append(ch); i++
+            }
+        }
+        return sb.toString()
     }
 
     fun parseDiskUsage(output: String): String {

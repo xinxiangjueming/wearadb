@@ -95,6 +95,17 @@
     <string name="info_health">健康狀態</string>
     <string name="info_battery_level">電量</string>
     <string name="info_battery_status">狀態</string>
+    <string name="battery_status_charging">充電中</string>
+    <string name="battery_status_discharging">未充電</string>
+    <string name="battery_status_full">已充滿</string>
+    <string name="battery_status_unknown">未知</string>
+    <string name="battery_health_good">良好</string>
+    <string name="battery_health_overheat">過熱</string>
+    <string name="battery_health_dead">已損壞</string>
+    <string name="battery_health_over_voltage">過電壓</string>
+    <string name="battery_health_failure">未知故障</string>
+    <string name="battery_health_cold">低溫</string>
+    <string name="info_android_version">Android 版本</string>
     <string name="info_voltage">電壓</string>
     <string name="info_temperature">溫度</string>
     <string name="info_chip_platform">晶片平台</string>
@@ -325,5 +336,234 @@
     <string name="mirror_key_vol_up">音量+</string>
     <string name="mirror_key_vol_down">音量-</string>
     <string name="mirror_options">設定</string>
+
+    <string name="msg_pull_failed">拉取失敗: %1$s</string>
+    <string name="shell_executing">執行中…</string>
+    <string name="shell_no_output">(無輸出)</string>
+    <string name="shell_exec_failed">執行失敗: %1$s</string>
+    <string name="install_progress_split">正在安裝 Split APK (%1$d 個檔案)…</string>
+    <string name="install_parsing_apks">正在解析 .apks…</string>
+    <string name="install_exception">安裝異常: %1$s</string>
+    <string name="extract_reason_mkdir">無法建立目錄</string>
+    <string name="extract_reason_mkdir_path">無法建立目錄: %1$s</string>
+    <string name="extract_write_empty">寫入為空</string>
+    <string name="files_saved">已儲存: %1$s (%2$s)</string>
+    <string name="files_save_failed">儲存失敗: %1$s</string>
+    <string name="files_pushing">正在推送 %1$s…</string>
+    <string name="files_push_failed">推送失敗: %1$s</string>
+    <string name="files_no_apk_in_apks">⚠️ .apks 檔案中未找到 APK</string>
+    <string name="apps_read_apks_failed">讀取 .apks 失敗</string>
+    <string name="apps_read_apk_failed">讀取 APK 失敗</string>
+    <string name="ops_recovery_mode">Recovery 模式</string>
+    <string name="ops_bootloader_mode">Bootloader 模式</string>
+    <string name="mirror_err_push_server">推送 scrcpy-server.jar 失敗</string>
+    <string name="mirror_err_connect_server">連接 scrcpy-server 失敗（server 未就緒或不支援）</string>
+    <string name="mirror_err_connect_control">連接 scrcpy-server 控制通道失敗</string>
+    <string name="mirror_err_video_disabled">裝置已停用影片串流</string>
+    <string name="mirror_err_video_config">裝置影片設定錯誤</string>
+    <string name="mirror_err_codec_unsupported">不支援的編碼: 0x%1$08X</string>
+    <string name="mirror_err_size_invalid">非法影片尺寸 %1$dx%2$d</string>
+    <string name="mirror_err_length_invalid">非法封包長度: %1$d</string>
+    <string name="mirror_err_decoder_init">解碼器初始化失敗</string>
+    <string name="mirror_err_interrupted">螢幕投放中斷: %1$s</string>
+    <string name="mirror_err_link_lost">連線已中斷（鏈路失效或裝置拔出）</string>
+    <string name="fb_connect_failed_detail">連線失敗: 請檢查手機是否彈出USB權限對話框並點擊允許。如果沒有彈窗，試著拔掉USB線重新插入後再連線。查看Logcat(FastbootManager)可取得詳細日誌。</string>
+    <string name="fb_connect_exception">連線異常: %1$s</string>
+    <string name="fb_getvar_failed">取得裝置資訊失敗: %1$s</string>
+    <string name="pair_tip_aborted">連線被目標裝置中斷，通常是以下原因：\n• 埠號不是「配對用配對碼」彈窗中的埠號\n• 配對碼已過期（需重新開啟配對彈窗取得新碼）\n• 目標裝置的無線偵錯服務已重啟</string>
+    <string name="pair_tip_refused">目標裝置拒絕連線，請確認無線偵錯已開啟</string>
+    <string name="pair_tip_timeout">連線逾時，請確認手機和目標裝置在同一 WiFi 網路下</string>
+    <string name="pair_tip_unreachable">無法連上目標裝置，請確認 IP 位址正確且在同一區域網路</string>
+
+    <string name="fb_log_connecting">連接 %1$s…</string>
+    <string name="fb_log_iface">介面[%1$d]: class=0x%2$s sub=0x%3$s proto=0x%4$s 端點=%5$d</string>
+    <string name="fb_log_open_device">開啟裝置: hasPermission=%1$s</string>
+    <string name="fb_log_need_permission">需要USB權限，正在請求…</string>
+    <string name="fb_log_permission_ok">權限取得成功 (%1$dms)</string>
+    <string name="fb_log_permission_ok_broadcast">權限取得成功(廣播)</string>
+    <string name="fb_log_permission_timeout">權限逾時, hasPermission=%1$s</string>
+    <string name="fb_log_authorized_open">裝置已授權，直接開啟成功</string>
+    <string name="fb_log_finding_iface">尋找fastboot介面…</string>
+    <string name="fb_log_iface_std">找到標準fastboot介面 (index %1$d)</string>
+    <string name="fb_log_iface_std_miss">標準比對未命中，改用寬鬆比對…</string>
+    <string name="fb_log_iface_loose">寬鬆比對成功 (index %1$d, sub=0x%2$s)</string>
+    <string name="fb_log_no_iface">找不到可用的USB介面(需要bulk IN+OUT端點)</string>
+    <string name="fb_log_claim_failed">claimInterface失敗</string>
+    <string name="fb_log_iface_claimed">介面已取得</string>
+    <string name="fb_log_activating">啟用USB介面…</string>
+    <string name="fb_log_device_reset">USB裝置reset…</string>
+    <string name="fb_log_getstatus_error">GET_STATUS 異常: %1$s</string>
+    <string name="fb_log_clear_in">清空IN端點緩衝區…</string>
+    <string name="fb_log_cleared_bytes">已清空 %1$d 位元組殘留資料</string>
+    <string name="fb_log_test_comm">測試通訊: getvar:product…</string>
+    <string name="fb_log_comm_failed">通訊失敗: %1$s</string>
+    <string name="fb_log_test_on_pc">請在電腦上測試: fastboot getvar product</string>
+    <string name="fb_log_maybe_otg">如果電腦OK，可能是手機OTG/USB孔的問題</string>
+    <string name="fb_log_connected">連線成功!</string>
+    <string name="fb_log_connect_exception">連線異常: %1$s</string>
+    <string name="fb_log_test_sent">test: 已傳送 %1$d 位元組</string>
+    <string name="fb_log_test_read">test: usbRead回傳 %1$d</string>
+    <string name="fb_log_test_tag">test: 收到標籤 \'%1$s\'，共 %2$d 位元組</string>
+    <string name="fb_log_send_retry">傳送失敗(sent=%1$d)，清除halt後重試…</string>
+    <string name="fb_log_send_cmd_failed">傳送命令失敗: %1$s (%2$s)</string>
+    <string name="fb_log_sent_bytes">已傳送 %1$d 位元組</string>
+    <string name="fb_log_response">回應: %1$s</string>
+    <string name="fb_log_flashing">刷入 %1$s: %2$dMB (%3$d 位元組)</string>
+    <string name="fb_log_cmd_sent">%1$s 命令: sent=%2$d</string>
+    <string name="fb_log_data_response">DATA回應: %1$s</string>
+    <string name="fb_log_transfer_start">開始傳輸資料 (%1$d 位元組)…</string>
+    <string name="fb_log_chunk_retry">大區塊傳輸失敗(len=%1$d)，改試小區塊(4096)…</string>
+    <string name="fb_log_transfer_failed">傳輸失敗: offset=%1$d/%2$d</string>
+    <string name="fb_log_transfer_done">資料傳輸完成: %1$d 位元組</string>
+    <string name="fb_log_final_response">最終回應: %1$s</string>
+    <string name="fb_log_error_prefix">[ERROR] %1$s</string>
+
+    <string name="op_not_connected">未連線</string>
+    <string name="usb_msg_not_connected">USB 未連線</string>
+    <string name="op_exec_failed">執行失敗: %1$s</string>
+    <string name="push_success">推送成功: %1$s</string>
+    <string name="push_failed">推送失敗</string>
+    <string name="push_done">推送完成</string>
+    <string name="push_exception">推送異常: %1$s</string>
+    <string name="push_failed_with">推送失敗: %1$s</string>
+    <string name="push_failed_name">推送失敗 (%1$s): %2$s</string>
+    <string name="install_ok">安裝成功</string>
+    <string name="install_no_response">安裝失敗: 無回應</string>
+    <string name="install_failed_with">安裝失敗: %1$s</string>
+    <string name="install_split_ok">Split APK 安裝成功 (%1$d 個檔案)</string>
+    <string name="session_create_failed">建立工作階段失敗: %1$s</string>
+    <string name="write_failed_with">寫入失敗 (%1$s): %2$s</string>
+    <string name="apks_no_valid_apk">.apks 中未找到有效的 APK 檔案</string>
+    <string name="pull_ok">拉取成功: %1$s</string>
+    <string name="pull_failed_with">拉取失敗: %1$s</string>
+    <string name="pull_exception">拉取異常: %1$s</string>
+    <string name="op_reboot">重新啟動裝置</string>
+    <string name="op_reboot_recovery">重新啟動到 Recovery</string>
+    <string name="op_reboot_bootloader">重新啟動到 Bootloader</string>
+    <string name="op_shutdown">關機</string>
+    <string name="op_wifi_on">開啟 WiFi</string>
+    <string name="op_wifi_off">關閉 WiFi</string>
+    <string name="op_bt_on">開啟藍牙</string>
+    <string name="op_bt_off">關閉藍牙</string>
+
+    <string name="pair_ok">配對成功</string>
+    <string name="pair_exception">配對異常: %1$s</string>
+    <string name="unknown_error">未知錯誤</string>
+    <string name="install_split_ok_size">Split APK 安裝成功 (%1$d 個檔案, %2$dMB)</string>
+    <string name="pull_failed">拉取失敗</string>
+
+    <string name="fb_var_product">裝置代號</string>
+    <string name="fb_var_serialno">序號</string>
+    <string name="fb_var_variant">儲存類型</string>
+    <string name="fb_var_slot_count">分區槽數</string>
+    <string name="fb_var_current_slot">目前槽位</string>
+    <string name="fb_var_secure">安全啟動</string>
+    <string name="fb_var_unlocked">BL已解鎖</string>
+    <string name="fb_var_battery_voltage">電池電壓(mV)</string>
+    <string name="fb_var_battery_soc_ok">電池電量充足</string>
+    <string name="fb_var_hw_revision">硬體版本</string>
+    <string name="fb_var_erase_block_size">擦除區塊大小</string>
+    <string name="fb_var_logical_block_size">邏輯區塊大小</string>
+    <string name="fb_var_max_download_size">最大下載大小</string>
+    <string name="fb_var_kernel">核心類型</string>
+    <string name="fb_var_has_slot_boot">Boot分區A/B</string>
+    <string name="fb_var_has_slot_modem">Modem分區A/B</string>
+    <string name="fb_var_has_slot_system">System分區A/B</string>
+    <string name="fb_var_version_bootloader">Bootloader版本</string>
+    <string name="fb_var_version_baseband">基頻版本</string>
+    <string name="fb_var_dpstatus">DP狀態</string>
+    <string name="fb_var_socid">SoC ID</string>
+    <string name="fb_var_snapshot_update_status">快照更新狀態</string>
+    <string name="fb_var_is_userspace">使用者空間模式</string>
+    <string name="fb_r_test_send_failed">失敗: 傳送失敗(sent=%1$d)</string>
+    <string name="fb_r_test_resp_short">失敗: 回應太短 (%1$d 位元組)</string>
+    <string name="fb_r_test_fail">失敗: FAIL %1$s</string>
+    <string name="fb_r_test_unknown_tag">失敗: 未知標籤 \'%1$s\'</string>
+    <string name="fb_r_test_exception">異常: %1$s</string>
+    <string name="fb_r_disconnected">連線已中斷</string>
+    <string name="fb_r_send_cmd_failed">傳送命令失敗 (%1$s)</string>
+    <string name="fb_r_read_resp_failed">讀取回應失敗 (read=%1$d)</string>
+    <string name="fb_r_unknown_resp_tag">未知回應標籤: %1$s</string>
+    <string name="fb_r_rebooting">重新啟動中…</string>
+    <string name="fb_r_reboot_sent">已送出重新啟動命令</string>
+    <string name="fb_r_rebooting_recovery">重新啟動到 Recovery…</string>
+    <string name="fb_r_rebooting_bootloader">重新啟動到 Bootloader…</string>
+    <string name="fb_r_erase_ok">擦除 %1$s 成功</string>
+    <string name="fb_r_erase_failed">擦除失敗: %1$s</string>
+    <string name="fb_r_erase_done">擦除完成</string>
+    <string name="fb_r_oem_ok">OEM 命令執行成功</string>
+    <string name="fb_r_oem_failed">OEM 命令失敗: %1$s</string>
+    <string name="fb_r_oem_done">OEM 命令已執行</string>
+    <string name="fb_r_flash_op_name">刷入</string>
+    <string name="fb_r_flash_ok">刷入 %1$s 成功 (%2$dKB)</string>
+    <string name="fb_r_flash_failed_prefix">刷入失敗:</string>
+    <string name="fb_r_unlock_ok">Bootloader 解鎖成功</string>
+    <string name="fb_r_unlock_failed">解鎖失敗: %1$s</string>
+    <string name="fb_r_unlock_sent">解鎖命令已送出（裝置可能需要確認）</string>
+    <string name="fb_r_lock_ok">Bootloader 已鎖定</string>
+    <string name="fb_r_lock_failed">鎖定失敗: %1$s</string>
+    <string name="fb_r_lock_sent">鎖定命令已送出</string>
+    <string name="fb_r_tempboot_ok">臨時啟動成功，裝置正在重新啟動…</string>
+    <string name="fb_r_stage_ok">資料已上傳到裝置 (%1$dKB)</string>
+    <string name="fb_r_err_disconnected">ERR: 連線已中斷</string>
+    <string name="fb_r_err_not_connected">ERR: 未連線</string>
+    <string name="fb_r_err_no_out_ep">ERR: 無 OUT endpoint</string>
+    <string name="fb_r_err_no_in_ep">ERR: 無 IN endpoint</string>
+    <string name="fb_r_err_send_failed">ERR: 傳送命令失敗</string>
+    <string name="fb_r_err_request_rejected">ERR: %1$s請求被拒絕: %2$s</string>
+    <string name="fb_r_err_transfer_aborted">ERR: 傳輸中斷</string>
+    <string name="fb_r_err_transfer_failed">ERR: 資料傳輸失敗 (offset=%1$d)</string>
+    <string name="fb_r_not_connected">未連線</string>
+    <string name="fb_r_no_out_ep">無 OUT endpoint</string>
+    <string name="fb_r_no_in_ep">無 IN endpoint</string>
+    <string name="fb_r_fetch_rejected">fetch 請求被拒絕</string>
+    <string name="fb_r_recv_failed">資料接收失敗 (offset=%1$d)</string>
+    <string name="fb_r_download_ok">資料下載成功 (%1$dKB)</string>
+
+    <string name="usb_log_detached">USB裝置已拔出: %1$s</string>
+    <string name="usb_log_scanned">掃描到 %1$d 個有線ADB裝置</string>
+    <string name="usb_log_connecting">連接有線ADB裝置: %1$s…</string>
+    <string name="usb_log_open_device">開啟裝置… hasPermission=%1$s</string>
+    <string name="usb_log_need_permission">需要USB權限，正在請求…</string>
+    <string name="usb_log_permission_failed">USB權限取得失敗</string>
+    <string name="usb_log_device_opened">裝置已開啟</string>
+    <string name="usb_log_no_iface">找不到ADB介面</string>
+    <string name="usb_log_claim_failed">claimInterface失敗</string>
+    <string name="usb_log_iface">ADB介面: id=%1$d OUT=0x%2$s(%3$d) IN=0x%4$s(%5$d)</string>
+    <string name="usb_log_clear_in">清空IN端點…</string>
+    <string name="usb_log_cleared">已清空 %1$d 位元組</string>
+    <string name="usb_log_creating">建立ADB連線…</string>
+    <string name="usb_log_handshake">開始ADB握手…</string>
+    <string name="usb_log_handshake_failed">ADB握手失敗</string>
+    <string name="usb_log_connect_exception">connect()異常: %1$s: %2$s</string>
+    <string name="usb_log_connected">有線ADB連線成功!</string>
+    <string name="usb_log_conn_exception">連線異常: %1$s</string>
+    <string name="usb_log_link_dead">鏈路失效，清理連線（device=%1$s）</string>
+
+    <string name="usb_proto_cnxn_build">[1] 建構CNXN訊息…</string>
+    <string name="usb_proto_cnxn_msg">[2] CNXN訊息: %1$d bytes = %2$s</string>
+    <string name="usb_proto_cnxn_sent">[3] CNXN傳送成功</string>
+    <string name="usb_proto_cnxn_failed">[3] CNXN傳送失敗: %1$s: %2$s</string>
+    <string name="usb_proto_wait">[4] 等待200ms…</string>
+    <string name="usb_proto_read_resp">[5] 開始讀取回應 (最多15秒)…</string>
+    <string name="usb_proto_read_timeout">[5] 讀取逾時, 裝置無回應</string>
+    <string name="usb_proto_got">[6] 收到: %1$s arg0=%2$d arg1=%3$d dataLen=%4$d</string>
+    <string name="usb_proto_connected_noauth">已連線 (無需認證)</string>
+    <string name="usb_proto_cnxn_unexpected">CNXN收到非預期回應: %1$s</string>
+    <string name="usb_proto_conn_exception">連線異常: %1$s: %2$s</string>
+    <string name="usb_proto_auth_token">AUTH TOKEN (%1$d bytes), 簽章中…</string>
+    <string name="usb_proto_auth_noresp">AUTH簽章後無回應</string>
+    <string name="usb_proto_connected_sig">已連線 (簽章認證)</string>
+    <string name="usb_proto_sig_rejected">簽章被拒絕, 傳送公鑰…</string>
+    <string name="usb_proto_auth_unexpected">AUTH後收到非預期回應: %1$s</string>
+    <string name="usb_proto_auth_unknown">未知AUTH類型 %1$d, 傳送公鑰…</string>
+    <string name="usb_proto_pubkey_noresp">公鑰傳送後無回應</string>
+    <string name="usb_proto_connected_pubkey">已連線 (公鑰認證)</string>
+    <string name="usb_proto_pubkey_unexpected">公鑰後收到非預期回應: %1$s</string>
+    <string name="usb_proto_read_header">readMessage: 讀取header…</string>
+    <string name="usb_proto_header_failed">readMessage: header讀取失敗: %1$s</string>
+    <string name="usb_proto_payload_too_large">payload過大: %1$d</string>
+    <string name="usb_proto_payload_failed">payload讀取失敗: %1$s</string>
+    <string name="usb_proto_reader_start">讀取執行緒已啟動</string>
 
 </resources>

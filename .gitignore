@@ -9,6 +9,7 @@
 .cxx
 local.properties
 /app/build
+/libadb-android/build
 # ====== 构建输出 ======
 /build/
 /app/build/

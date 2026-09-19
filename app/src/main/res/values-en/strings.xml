@@ -95,6 +95,17 @@
     <string name="info_health">Health</string>
     <string name="info_battery_level">Level</string>
     <string name="info_battery_status">Status</string>
+    <string name="battery_status_charging">Charging</string>
+    <string name="battery_status_discharging">Discharging</string>
+    <string name="battery_status_full">Full</string>
+    <string name="battery_status_unknown">Unknown</string>
+    <string name="battery_health_good">Good</string>
+    <string name="battery_health_overheat">Overheating</string>
+    <string name="battery_health_dead">Damaged</string>
+    <string name="battery_health_over_voltage">Over voltage</string>
+    <string name="battery_health_failure">Unknown failure</string>
+    <string name="battery_health_cold">Cold</string>
+    <string name="info_android_version">Android version</string>
     <string name="info_voltage">Voltage</string>
     <string name="info_temperature">Temperature</string>
     <string name="info_chip_platform">Chip Platform</string>
@@ -325,5 +336,234 @@
     <string name="mirror_key_vol_up">Volume up</string>
     <string name="mirror_key_vol_down">Volume down</string>
     <string name="mirror_options">Settings</string>
+
+    <string name="msg_pull_failed">Pull failed: %1$s</string>
+    <string name="shell_executing">Executing…</string>
+    <string name="shell_no_output">(no output)</string>
+    <string name="shell_exec_failed">Execution failed: %1$s</string>
+    <string name="install_progress_split">Installing Split APK (%1$d files)…</string>
+    <string name="install_parsing_apks">Parsing .apks…</string>
+    <string name="install_exception">Installation error: %1$s</string>
+    <string name="extract_reason_mkdir">Cannot create directory</string>
+    <string name="extract_reason_mkdir_path">Cannot create directory: %1$s</string>
+    <string name="extract_write_empty">Nothing was written</string>
+    <string name="files_saved">Saved: %1$s (%2$s)</string>
+    <string name="files_save_failed">Save failed: %1$s</string>
+    <string name="files_pushing">Pushing %1$s…</string>
+    <string name="files_push_failed">Push failed: %1$s</string>
+    <string name="files_no_apk_in_apks">⚠️ No APK found in .apks</string>
+    <string name="apps_read_apks_failed">Failed to read .apks</string>
+    <string name="apps_read_apk_failed">Failed to read APK</string>
+    <string name="ops_recovery_mode">Recovery mode</string>
+    <string name="ops_bootloader_mode">Bootloader mode</string>
+    <string name="mirror_err_push_server">Failed to push scrcpy-server.jar</string>
+    <string name="mirror_err_connect_server">Failed to connect to scrcpy-server (not ready or unsupported)</string>
+    <string name="mirror_err_connect_control">Failed to connect to the scrcpy-server control channel</string>
+    <string name="mirror_err_video_disabled">Video stream disabled by the device</string>
+    <string name="mirror_err_video_config">Invalid video configuration on the device</string>
+    <string name="mirror_err_codec_unsupported">Unsupported codec: 0x%1$08X</string>
+    <string name="mirror_err_size_invalid">Invalid video size %1$dx%2$d</string>
+    <string name="mirror_err_length_invalid">Invalid packet length: %1$d</string>
+    <string name="mirror_err_decoder_init">Decoder initialization failed</string>
+    <string name="mirror_err_interrupted">Mirroring interrupted: %1$s</string>
+    <string name="mirror_err_link_lost">Disconnected (link lost or device unplugged)</string>
+    <string name="fb_connect_failed_detail">Connection failed: check whether the phone showed a USB permission dialog and tap Allow. If it did not appear, unplug and reconnect the USB cable, then try again. See Logcat (FastbootManager) for details.</string>
+    <string name="fb_connect_exception">Connection error: %1$s</string>
+    <string name="fb_getvar_failed">Failed to get device info: %1$s</string>
+    <string name="pair_tip_aborted">Connection aborted by the target device. Common causes:\n• The port is not the one shown in the \"pair with pairing code\" dialog\n• The pairing code has expired (reopen the dialog to get a new one)\n• Wireless debugging restarted on the target device</string>
+    <string name="pair_tip_refused">Target refused the connection; make sure wireless debugging is enabled</string>
+    <string name="pair_tip_timeout">Connection timed out; make sure both devices are on the same WiFi network</string>
+    <string name="pair_tip_unreachable">Target unreachable; check the IP address and the LAN</string>
+
+    <string name="fb_log_connecting">Connecting %1$s…</string>
+    <string name="fb_log_iface">Interface[%1$d]: class=0x%2$s sub=0x%3$s proto=0x%4$s endpoints=%5$d</string>
+    <string name="fb_log_open_device">Opening device: hasPermission=%1$s</string>
+    <string name="fb_log_need_permission">USB permission required, requesting…</string>
+    <string name="fb_log_permission_ok">Permission granted (%1$dms)</string>
+    <string name="fb_log_permission_ok_broadcast">Permission granted (broadcast)</string>
+    <string name="fb_log_permission_timeout">Permission timed out, hasPermission=%1$s</string>
+    <string name="fb_log_authorized_open">Device already authorized, opened directly</string>
+    <string name="fb_log_finding_iface">Looking for a fastboot interface…</string>
+    <string name="fb_log_iface_std">Standard fastboot interface found (index %1$d)</string>
+    <string name="fb_log_iface_std_miss">No standard match, falling back to loose match…</string>
+    <string name="fb_log_iface_loose">Loose match succeeded (index %1$d, sub=0x%2$s)</string>
+    <string name="fb_log_no_iface">No usable USB interface found (bulk IN+OUT endpoints required)</string>
+    <string name="fb_log_claim_failed">claimInterface failed</string>
+    <string name="fb_log_iface_claimed">Interface claimed</string>
+    <string name="fb_log_activating">Activating USB interface…</string>
+    <string name="fb_log_device_reset">Resetting USB device…</string>
+    <string name="fb_log_getstatus_error">GET_STATUS error: %1$s</string>
+    <string name="fb_log_clear_in">Draining the IN endpoint buffer…</string>
+    <string name="fb_log_cleared_bytes">Drained %1$d leftover bytes</string>
+    <string name="fb_log_test_comm">Testing communication: getvar:product…</string>
+    <string name="fb_log_comm_failed">Communication failed: %1$s</string>
+    <string name="fb_log_test_on_pc">Try it on a PC: fastboot getvar product</string>
+    <string name="fb_log_maybe_otg">If it works on a PC, check the phone OTG/USB port</string>
+    <string name="fb_log_connected">Connected!</string>
+    <string name="fb_log_connect_exception">Connection error: %1$s</string>
+    <string name="fb_log_test_sent">test: sent %1$d bytes</string>
+    <string name="fb_log_test_read">test: usbRead returned %1$d</string>
+    <string name="fb_log_test_tag">test: got tag \'%1$s\', %2$d bytes</string>
+    <string name="fb_log_send_retry">Send failed (sent=%1$d), clearing halt and retrying…</string>
+    <string name="fb_log_send_cmd_failed">Failed to send command: %1$s (%2$s)</string>
+    <string name="fb_log_sent_bytes">Sent %1$d bytes</string>
+    <string name="fb_log_response">Response: %1$s</string>
+    <string name="fb_log_flashing">Flashing %1$s: %2$dMB (%3$d bytes)</string>
+    <string name="fb_log_cmd_sent">%1$s command: sent=%2$d</string>
+    <string name="fb_log_data_response">DATA response: %1$s</string>
+    <string name="fb_log_transfer_start">Starting data transfer (%1$d bytes)…</string>
+    <string name="fb_log_chunk_retry">Large chunk failed (len=%1$d), retrying with 4096…</string>
+    <string name="fb_log_transfer_failed">Transfer failed: offset=%1$d/%2$d</string>
+    <string name="fb_log_transfer_done">Data transfer finished: %1$d bytes</string>
+    <string name="fb_log_final_response">Final response: %1$s</string>
+    <string name="fb_log_error_prefix">[ERROR] %1$s</string>
+
+    <string name="op_not_connected">Not connected</string>
+    <string name="usb_msg_not_connected">USB not connected</string>
+    <string name="op_exec_failed">Execution failed: %1$s</string>
+    <string name="push_success">Pushed: %1$s</string>
+    <string name="push_failed">Push failed</string>
+    <string name="push_done">Push finished</string>
+    <string name="push_exception">Push error: %1$s</string>
+    <string name="push_failed_with">Push failed: %1$s</string>
+    <string name="push_failed_name">Push failed (%1$s): %2$s</string>
+    <string name="install_ok">Installed</string>
+    <string name="install_no_response">Install failed: no response</string>
+    <string name="install_failed_with">Install failed: %1$s</string>
+    <string name="install_split_ok">Split APK installed (%1$d files)</string>
+    <string name="session_create_failed">Failed to create session: %1$s</string>
+    <string name="write_failed_with">Write failed (%1$s): %2$s</string>
+    <string name="apks_no_valid_apk">No valid APK found in .apks</string>
+    <string name="pull_ok">Pulled: %1$s</string>
+    <string name="pull_failed_with">Pull failed: %1$s</string>
+    <string name="pull_exception">Pull error: %1$s</string>
+    <string name="op_reboot">Reboot device</string>
+    <string name="op_reboot_recovery">Reboot to Recovery</string>
+    <string name="op_reboot_bootloader">Reboot to Bootloader</string>
+    <string name="op_shutdown">Shut down</string>
+    <string name="op_wifi_on">Turn WiFi on</string>
+    <string name="op_wifi_off">Turn WiFi off</string>
+    <string name="op_bt_on">Turn Bluetooth on</string>
+    <string name="op_bt_off">Turn Bluetooth off</string>
+
+    <string name="pair_ok">Paired</string>
+    <string name="pair_exception">Pairing error: %1$s</string>
+    <string name="unknown_error">Unknown error</string>
+    <string name="install_split_ok_size">Split APK installed (%1$d files, %2$dMB)</string>
+    <string name="pull_failed">Pull failed</string>
+
+    <string name="fb_var_product">Device codename</string>
+    <string name="fb_var_serialno">Serial number</string>
+    <string name="fb_var_variant">Storage type</string>
+    <string name="fb_var_slot_count">Slot count</string>
+    <string name="fb_var_current_slot">Current slot</string>
+    <string name="fb_var_secure">Secure boot</string>
+    <string name="fb_var_unlocked">Bootloader unlocked</string>
+    <string name="fb_var_battery_voltage">Battery voltage (mV)</string>
+    <string name="fb_var_battery_soc_ok">Battery level OK</string>
+    <string name="fb_var_hw_revision">HW revision</string>
+    <string name="fb_var_erase_block_size">Erase block size</string>
+    <string name="fb_var_logical_block_size">Logical block size</string>
+    <string name="fb_var_max_download_size">Max download size</string>
+    <string name="fb_var_kernel">Kernel type</string>
+    <string name="fb_var_has_slot_boot">Boot A/B slot</string>
+    <string name="fb_var_has_slot_modem">Modem A/B slot</string>
+    <string name="fb_var_has_slot_system">System A/B slot</string>
+    <string name="fb_var_version_bootloader">Bootloader version</string>
+    <string name="fb_var_version_baseband">Baseband version</string>
+    <string name="fb_var_dpstatus">DP status</string>
+    <string name="fb_var_socid">SoC ID</string>
+    <string name="fb_var_snapshot_update_status">Snapshot update status</string>
+    <string name="fb_var_is_userspace">Userspace mode</string>
+    <string name="fb_r_test_send_failed">Failed: send failed (sent=%1$d)</string>
+    <string name="fb_r_test_resp_short">Failed: response too short (%1$d bytes)</string>
+    <string name="fb_r_test_fail">Failed: FAIL %1$s</string>
+    <string name="fb_r_test_unknown_tag">Failed: unknown tag \'%1$s\'</string>
+    <string name="fb_r_test_exception">Error: %1$s</string>
+    <string name="fb_r_disconnected">Disconnected</string>
+    <string name="fb_r_send_cmd_failed">Failed to send command (%1$s)</string>
+    <string name="fb_r_read_resp_failed">Failed to read response (read=%1$d)</string>
+    <string name="fb_r_unknown_resp_tag">Unknown response tag: %1$s</string>
+    <string name="fb_r_rebooting">Rebooting…</string>
+    <string name="fb_r_reboot_sent">Reboot command sent</string>
+    <string name="fb_r_rebooting_recovery">Rebooting to Recovery…</string>
+    <string name="fb_r_rebooting_bootloader">Rebooting to Bootloader…</string>
+    <string name="fb_r_erase_ok">Erased %1$s</string>
+    <string name="fb_r_erase_failed">Erase failed: %1$s</string>
+    <string name="fb_r_erase_done">Erase finished</string>
+    <string name="fb_r_oem_ok">OEM command succeeded</string>
+    <string name="fb_r_oem_failed">OEM command failed: %1$s</string>
+    <string name="fb_r_oem_done">OEM command sent</string>
+    <string name="fb_r_flash_op_name">Flashing</string>
+    <string name="fb_r_flash_ok">Flashed %1$s (%2$dKB)</string>
+    <string name="fb_r_flash_failed_prefix">Flash failed:</string>
+    <string name="fb_r_unlock_ok">Bootloader unlocked</string>
+    <string name="fb_r_unlock_failed">Unlock failed: %1$s</string>
+    <string name="fb_r_unlock_sent">Unlock command sent (the device may ask for confirmation)</string>
+    <string name="fb_r_lock_ok">Bootloader locked</string>
+    <string name="fb_r_lock_failed">Lock failed: %1$s</string>
+    <string name="fb_r_lock_sent">Lock command sent</string>
+    <string name="fb_r_tempboot_ok">Temporary boot succeeded, the device is rebooting…</string>
+    <string name="fb_r_stage_ok">Data uploaded to device (%1$dKB)</string>
+    <string name="fb_r_err_disconnected">ERR: disconnected</string>
+    <string name="fb_r_err_not_connected">ERR: not connected</string>
+    <string name="fb_r_err_no_out_ep">ERR: no OUT endpoint</string>
+    <string name="fb_r_err_no_in_ep">ERR: no IN endpoint</string>
+    <string name="fb_r_err_send_failed">ERR: failed to send command</string>
+    <string name="fb_r_err_request_rejected">ERR: %1$s request rejected: %2$s</string>
+    <string name="fb_r_err_transfer_aborted">ERR: transfer aborted</string>
+    <string name="fb_r_err_transfer_failed">ERR: data transfer failed (offset=%1$d)</string>
+    <string name="fb_r_not_connected">Not connected</string>
+    <string name="fb_r_no_out_ep">No OUT endpoint</string>
+    <string name="fb_r_no_in_ep">No IN endpoint</string>
+    <string name="fb_r_fetch_rejected">fetch request rejected</string>
+    <string name="fb_r_recv_failed">Data receive failed (offset=%1$d)</string>
+    <string name="fb_r_download_ok">Data downloaded (%1$dKB)</string>
+
+    <string name="usb_log_detached">USB device detached: %1$s</string>
+    <string name="usb_log_scanned">Found %1$d wired ADB device(s)</string>
+    <string name="usb_log_connecting">Connecting wired ADB device: %1$s…</string>
+    <string name="usb_log_open_device">Opening device… hasPermission=%1$s</string>
+    <string name="usb_log_need_permission">USB permission required, requesting…</string>
+    <string name="usb_log_permission_failed">Failed to obtain USB permission</string>
+    <string name="usb_log_device_opened">Device opened</string>
+    <string name="usb_log_no_iface">No ADB interface found</string>
+    <string name="usb_log_claim_failed">claimInterface failed</string>
+    <string name="usb_log_iface">ADB interface: id=%1$d OUT=0x%2$s(%3$d) IN=0x%4$s(%5$d)</string>
+    <string name="usb_log_clear_in">Draining IN endpoint…</string>
+    <string name="usb_log_cleared">Drained %1$d bytes</string>
+    <string name="usb_log_creating">Creating ADB connection…</string>
+    <string name="usb_log_handshake">Starting ADB handshake…</string>
+    <string name="usb_log_handshake_failed">ADB handshake failed</string>
+    <string name="usb_log_connect_exception">connect() error: %1$s: %2$s</string>
+    <string name="usb_log_connected">Wired ADB connected!</string>
+    <string name="usb_log_conn_exception">Connection error: %1$s</string>
+    <string name="usb_log_link_dead">Link lost, cleaning up connection (device=%1$s)</string>
+
+    <string name="usb_proto_cnxn_build">[1] Building CNXN message…</string>
+    <string name="usb_proto_cnxn_msg">[2] CNXN message: %1$d bytes = %2$s</string>
+    <string name="usb_proto_cnxn_sent">[3] CNXN sent</string>
+    <string name="usb_proto_cnxn_failed">[3] Failed to send CNXN: %1$s: %2$s</string>
+    <string name="usb_proto_wait">[4] Waiting 200ms…</string>
+    <string name="usb_proto_read_resp">[5] Reading response (up to 15s)…</string>
+    <string name="usb_proto_read_timeout">[5] Read timed out, no response from device</string>
+    <string name="usb_proto_got">[6] Received: %1$s arg0=%2$d arg1=%3$d dataLen=%4$d</string>
+    <string name="usb_proto_connected_noauth">Connected (no auth needed)</string>
+    <string name="usb_proto_cnxn_unexpected">Unexpected response to CNXN: %1$s</string>
+    <string name="usb_proto_conn_exception">Connection error: %1$s: %2$s</string>
+    <string name="usb_proto_auth_token">AUTH TOKEN (%1$d bytes), signing…</string>
+    <string name="usb_proto_auth_noresp">No response after AUTH signature</string>
+    <string name="usb_proto_connected_sig">Connected (signature auth)</string>
+    <string name="usb_proto_sig_rejected">Signature rejected, sending public key…</string>
+    <string name="usb_proto_auth_unexpected">Unexpected response after AUTH: %1$s</string>
+    <string name="usb_proto_auth_unknown">Unknown AUTH type %1$d, sending public key…</string>
+    <string name="usb_proto_pubkey_noresp">No response after sending public key</string>
+    <string name="usb_proto_connected_pubkey">Connected (public key auth)</string>
+    <string name="usb_proto_pubkey_unexpected">Unexpected response after public key: %1$s</string>
+    <string name="usb_proto_read_header">readMessage: reading header…</string>
+    <string name="usb_proto_header_failed">readMessage: header read failed: %1$s</string>
+    <string name="usb_proto_payload_too_large">Payload too large: %1$d</string>
+    <string name="usb_proto_payload_failed">Payload read failed: %1$s</string>
+    <string name="usb_proto_reader_start">Reader thread started</string>
 
 </resources>

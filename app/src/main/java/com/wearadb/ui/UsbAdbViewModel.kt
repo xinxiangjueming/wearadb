@@ -1,11 +1,14 @@
 package com.wearadb.ui
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.wearadb.R
 import com.wearadb.adb.UsbAdbConnectionState
 import com.wearadb.adb.UsbAdbDeviceInfo
 import com.wearadb.adb.UsbAdbRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -16,6 +19,7 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class UsbAdbViewModel @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val usbAdbRepository: UsbAdbRepository
 ) : ViewModel() {
 
@@ -50,7 +54,7 @@ class UsbAdbViewModel @Inject constructor(
 
     fun executeCommand(command: String) {
         viewModelScope.launch {
-            _shellOutput.value = "执行中..."
+            _shellOutput.value = appContext.getString(R.string.shell_executing)
             _shellOutput.value = usbAdbRepository.executeCommand(command)
         }
     }

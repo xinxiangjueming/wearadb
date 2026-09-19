@@ -22,3 +22,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "wear-adb"
 include(":app")
+// 本地化的 libadb-android（上游 3.1.1 源码 + generateOpen 字节长度修复）
+include(":libadb-android")

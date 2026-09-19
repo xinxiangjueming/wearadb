@@ -3,6 +3,7 @@ package com.wearadb.adb
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
+import com.wearadb.R
 import android.content.Intent
 import android.content.IntentFilter
 import android.hardware.usb.*
@@ -86,7 +87,7 @@ class UsbAdbManager(
             val current = currentDevice ?: return
             // 只处理当前会话的设备（deviceName 是枚举路径 /dev/bus/usb/…，重插后会变）
             if (device != null && device.deviceName == current.deviceName) {
-                log("USB设备已拔出: ${current.deviceName}")
+                log(context.getString(R.string.usb_log_detached, current.deviceName))
                 handleConnectionLost()
             }
         }
@@ -133,7 +134,7 @@ class UsbAdbManager(
                 ))
             }
         }
-        log("扫描到 ${devices.size} 个有线ADB设备")
+        log(context.getString(R.string.usb_log_scanned, devices.size))
         return devices
     }
 
@@ -161,17 +162,17 @@ class UsbAdbManager(
             try {
                 closed = false
                 linkLostReported = false
-                log("连接有线ADB设备: ${deviceInfo.serialNumber}...")
+                log(context.getString(R.string.usb_log_connecting, deviceInfo.serialNumber))
 
                 val usbDevice = deviceInfo.usbDevice
 
                 // 1. Try to open device
-                log("打开设备... hasPermission=${usbManager.hasPermission(usbDevice)}")
+                log(context.getString(R.string.usb_log_open_device, usbManager.hasPermission(usbDevice)))
                 var conn = tryOpenDevice(usbDevice)
 
                 // 2. If no permission, request and wait
                 if (conn == null) {
-                    log("需要USB权限, 正在请求...")
+                    log(context.getString(R.string.usb_log_need_permission))
                     requestPermission(usbDevice)
                     val waitStart = System.currentTimeMillis()
                     while (System.currentTimeMillis() - waitStart < 15000) {
@@ -180,11 +181,11 @@ class UsbAdbManager(
                         if (conn != null) break
                     }
                     if (conn == null) {
-                        log("USB权限获取失败")
+                        log(context.getString(R.string.usb_log_permission_failed))
                         return@withContext false
                     }
                 }
-                log("设备已打开")
+                log(context.getString(R.string.usb_log_device_opened))
 
                 // 3. Find ADB interface and endpoints
                 var foundInterface: UsbInterface? = null
@@ -210,7 +211,7 @@ class UsbAdbManager(
                 }
 
                 if (foundInterface == null || outEp == null || inEp == null) {
-                    log("未找到ADB接口")
+                    log(context.getString(R.string.usb_log_no_iface))
                     conn.close()
                     return@withContext false
                 }
@@ -218,13 +219,13 @@ class UsbAdbManager(
                 // 4. Claim interface
                 try { conn.releaseInterface(foundInterface) } catch (_: Exception) {}
                 if (!conn.claimInterface(foundInterface, true)) {
-                    log("claimInterface失败")
+                    log(context.getString(R.string.usb_log_claim_failed))
                     conn.close()
                     return@withContext false
                 }
                 kotlinx.coroutines.delay(300)
 
-                log("ADB接口: id=${foundInterface.id} OUT=0x${outEp.address.toString(16)}(${outEp.maxPacketSize}) IN=0x${inEp.address.toString(16)}(${inEp.maxPacketSize})")
+                log(context.getString(R.string.usb_log_iface, foundInterface.id, outEp.address.toString(16), outEp.maxPacketSize, inEp.address.toString(16), inEp.maxPacketSize))
 
                 // 4a. 清除端点halt状态（USB读写前的标准操作）
                 try {
@@ -242,37 +243,38 @@ class UsbAdbManager(
                 Thread.sleep(100)
 
                 // 4b. 清空IN端点残留数据
-                log("清空IN端点...")
+                log(context.getString(R.string.usb_log_clear_in))
                 val drainBuf = ByteArray(inEp.maxPacketSize.coerceAtLeast(512))
                 while (true) {
                     val n = conn.bulkTransfer(inEp, drainBuf, drainBuf.size, 100)
                     if (n <= 0) break
-                    log("  清空了 $n 字节")
+                    log(context.getString(R.string.usb_log_cleared, n))
                 }
 
                 // 5. 创建传输层和连接
-                log("创建ADB连接...")
+                log(context.getString(R.string.usb_log_creating))
                 val transport = UsbAdbTransport(conn, outEp, inEp)
                 val adbConn = UsbAdbConnection(
                     transport, privateKey, certificate,
+                    appContext = context,
                     logCallback = logCallback,
                     onLinkDead = { handleConnectionLost() }
                 )
 
                 // 7. Perform ADB handshake
-                log("开始ADB握手...")
+                log(context.getString(R.string.usb_log_handshake))
                 try {
                     val ok = adbConn.connect()
                     log("connect()=$ok")
                     if (!ok) {
-                        log("ADB握手失败")
+                        log(context.getString(R.string.usb_log_handshake_failed))
                         transport.close()
                         conn.close()
                         return@withContext false
                     }
                 } catch (e: Throwable) {
                     Log.e(TAG, "connect() THREW: ${e.javaClass.simpleName}: ${e.message}", e)
-                    log("connect()异常: ${e.javaClass.simpleName}: ${e.message}")
+                    log(context.getString(R.string.usb_log_connect_exception, e.javaClass.simpleName, e.message ?: ""))
                     transport.close()
                     conn.close()
                     return@withContext false
@@ -281,10 +283,10 @@ class UsbAdbManager(
                 currentTransport = transport
                 currentConnection = adbConn
                 currentDevice = usbDevice
-                log("有线ADB连接成功!")
+                log(context.getString(R.string.usb_log_connected))
                 true
             } catch (e: Exception) {
-                log("连接异常: ${e.message}")
+                log(context.getString(R.string.usb_log_conn_exception, e.message ?: ""))
                 false
             }
         }
@@ -316,7 +318,7 @@ class UsbAdbManager(
         currentConnection = null
         currentTransport = null
         currentDevice = null
-        log("链路失效，清理连接（device=${device?.deviceName ?: "unknown"}）")
+        log(context.getString(R.string.usb_log_link_dead, device?.deviceName ?: "unknown"))
         try { conn?.disconnect() } catch (_: Exception) {}
         try { transport?.close() } catch (_: Exception) {}
         try { onConnectionLost?.invoke() } catch (_: Exception) {}

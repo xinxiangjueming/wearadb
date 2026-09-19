@@ -338,10 +338,10 @@ class ConnectionViewModel @Inject constructor(
                         sb.toString()
                     }
                 } else if (isUsbAdbActive) {
-                    _shellOutput.value = "执行中..."
+                    _shellOutput.value = appContext.getString(R.string.shell_executing)
                     _shellOutput.value = usbAdbRepository.executeCommand(command)
                 } else {
-                    _shellOutput.value = "未连接"
+                    _shellOutput.value = appContext.getString(R.string.status_disconnected)
                 }
             } catch (e: Exception) {
                 _shellOutput.value = "Error: ${e.message}"
@@ -371,7 +371,7 @@ class ConnectionViewModel @Inject constructor(
                         try { stream.close() } catch (_: Exception) {}
                         sb.toString()
                     }
-                    results.appendLine(output.ifEmpty { "(无输出)" })
+                    results.appendLine(output.ifEmpty { appContext.getString(R.string.shell_no_output) })
                 } catch (e: Exception) {
                     results.appendLine("Error: ${e.message}")
                 }
@@ -379,12 +379,12 @@ class ConnectionViewModel @Inject constructor(
                 try {
                     val combined = commands.joinToString("; ")
                     val output = usbAdbRepository.executeCommand(combined)
-                    results.appendLine(output.ifEmpty { "(无输出)" })
+                    results.appendLine(output.ifEmpty { appContext.getString(R.string.shell_no_output) })
                 } catch (e: Exception) {
                     results.appendLine("Error: ${e.message}")
                 }
             } else {
-                results.appendLine("未连接")
+                results.appendLine(appContext.getString(R.string.status_disconnected))
             }
             _shellOutput.value = results.toString()
         }
@@ -490,7 +490,7 @@ class ConnectionViewModel @Inject constructor(
                 if (isUsbAdbActive) usb() else wireless()
             } catch (e: Exception) {
                 android.util.Log.e("VM", "appOp($tag) exception: ${e.message}", e)
-                "执行失败: ${e.message}"
+                appContext.getString(R.string.shell_exec_failed, e.message ?: "")
             }
             android.util.Log.d("VM", "appOp($tag) usb=$isUsbAdbActive result=${result.take(120)}")
             val trimmed = result.trim()
@@ -600,8 +600,8 @@ class ConnectionViewModel @Inject constructor(
 
                 val (dir, isPublic) = resolveExportDir()
                 if (!dir.exists() && !dir.mkdirs()) {
-                    notifier.complete(id, appContext.getString(R.string.apps_extract_failed, "无法创建目录"), null)
-                    return@withContext ApkExtractResult.Failure("无法创建目录: ${dir.absolutePath}")
+                    notifier.complete(id, appContext.getString(R.string.apps_extract_failed, appContext.getString(R.string.extract_reason_mkdir)), null)
+                    return@withContext ApkExtractResult.Failure(appContext.getString(R.string.extract_reason_mkdir_path, dir.absolutePath))
                 }
                 val fileName = if (paths.size == 1) "$pkg.apk" else "$pkg.apks"
                 val dest = java.io.File(dir, fileName)
@@ -649,7 +649,7 @@ class ConnectionViewModel @Inject constructor(
                 }
 
                 if (failedRemote != null || !dest.exists() || dest.length() == 0L) {
-                    val reason = failedRemote?.let { "拉取失败: $it" } ?: "写入为空"
+                    val reason = failedRemote?.let { appContext.getString(R.string.msg_pull_failed, it) } ?: appContext.getString(R.string.extract_write_empty)
                     runCatching { dest.delete() }
                     notifier.complete(id, appContext.getString(R.string.apps_extract_failed, reason), null)
                     return@withContext ApkExtractResult.Failure(reason)
@@ -714,7 +714,7 @@ class ConnectionViewModel @Inject constructor(
         viewModelScope.launch {
             val id = OperationNotifier.idFor("install:bytearray")
             installNotifyStart(id, null)
-            onResult("正在安装...")
+            onResult(appContext.getString(R.string.notif_install_in_progress))
             val result = if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
                 usbAdbRepository.installApk(apkData)
             } else {
@@ -730,7 +730,7 @@ class ConnectionViewModel @Inject constructor(
         viewModelScope.launch {
             val id = OperationNotifier.idFor("install:split:${apkFiles.size}")
             installNotifyStart(id, null)
-            onResult("正在安装 Split APK (${apkFiles.size} 个文件)...")
+            onResult(appContext.getString(R.string.install_progress_split, apkFiles.size))
             val result = if (isUsbAdbActive) {
                 usbAdbRepository.installSplitApk(apkFiles)
             } else {
@@ -746,7 +746,7 @@ class ConnectionViewModel @Inject constructor(
         viewModelScope.launch {
             val id = OperationNotifier.idFor("install:file:${apkFile.absolutePath}")
             installNotifyStart(id, apkFile.name)
-            onResult("正在安装...")
+            onResult(appContext.getString(R.string.notif_install_in_progress))
             val result = if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
                 usbAdbRepository.installApk(apkFile)
             } else {
@@ -762,7 +762,7 @@ class ConnectionViewModel @Inject constructor(
     suspend fun installApkFileSync(apkFile: java.io.File, onResult: (String) -> Unit) {
         val id = OperationNotifier.idFor("install:file:${apkFile.absolutePath}")
         installNotifyStart(id, apkFile.name)
-        onResult("正在安装...")
+        onResult(appContext.getString(R.string.notif_install_in_progress))
         val result = if (usbAdbConnectionState.value == UsbAdbConnectionState.CONNECTED) {
             usbAdbRepository.installApk(apkFile)
         } else {
@@ -777,7 +777,7 @@ class ConnectionViewModel @Inject constructor(
         viewModelScope.launch {
             val id = OperationNotifier.idFor("install:splitfiles:${apkFiles.size}")
             installNotifyStart(id, null)
-            onResult("正在安装 Split APK (${apkFiles.size} 个文件)...")
+            onResult(appContext.getString(R.string.install_progress_split, apkFiles.size))
             val result = if (isUsbAdbActive) {
                 usbAdbRepository.installSplitApkFiles(apkFiles)
             } else {
@@ -793,7 +793,7 @@ class ConnectionViewModel @Inject constructor(
         val id = OperationNotifier.idFor("install:apks:${apksFile.absolutePath}")
         return try {
             installNotifyStart(id, apksFile.name)
-            onStatus("正在解析 .apks...")
+            onStatus(appContext.getString(R.string.install_parsing_apks))
             val result = if (isUsbAdbActive) {
                 usbAdbRepository.installSplitApkFromApksFile(apksFile)
             } else {
@@ -804,7 +804,7 @@ class ConnectionViewModel @Inject constructor(
             loadApps(force = true)
             result
         } catch (e: Exception) {
-            val msg = "安装异常: ${e.message}"
+            val msg = appContext.getString(R.string.install_exception, e.message ?: "")
             notifier.complete(id, appContext.getString(R.string.notif_install_failed, e.message ?: "unknown error"), null)
             onStatus(msg)
             msg
@@ -878,11 +878,12 @@ class ConnectionViewModel @Inject constructor(
     fun pushFile(data: ByteArray, remotePath: String, onResult: ((String) -> Unit)? = null) {
         viewModelScope.launch {
             // 两侧同名方法：USB 版的临时文件处理已下沉到 UsbAdbRepository.pushFile(ByteArray)
-            val result = if (isUsbAdbActive) {
+            val pushResult = if (isUsbAdbActive) {
                 usbAdbRepository.pushFile(data, remotePath)
             } else {
                 repository.pushFile(data, remotePath)
             }
+            val result = pushResult.message
             _opResult.emit(result)
             onResult?.invoke(result)
             loadFiles(force = true)

@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.Log
 import android.view.Surface
 import com.wearadb.log.WearAdbLogger
+import com.wearadb.R
+import com.wearadb.data.model.PushResult
 import com.wearadb.data.repository.PullResult
 import com.wearadb.data.repository.parseApkPaths
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -169,14 +171,14 @@ class UsbAdbRepository @Inject constructor(
      * Returns the command output as a string.
      */
     suspend fun executeCommand(command: String, timeoutMs: Long = 15000): String = withContext(Dispatchers.IO) {
-        val conn = awaitManager().getConnection() ?: return@withContext "未连接"
+        val conn = awaitManager().getConnection() ?: return@withContext appContext.getString(R.string.op_not_connected)
         try {
             val stream = conn.openShell(command)
             val result = stream.readAll(timeoutMs)
             conn.closeStream(stream)
             result
         } catch (e: Exception) {
-            "执行失败: ${e.message}"
+            appContext.getString(R.string.op_exec_failed, e.message ?: "")
         }
     }
 
@@ -237,6 +239,16 @@ class UsbAdbRepository @Inject constructor(
                 }
             } catch (re: Exception) {
                 android.util.Log.w(TAG, "getDeviceInfo: root extras failed: ${re.message}")
+            }
+
+            // 非 root 兜底：部分机型允许 shell 身份读取 uevent 的 CHARGE_FULL / CHARGE_FULL_DESIGN
+            // （或 batterystats 的 "Last learned battery capacity"），这两个值已被 parseDeviceInfo 解析出来，
+            // 但若 su 不可用，上面的 healthPct 计算整块被跳过 → 保持 0 → UI 因 "> 0" 判据整行隐藏。
+            // 这里补一次计算，让免 root 设备也能显示健康度%（读不到容量的机型仍为 0，行为不变）。
+            if (info.batteryHealthPct == 0f && info.batteryDesignCapacity > 0 && info.batteryCurrentCapacity > 0) {
+                val pct = info.batteryCurrentCapacity.toFloat() / info.batteryDesignCapacity * 100f
+                info = info.copy(batteryHealthPct = pct)
+                android.util.Log.d(TAG, "getDeviceInfo: 免root健康度: ${info.batteryCurrentCapacity}/${info.batteryDesignCapacity} = %.1f%%".format(pct))
             }
 
             info
@@ -453,14 +465,14 @@ class UsbAdbRepository @Inject constructor(
             startupGate.withLock { this@UsbAdbRepository.executeCommand(cmd, 10000) }
 
         override suspend fun pushFileTo(localFile: File, remotePath: String): Boolean =
-            pushFile(localFile, remotePath).contains("成功")
+            pushFile(localFile, remotePath).success
 
         override suspend fun pushFileToSerialized(localFile: File, remotePath: String): Boolean =
-            startupGate.withLock { pushFile(localFile, remotePath).contains("成功") }
+            startupGate.withLock { pushFile(localFile, remotePath).success }
 
         override suspend fun openShellStream(cmd: String): MirrorStream {
             val conn = awaitManager().getConnection()
-                ?: throw java.io.IOException("USB 未连接")
+                ?: throw java.io.IOException(appContext.getString(R.string.usb_msg_not_connected))
             return UsbMirrorStream(conn.openShell(cmd), conn)
         }
 
@@ -473,10 +485,10 @@ class UsbAdbRepository @Inject constructor(
 
     // ── 文件推送 ──
 
-    suspend fun pushFile(localFile: File, remotePath: String): String = withContext(Dispatchers.IO) {
+    suspend fun pushFile(localFile: File, remotePath: String): PushResult = withContext(Dispatchers.IO) {
         WearAdbLogger.i("UsbAdb", "USB推送文件: ${localFile.name} -> $remotePath, size=${localFile.length()}")
         android.util.Log.d(TAG, "pushFile: ${localFile.name} (${localFile.length()} bytes) -> $remotePath")
-        val conn = awaitManager().getConnection() ?: return@withContext "未连接"
+        val conn = awaitManager().getConnection() ?: return@withContext PushResult(false, appContext.getString(R.string.op_not_connected))
         try {
             val stream = conn.openSync()
 
@@ -532,14 +544,15 @@ class UsbAdbRepository @Inject constructor(
 
             conn.closeStream(stream)
 
-            when (respCmd) {
-                0x59414b4f -> "推送成功: $remotePath"
-                0x4c494146 -> "推送失败"
-                else -> "推送完成"
+            val msg = when (respCmd) {
+                0x59414b4f -> appContext.getString(R.string.push_success, remotePath)
+                0x4c494146 -> appContext.getString(R.string.push_failed)
+                else -> appContext.getString(R.string.push_done)
             }
+            PushResult(respCmd == 0x59414b4f, msg)
         } catch (e: Exception) {
             android.util.Log.e(TAG, "pushFile exception", e)
-            "推送异常: ${e.message}"
+            PushResult(false, appContext.getString(R.string.push_exception, e.message ?: ""))
         }
     }
 
@@ -547,7 +560,7 @@ class UsbAdbRepository @Inject constructor(
      * 与 [AdbRepository.pushFile] 的内存字节版对应：内部落临时文件后走流式推送，
      * 调用方不必自己管临时文件（此前这段逻辑散在 ViewModel 里）。
      */
-    suspend fun pushFile(localData: ByteArray, remotePath: String): String = withContext(Dispatchers.IO) {
+    suspend fun pushFile(localData: ByteArray, remotePath: String): PushResult = withContext(Dispatchers.IO) {
         val tmp = File(appContext.cacheDir, "wearadb_push_${System.currentTimeMillis()}.tmp")
         try {
             tmp.writeBytes(localData)
@@ -570,7 +583,7 @@ class UsbAdbRepository @Inject constructor(
             val pushResult = pushFile(tmpFile, tmpPath)
             tmpFile.delete()
             android.util.Log.d(TAG, "installApk(ByteArray): pushResult=$pushResult")
-            if (!pushResult.contains("成功")) return@withContext "推送失败: $pushResult"
+            if (!pushResult.success) return@withContext appContext.getString(R.string.push_failed_with, pushResult.message)
 
             val installResult = executeCommand("pm install -r $tmpPath")
             android.util.Log.d(TAG, "installApk(ByteArray): installResult=$installResult")
@@ -578,13 +591,13 @@ class UsbAdbRepository @Inject constructor(
 
             val clean = installResult.trim()
             when {
-                clean.contains("Success") -> "安装成功"
-                clean.isEmpty() -> "安装失败: 无响应"
-                else -> "安装失败: $clean"
+                clean.contains("Success") -> appContext.getString(R.string.install_ok)
+                clean.isEmpty() -> appContext.getString(R.string.install_no_response)
+                else -> appContext.getString(R.string.install_failed_with, clean)
             }
         } catch (e: Exception) {
             android.util.Log.e(TAG, "installApk(ByteArray) exception", e)
-            "安装异常: ${e.message}"
+            appContext.getString(R.string.install_exception, e.message ?: "")
         }
     }
 
@@ -595,7 +608,7 @@ class UsbAdbRepository @Inject constructor(
             val tmpPath = "/data/local/tmp/_wearadb_install_${System.currentTimeMillis()}.apk"
             val pushResult = pushFile(apkFile, tmpPath)
             android.util.Log.d(TAG, "installApk: pushResult=$pushResult")
-            if (!pushResult.contains("成功")) return@withContext "推送失败: $pushResult"
+            if (!pushResult.success) return@withContext appContext.getString(R.string.push_failed_with, pushResult.message)
 
             val installResult = executeCommand("pm install -r $tmpPath")
             android.util.Log.d(TAG, "installApk: installResult=$installResult")
@@ -603,13 +616,13 @@ class UsbAdbRepository @Inject constructor(
 
             val clean = installResult.trim()
             when {
-                clean.contains("Success") -> "安装成功"
-                clean.isEmpty() -> "安装失败: 无响应"
-                else -> "安装失败: $clean"
+                clean.contains("Success") -> appContext.getString(R.string.install_ok)
+                clean.isEmpty() -> appContext.getString(R.string.install_no_response)
+                else -> appContext.getString(R.string.install_failed_with, clean)
             }
         } catch (e: Exception) {
             android.util.Log.e(TAG, "installApk exception", e)
-            "安装异常: ${e.message}"
+            appContext.getString(R.string.install_exception, e.message ?: "")
         }
     }
 
@@ -628,9 +641,9 @@ class UsbAdbRepository @Inject constructor(
                 for ((safeName, file) in localFiles) {
                     val pushResult = pushFile(file, "$tmpDir/$safeName")
                     android.util.Log.d(TAG, "installSplit: push $safeName (${file.length()}B) -> $pushResult")
-                    if (!pushResult.contains("成功")) {
+                    if (!pushResult.success) {
                         executeCommand("rm -rf $tmpDir", 5000)
-                        return@withContext "推送失败 ($safeName): $pushResult"
+                        return@withContext appContext.getString(R.string.push_failed_name, safeName, pushResult.message)
                     }
                 }
                 // 2. 创建安装会话（不带 -S，兼容更多设备）
@@ -638,7 +651,7 @@ class UsbAdbRepository @Inject constructor(
                 val sessionId = parseInstallSessionId(createResult)
                 if (sessionId == null) {
                     executeCommand("rm -rf $tmpDir", 5000)
-                    return@withContext "创建会话失败: ${createResult.trim()}"
+                    return@withContext appContext.getString(R.string.session_create_failed, createResult.trim())
                 }
                 // 3. 逐个写入会话
                 for ((safeName, _) in localFiles) {
@@ -649,7 +662,7 @@ class UsbAdbRepository @Inject constructor(
                     ) {
                         executeCommand("pm install-abandon $sessionId", 5000)
                         executeCommand("rm -rf $tmpDir", 5000)
-                        return@withContext "写入失败 ($safeName): ${writeResult.trim()}"
+                        return@withContext appContext.getString(R.string.write_failed_with, safeName, writeResult.trim())
                     }
                 }
                 // 4. 提交 + 清理
@@ -658,14 +671,14 @@ class UsbAdbRepository @Inject constructor(
                 android.util.Log.d(TAG, "installSplit: commit -> $commitResult")
                 val clean = commitResult.trim()
                 when {
-                    clean.contains("Success") -> "Split APK 安装成功 (${localFiles.size} 个文件)"
-                    clean.isEmpty() -> "安装失败: 无响应"
-                    else -> "安装失败: $clean"
+                    clean.contains("Success") -> appContext.getString(R.string.install_split_ok, localFiles.size)
+                    clean.isEmpty() -> appContext.getString(R.string.install_no_response)
+                    else -> appContext.getString(R.string.install_failed_with, clean)
                 }
             } catch (e: Exception) {
                 android.util.Log.e(TAG, "installSplit exception", e)
                 runCatching { executeCommand("rm -rf $tmpDir", 5000) }
-                "安装异常: ${e.message}"
+                appContext.getString(R.string.install_exception, e.message ?: "")
             }
         }
 
@@ -682,7 +695,7 @@ class UsbAdbRepository @Inject constructor(
             installSplitFromLocalFiles(local)
         } catch (e: Exception) {
             android.util.Log.e(TAG, "installSplitApk exception", e)
-            "安装异常: ${e.message}"
+            appContext.getString(R.string.install_exception, e.message ?: "")
         } finally {
             temps.forEach { runCatching { it.delete() } }
         }
@@ -717,11 +730,11 @@ class UsbAdbRepository @Inject constructor(
                     entry = zip.nextEntry
                 }
             }
-            if (local.isEmpty()) return@withContext ".apks 中未找到有效 APK 文件"
+            if (local.isEmpty()) return@withContext appContext.getString(R.string.apks_no_valid_apk)
             installSplitFromLocalFiles(local)
         } catch (e: Exception) {
             android.util.Log.e(TAG, "installSplitApkFromApksFile exception", e)
-            "安装异常: ${e.message}"
+            appContext.getString(R.string.install_exception, e.message ?: "")
         } finally {
             temps.forEach { runCatching { it.delete() } }
         }
@@ -772,7 +785,7 @@ class UsbAdbRepository @Inject constructor(
 
     /** 远程文件字节数（`stat -c %s`）；取不到返回 -1（调用方退化为未知总量进度） */
     suspend fun remoteFileSize(path: String): Long = withContext(Dispatchers.IO) {
-        executeCommand("stat -c %s '$path'", 8000).trim().toLongOrNull() ?: -1L
+        executeCommand("stat -c %s ${shellQuote(path)}", 8000).trim().toLongOrNull() ?: -1L
     }
 
     /**
@@ -846,28 +859,28 @@ class UsbAdbRepository @Inject constructor(
     // ── 文件管理 ──
 
     suspend fun listFiles(path: String): List<com.wearadb.data.model.FileEntry> = withContext(Dispatchers.IO) {
-        val output = executeCommand("ls -Lla $path 2>&1")
+        val output = executeCommand("ls -Lla ${shellQuote(path)} 2>&1")
         android.util.Log.d(TAG, "listFiles($path) output length=${output.length}")
         com.wearadb.adb.AdbOutputParser.parseFileListing(output, path)
     }
 
     suspend fun readFile(path: String): String = withContext(Dispatchers.IO) {
-        executeCommand("cat $path")
+        executeCommand("cat ${shellQuote(path)}")
     }
 
     suspend fun deleteFile(path: String): String = withContext(Dispatchers.IO) {
-        executeCommand("rm -rf $path")
+        executeCommand("rm -rf ${shellQuote(path)}")
     }
 
     suspend fun createDirectory(path: String): String = withContext(Dispatchers.IO) {
-        executeCommand("mkdir -p $path")
+        executeCommand("mkdir -p ${shellQuote(path)}")
     }
 
     suspend fun pullFile(remotePath: String): PullResult = withContext(Dispatchers.IO) {
         WearAdbLogger.i("UsbAdb", "USB拉取文件: remotePath=$remotePath")
         android.util.Log.d(TAG, "pullFile: $remotePath")
         val conn = awaitManager().getConnection()
-            ?: return@withContext PullResult(false, null, "USB 未连接")
+            ?: return@withContext PullResult(false, null, appContext.getString(R.string.usb_msg_not_connected))
         try {
             val stream = conn.openSync()
 
@@ -942,7 +955,7 @@ class UsbAdbRepository @Inject constructor(
                     0x4c494146 -> { // FAIL
                         android.util.Log.w(TAG, "pullFile: FAIL")
                         conn.closeStream(stream)
-                        return@withContext PullResult(false, null, "拉取失败: $remotePath")
+                        return@withContext PullResult(false, null, appContext.getString(R.string.pull_failed_with, remotePath))
                     }
                     else -> break
                 }
@@ -950,10 +963,10 @@ class UsbAdbRepository @Inject constructor(
 
             conn.closeStream(stream)
             android.util.Log.d(TAG, "pullFile: success, ${output.size()} bytes")
-            PullResult(true, output.toByteArray(), "拉取成功: $remotePath")
+            PullResult(true, output.toByteArray(), appContext.getString(R.string.pull_ok, remotePath))
         } catch (e: Exception) {
             android.util.Log.e(TAG, "pullFile exception", e)
-            PullResult(false, null, "拉取异常: ${e.message}")
+            PullResult(false, null, appContext.getString(R.string.pull_exception, e.message ?: ""))
         }
     }
 
@@ -967,10 +980,10 @@ class UsbAdbRepository @Inject constructor(
         return executeCommand(command)
     }
 
-    suspend fun reboot(): String = loggedOp("重启设备", "reboot")
-    suspend fun rebootRecovery(): String = loggedOp("重启到Recovery", "reboot recovery")
-    suspend fun rebootBootloader(): String = loggedOp("重启到Bootloader", "reboot bootloader")
-    suspend fun shutdown(): String = loggedOp("关机", "reboot -p")
+    suspend fun reboot(): String = loggedOp(appContext.getString(R.string.op_reboot), "reboot")
+    suspend fun rebootRecovery(): String = loggedOp(appContext.getString(R.string.op_reboot_recovery), "reboot recovery")
+    suspend fun rebootBootloader(): String = loggedOp(appContext.getString(R.string.op_reboot_bootloader), "reboot bootloader")
+    suspend fun shutdown(): String = loggedOp(appContext.getString(R.string.op_shutdown), "reboot -p")
 
     suspend fun tap(x: Int, y: Int): String = executeCommand("input tap $x $y")
     suspend fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, dur: Int = 300): String =
@@ -978,10 +991,10 @@ class UsbAdbRepository @Inject constructor(
     suspend fun keyEvent(code: Int): String = executeCommand("input keyevent $code")
     suspend fun inputText(text: String): String = executeCommand("input text \"$text\"")
 
-    suspend fun enableWifi(): String = loggedOp("开启WiFi", "svc wifi enable")
-    suspend fun disableWifi(): String = loggedOp("关闭WiFi", "svc wifi disable")
-    suspend fun enableBluetooth(): String = loggedOp("开启蓝牙", "svc bluetooth enable")
-    suspend fun disableBluetooth(): String = loggedOp("关闭蓝牙", "svc bluetooth disable")
+    suspend fun enableWifi(): String = loggedOp(appContext.getString(R.string.op_wifi_on), "svc wifi enable")
+    suspend fun disableWifi(): String = loggedOp(appContext.getString(R.string.op_wifi_off), "svc wifi disable")
+    suspend fun enableBluetooth(): String = loggedOp(appContext.getString(R.string.op_bt_on), "svc bluetooth enable")
+    suspend fun disableBluetooth(): String = loggedOp(appContext.getString(R.string.op_bt_off), "svc bluetooth disable")
 
     suspend fun volumeUp(): String = executeCommand("input keyevent 24")
     suspend fun volumeDown(): String = executeCommand("input keyevent 25")

@@ -96,7 +96,7 @@ fun DeviceInfoScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         SectionHeader(s.infoSystem)
                         WearCard {
-                            InfoRow("Android 版本", d.androidVersion); InfoRow("SDK", d.sdkVersion)
+                            InfoRow(s.infoAndroidVersion, d.androidVersion); InfoRow("SDK", d.sdkVersion)
                             InfoRow("Build ID", d.buildId); InfoRow(s.infoFingerprint, d.fingerprint, mono = true)
                             if (d.chipPlatform.isNotEmpty()) InfoRow(s.infoChipPlatform, d.chipPlatform)
                             if (d.imei.isNotEmpty()) InfoRow(s.infoImei, d.imei)
@@ -124,7 +124,7 @@ fun DeviceInfoScreen(
                                     if (d.batteryHealthPct > 0) InfoRow(s.infoBatteryHealthPct, "%.1f%%".format(d.batteryHealthPct))
                                     if (d.batteryCycleCount > 0) InfoRow(s.infoCycleCount, d.batteryCycleCount.toString())
                                     if (d.batteryTechnology.isNotEmpty()) InfoRow(s.infoBatteryType, d.batteryTechnology)
-                                    if (d.batteryHealth.isNotEmpty()) InfoRow(s.infoHealth, d.batteryHealth)
+                                    s.batteryHealthText(d.batteryHealthCode).takeIf { it.isNotEmpty() }?.let { InfoRow(s.infoHealth, it) }
                                     Spacer(Modifier.height(8.dp))
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(
@@ -144,7 +144,7 @@ fun DeviceInfoScreen(
                                         Spacer(Modifier.width(12.dp))
                                         Column(modifier = Modifier.weight(1f)) {
                                             InfoRow(s.infoBatteryLevel, "${d.batteryLevel}%")
-                                            InfoRow(s.infoBatteryStatus, d.batteryStatus)
+                                            InfoRow(s.infoBatteryStatus, s.batteryStatusText(d.batteryStatusCode))
                                         }
                                     }
                                 }
@@ -165,7 +165,7 @@ fun DeviceInfoScreen(
             item(key = "hdr_system") { SectionHeader(s.infoSystem) }
             item(key = "card_system") {
                 WearCard {
-                    InfoRow("Android 版本", d.androidVersion); InfoRow("SDK", d.sdkVersion)
+                    InfoRow(s.infoAndroidVersion, d.androidVersion); InfoRow("SDK", d.sdkVersion)
                     InfoRow("Build ID", d.buildId); InfoRow(s.infoFingerprint, d.fingerprint, mono = true)
                     if (d.chipPlatform.isNotEmpty()) InfoRow(s.infoChipPlatform, d.chipPlatform)
                     if (d.imei.isNotEmpty()) InfoRow(s.infoImei, d.imei)
@@ -184,14 +184,14 @@ fun DeviceInfoScreen(
                         if (d.batteryHealthPct > 0) InfoRow(s.infoBatteryHealthPct, "%.1f%%".format(d.batteryHealthPct))
                         if (d.batteryCycleCount > 0) InfoRow(s.infoCycleCount, d.batteryCycleCount.toString())
                         if (d.batteryTechnology.isNotEmpty()) InfoRow(s.infoBatteryType, d.batteryTechnology)
-                        if (d.batteryHealth.isNotEmpty()) InfoRow(s.infoHealth, d.batteryHealth)
+                        s.batteryHealthText(d.batteryHealthCode).takeIf { it.isNotEmpty() }?.let { InfoRow(s.infoHealth, it) }
                         if (d.batteryVoltage > 0) InfoRow(s.infoVoltage, "${"%.2f".format(d.batteryVoltage / 1000.0)} V")
                         if (d.batteryTemperature > 0) InfoRow(s.infoTemperature, "${"%.1f".format(d.batteryTemperature / 10.0)}°C")
                         Spacer(Modifier.height(8.dp))
                         HorizontalDivider(color = c.outlineVariant)
                         Spacer(Modifier.height(8.dp))
                         InfoRow(s.infoBatteryLevel, "${d.batteryLevel}%")
-                        InfoRow(s.infoBatteryStatus, d.batteryStatus)
+                        InfoRow(s.infoBatteryStatus, s.batteryStatusText(d.batteryStatusCode))
                         Spacer(Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(

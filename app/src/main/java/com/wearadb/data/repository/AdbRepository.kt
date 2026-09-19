@@ -10,6 +10,8 @@ import com.wearadb.adb.AdbOutputParser
 import com.wearadb.adb.AdvancedOps
 import com.wearadb.adb.UsbAdbRepository
 import com.wearadb.adb.WearAdbConnectionManager
+import com.wearadb.adb.shellQuote
+import com.wearadb.R
 import com.wearadb.data.model.*
 import com.wearadb.log.WearAdbLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -405,10 +407,10 @@ class AdbRepository @Inject constructor(
                             WearAdbLogger.w("AdbRepo", "配对后自动连接失败，回退手动连接")
                         }
                     }
-                    return@withContext PairingResult(true, host, port, "配对成功")
+                    return@withContext PairingResult(true, host, port, appContext.getString(R.string.pair_ok))
                 }
                 WearAdbLogger.w("AdbRepo", "配对失败: host=$host, port=$port")
-                return@withContext PairingResult(false, host, port, "配对失败")
+                return@withContext PairingResult(false, host, port, appContext.getString(R.string.pair_failed))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -423,7 +425,7 @@ class AdbRepository @Inject constructor(
         }
         _connectionState.value = ConnectionState.ERROR
         WearAdbLogger.e("AdbRepo", "配对异常: ${lastException?.message}", lastException)
-        PairingResult(false, host, port, "配对异常: ${lastException?.message ?: "未知错误"}")
+        PairingResult(false, host, port, appContext.getString(R.string.pair_exception, lastException?.message ?: appContext.getString(R.string.unknown_error)))
     }
 
     // ── 连接 ──
@@ -872,6 +874,16 @@ class AdbRepository @Inject constructor(
         } catch (e: Exception) {
             android.util.Log.w("AdbRepo", "getDeviceInfo() root extras failed: ${e.message}")
         }
+
+        // 非 root 兜底：部分机型允许 shell 身份读取 uevent 的 CHARGE_FULL / CHARGE_FULL_DESIGN
+        // （或 batterystats 的 "Last learned battery capacity"），这两个值已被 parseDeviceInfo 解析出来，
+        // 但若 su 不可用，上面的 healthPct 计算整块被跳过 → 保持 0 → UI 因 "> 0" 判据整行隐藏。
+        // 这里补一次计算，让免 root 设备也能显示健康度%（读不到容量的机型仍为 0，行为不变）。
+        if (info.batteryHealthPct == 0f && info.batteryDesignCapacity > 0 && info.batteryCurrentCapacity > 0) {
+            val pct = info.batteryCurrentCapacity.toFloat() / info.batteryDesignCapacity * 100f
+            info = info.copy(batteryHealthPct = pct)
+            android.util.Log.d("AdbRepo", "getDeviceInfo() 免root健康度: ${info.batteryCurrentCapacity}/${info.batteryDesignCapacity} = %.1f%%".format(pct))
+        }
         info
     }
 
@@ -972,7 +984,7 @@ class AdbRepository @Inject constructor(
             serial = serial,
             packages = pending,
             exec = { cmd -> runSingleCommand(cmd, 60000).ifBlank { null } },
-            push = { local, remote -> pushFile(File(local), remote).contains("成功") },
+            push = { local, remote -> pushFile(File(local), remote).success },
             pull = { remote -> pullFile(remote).let { if (it.success) it.data else null } },
             onProgress = onProgress
         )
@@ -1014,7 +1026,7 @@ class AdbRepository @Inject constructor(
             serial = serial,
             packages = pending,
             exec = { cmd -> usbAdbRepository.executeCommand(cmd, 60000).ifBlank { null } },
-            push = { local, remote -> usbAdbRepository.pushFile(File(local), remote).contains("成功") },
+            push = { local, remote -> usbAdbRepository.pushFile(File(local), remote).success },
             pull = { remote -> usbAdbRepository.pullFile(remote).let { if (it.success) it.data else null } },
             onProgress = onProgress
         )
@@ -1080,7 +1092,7 @@ class AdbRepository @Inject constructor(
      * 取不到时返回 -1，调用方据此退化为"未知总量的进度显示"而不是误报 0。
      */
     suspend fun remoteFileSize(path: String): Long = withContext(Dispatchers.IO) {
-        runSingleCommand("stat -c %s '$path'", 8000).trim().toLongOrNull() ?: -1L
+        runSingleCommand("stat -c %s ${shellQuote(path)}", 8000).trim().toLongOrNull() ?: -1L
     }
 
     /**
@@ -1154,7 +1166,7 @@ class AdbRepository @Inject constructor(
             android.util.Log.d("AdbRepo", "installApk(ByteArray): pushing to $tmpPath")
             val pushResult = pushFile(apkData, tmpPath)
             android.util.Log.d("AdbRepo", "installApk(ByteArray): pushResult=$pushResult")
-            if (!pushResult.contains("成功")) return@withContext "推送失败: $pushResult"
+            if (!pushResult.success) return@withContext appContext.getString(R.string.push_failed_with, pushResult.message)
             // 2. 执行安装
             android.util.Log.d("AdbRepo", "installApk(ByteArray): running pm install")
             val installResult = runSingleCommand("pm install -r $tmpPath", 60000)
@@ -1166,15 +1178,15 @@ class AdbRepository @Inject constructor(
             when {
                 clean.contains("Success") -> {
                     WearAdbLogger.i("AdbRepo", "APK安装成功(ByteArray)")
-                    "安装成功"
+                    appContext.getString(R.string.install_ok)
                 }
-                clean.isEmpty() -> "安装失败: 无响应"
-                else -> "安装失败: $clean"
+                clean.isEmpty() -> appContext.getString(R.string.install_no_response)
+                else -> appContext.getString(R.string.install_failed_with, clean)
             }
         } catch (e: Exception) {
             WearAdbLogger.e("AdbRepo", "APK安装异常(ByteArray): ${e.message}", e)
             android.util.Log.e("AdbRepo", "installApk(ByteArray) exception", e)
-            "安装异常: ${e.message}"
+            appContext.getString(R.string.install_exception, e.message ?: "")
         }
     }
 
@@ -1194,9 +1206,9 @@ class AdbRepository @Inject constructor(
                 android.util.Log.d("AdbRepo", "installSplitApk: pushing $safeName (${data.size} bytes)")
                 val pushResult = pushFile(data, remotePath)
                 android.util.Log.d("AdbRepo", "installSplitApk: push $safeName result=$pushResult")
-                if (!pushResult.contains("成功")) {
+                if (!pushResult.success) {
                     runSingleCommand("rm -rf $tmpDir", 5000)
-                    return@withContext "推送失败 ($name): $pushResult"
+                    return@withContext appContext.getString(R.string.push_failed_name, name, pushResult.message)
                 }
             }
             // 3. 创建安装会话（不使用 -S 参数，兼容更多设备）
@@ -1207,7 +1219,7 @@ class AdbRepository @Inject constructor(
                 ?: Regex("(\\d+)").find(createResult.trim())?.groupValues?.get(1)
             if (sessionId == null) {
                 runSingleCommand("rm -rf $tmpDir", 5000)
-                return@withContext "创建会话失败: ${createResult.trim()}"
+                return@withContext appContext.getString(R.string.session_create_failed, createResult.trim())
             }
             // 4. 写入每个 split APK（用安全文件名）
             for ((name, _) in apkFiles) {
@@ -1219,7 +1231,7 @@ class AdbRepository @Inject constructor(
                     !writeResult.contains("success", ignoreCase = true)) {
                     runSingleCommand("pm install-abandon $sessionId", 5000)
                     runSingleCommand("rm -rf $tmpDir", 5000)
-                    return@withContext "写入失败 ($name): ${writeResult.trim()}"
+                    return@withContext appContext.getString(R.string.write_failed_with, name, writeResult.trim())
                 }
             }
             // 5. 提交安装
@@ -1230,13 +1242,13 @@ class AdbRepository @Inject constructor(
             // 7. 返回结果
             val clean = commitResult.trim()
             when {
-                clean.contains("Success") -> "Split APK 安装成功 (${apkFiles.size} 个文件)"
-                clean.isEmpty() -> "安装失败: 无响应"
-                else -> "安装失败: $clean"
+                clean.contains("Success") -> appContext.getString(R.string.install_split_ok, apkFiles.size)
+                clean.isEmpty() -> appContext.getString(R.string.install_no_response)
+                else -> appContext.getString(R.string.install_failed_with, clean)
             }
         } catch (e: Exception) {
             runSingleCommand("rm -rf $tmpDir", 5000)
-            "安装异常: ${e.message}"
+            appContext.getString(R.string.install_exception, e.message ?: "")
         }
     }
     // ── 安装 APK（File 版，避免 OOM）──
@@ -1248,7 +1260,7 @@ class AdbRepository @Inject constructor(
             android.util.Log.d("AdbRepo", "installApk(File): pushing to $tmpPath")
             val pushResult = pushFile(apkFile, tmpPath)
             android.util.Log.d("AdbRepo", "installApk(File): pushResult=$pushResult")
-            if (!pushResult.contains("成功")) return@withContext "推送失败: $pushResult"
+            if (!pushResult.success) return@withContext appContext.getString(R.string.push_failed_with, pushResult.message)
             android.util.Log.d("AdbRepo", "installApk(File): running pm install")
             val installResult = runSingleCommand("pm install -r $tmpPath", 60000)
             android.util.Log.d("AdbRepo", "installApk(File): installResult=$installResult")
@@ -1257,15 +1269,15 @@ class AdbRepository @Inject constructor(
             when {
                 clean.contains("Success") -> {
                     WearAdbLogger.i("AdbRepo", "APK安装成功(File): ${apkFile.name}")
-                    "安装成功"
+                    appContext.getString(R.string.install_ok)
                 }
-                clean.isEmpty() -> "安装失败: 无响应"
-                else -> "安装失败: $clean"
+                clean.isEmpty() -> appContext.getString(R.string.install_no_response)
+                else -> appContext.getString(R.string.install_failed_with, clean)
             }
         } catch (e: Exception) {
             WearAdbLogger.e("AdbRepo", "APK安装异常(File): ${apkFile.name} - ${e.message}", e)
             android.util.Log.e("AdbRepo", "installApk(File) exception", e)
-            "安装异常: ${e.message}"
+            appContext.getString(R.string.install_exception, e.message ?: "")
         }
     }
 
@@ -1281,9 +1293,9 @@ class AdbRepository @Inject constructor(
                 android.util.Log.d("AdbRepo", "installSplitApkFiles: pushing $safeName (${file.length()} bytes)")
                 val pushResult = pushFile(file, remotePath)
                 android.util.Log.d("AdbRepo", "installSplitApkFiles: push result: $pushResult")
-                if (!pushResult.contains("成功")) {
+                if (!pushResult.success) {
                     runSingleCommand("rm -rf $tmpDir", 5000)
-                    return@withContext "推送失败 ($name): $pushResult"
+                    return@withContext appContext.getString(R.string.push_failed_name, name, pushResult.message)
                 }
             }
             // 不使用 -S 参数，兼容更多设备
@@ -1294,7 +1306,7 @@ class AdbRepository @Inject constructor(
                 ?: Regex("(\\d+)").find(createResult.trim())?.groupValues?.get(1)
             if (sessionId == null) {
                 runSingleCommand("rm -rf $tmpDir", 5000)
-                return@withContext "创建会话失败: ${createResult.trim()}"
+                return@withContext appContext.getString(R.string.session_create_failed, createResult.trim())
             }
             for ((name, _) in apkFiles) {
                 val safeName = name.replace(Regex("[^a-zA-Z0-9._-]"), "_")
@@ -1305,7 +1317,7 @@ class AdbRepository @Inject constructor(
                     !writeResult.contains("success", ignoreCase = true)) {
                     runSingleCommand("pm install-abandon $sessionId", 5000)
                     runSingleCommand("rm -rf $tmpDir", 5000)
-                    return@withContext "写入失败 ($name): ${writeResult.trim()}"
+                    return@withContext appContext.getString(R.string.write_failed_with, name, writeResult.trim())
                 }
             }
             val commitResult = runSingleCommand("pm install-commit $sessionId", 60000)
@@ -1313,13 +1325,13 @@ class AdbRepository @Inject constructor(
             runSingleCommand("rm -rf $tmpDir", 5000)
             val clean = commitResult.trim()
             when {
-                clean.contains("Success") -> "Split APK 安装成功 (${apkFiles.size} 个文件)"
-                clean.isEmpty() -> "安装失败: 无响应"
-                else -> "安装失败: $clean"
+                clean.contains("Success") -> appContext.getString(R.string.install_split_ok, apkFiles.size)
+                clean.isEmpty() -> appContext.getString(R.string.install_no_response)
+                else -> appContext.getString(R.string.install_failed_with, clean)
             }
         } catch (e: Exception) {
             runSingleCommand("rm -rf $tmpDir", 5000)
-            "安装异常: ${e.message}"
+            appContext.getString(R.string.install_exception, e.message ?: "")
         }
     }
 
@@ -1338,7 +1350,7 @@ class AdbRepository @Inject constructor(
                 ?: Regex("(\\d+)").find(createResult.trim())?.groupValues?.get(1)
             if (sessionId == null) {
                 runSingleCommand("rm -rf $tmpDir", 5000)
-                return@withContext "创建安装会话失败: ${createResult.trim()}"
+                return@withContext appContext.getString(R.string.session_create_failed, createResult.trim())
             }
 
             // 3. 逐个解压 APK → 推送 → 写入安装会话（不同时加载全部到内存）
@@ -1365,11 +1377,11 @@ class AdbRepository @Inject constructor(
                             // 推送到设备
                             val remotePath = "$tmpDir/$safeName"
                             val pushResult = pushFile(tmpApk, remotePath)
-                            if (!pushResult.contains("成功")) {
+                            if (!pushResult.success) {
                                 android.util.Log.e("AdbRepo", "installApks: push failed for $safeName: $pushResult")
                                 runSingleCommand("pm install-abandon $sessionId", 5000)
                                 runSingleCommand("rm -rf $tmpDir", 5000)
-                                return@withContext "推送失败 ($safeName): $pushResult"
+                                return@withContext appContext.getString(R.string.push_failed_name, safeName, pushResult.message)
                             }
 
                             // 写入安装会话
@@ -1379,7 +1391,7 @@ class AdbRepository @Inject constructor(
                                 !writeResult.contains("success", ignoreCase = true)) {
                                 runSingleCommand("pm install-abandon $sessionId", 5000)
                                 runSingleCommand("rm -rf $tmpDir", 5000)
-                                return@withContext "写入失败 ($safeName): ${writeResult.trim()}"
+                                return@withContext appContext.getString(R.string.write_failed_with, safeName, writeResult.trim())
                             }
 
                             count++
@@ -1395,7 +1407,7 @@ class AdbRepository @Inject constructor(
             if (count == 0) {
                 runSingleCommand("pm install-abandon $sessionId", 5000)
                 runSingleCommand("rm -rf $tmpDir", 5000)
-                return@withContext ".apks 中未找到有效 APK 文件"
+                return@withContext appContext.getString(R.string.apks_no_valid_apk)
             }
 
             // 4. 提交安装
@@ -1408,18 +1420,18 @@ class AdbRepository @Inject constructor(
 
             val clean = commitResult.trim()
             when {
-                clean.contains("Success") -> "Split APK 安装成功 ($count 个文件, ${totalSize / 1024 / 1024}MB)"
-                clean.isEmpty() -> "安装失败: 无响应"
-                else -> "安装失败: $clean"
+                clean.contains("Success") -> appContext.getString(R.string.install_split_ok_size, count, totalSize / 1024 / 1024)
+                clean.isEmpty() -> appContext.getString(R.string.install_no_response)
+                else -> appContext.getString(R.string.install_failed_with, clean)
             }
         } catch (e: Exception) {
             runSingleCommand("rm -rf $tmpDir", 5000)
-            "安装异常: ${e.message}"
+            appContext.getString(R.string.install_exception, e.message ?: "")
         }
     }
 
     // ── 推送文件（File 版，流式传输，避免 OOM，带重试）──
-    suspend fun pushFile(localFile: File, remotePath: String): String = withContext(Dispatchers.IO) {
+    suspend fun pushFile(localFile: File, remotePath: String): PushResult = withContext(Dispatchers.IO) {
         WearAdbLogger.i("AdbRepo", "推送文件: ${localFile.name} -> $remotePath, size=${localFile.length()}")
         android.util.Log.d("AdbRepo", "pushFile(File): ${localFile.name} -> $remotePath, size=${localFile.length()}")
         val maxRetries = 3
@@ -1483,13 +1495,15 @@ class AdbRepository @Inject constructor(
                 android.util.Log.d("AdbRepo", "pushFile(File): stream closed")
 
                 val result = when (respCmd) {
-                    0x59414b4f -> "推送成功: $remotePath"
-                    0x4c494146 -> "推送失败"
-                    else -> "推送完成"
+                    0x59414b4f -> appContext.getString(R.string.push_success, remotePath)  // OKAY
+                    0x4c494146 -> appContext.getString(R.string.push_failed)               // FAIL
+                    else -> appContext.getString(R.string.push_done)
                 }
+                // 成功与否只认 OKAY（沿用旧判据语义），文案 message 仅供展示、可安全本地化
+                val ok = respCmd == 0x59414b4f
                 WearAdbLogger.i("AdbRepo", "推送文件结果: ${localFile.name} -> $remotePath: $result")
                 android.util.Log.d("AdbRepo", "pushFile(File): $result")
-                return@withContext result
+                return@withContext PushResult(ok, result)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: java.net.ConnectException) {
@@ -1503,17 +1517,17 @@ class AdbRepository @Inject constructor(
             } catch (e: Exception) {
                 WearAdbLogger.e("AdbRepo", "推送文件异常: ${localFile.name} -> $remotePath: ${e.message}", e)
                 android.util.Log.e("AdbRepo", "pushFile(File): exception: ${e.javaClass.simpleName}: ${e.message}", e)
-                return@withContext "推送异常: ${e.message}"
+                return@withContext PushResult(false, appContext.getString(R.string.push_exception, e.message ?: ""))
             }
         }
         WearAdbLogger.e("AdbRepo", "推送文件全部重试失败: ${localFile.name} -> $remotePath")
         android.util.Log.e("AdbRepo", "pushFile(File): all $maxRetries attempts failed", lastException)
-        "推送异常: ${lastException?.message}"
+        PushResult(false, appContext.getString(R.string.push_exception, lastException?.message ?: ""))
     }
 
     suspend fun listFiles(path: String): List<FileEntry> = withContext(Dispatchers.IO) {
         WearAdbLogger.i("AdbRepo", "列目录: path=$path")
-        val output = runSingleCommand("ls -Lla $path 2>&1")
+        val output = runSingleCommand("ls -Lla ${shellQuote(path)} 2>&1")
         android.util.Log.d("AdbRepo", "listFiles($path) output length=${output.length}, first300=${output.take(300)}")
         val result = AdbOutputParser.parseFileListing(output, path)
         android.util.Log.d("AdbRepo", "listFiles($path) parsed ${result.size} entries")
@@ -1522,25 +1536,27 @@ class AdbRepository @Inject constructor(
 
     suspend fun deleteFile(path: String): String = withContext(Dispatchers.IO) {
         WearAdbLogger.i("AdbRepo", "删除文件: path=$path")
-        val result = runSingleCommand("rm -rf $path")
+        // 路径必须单引号包裹：parseFileListing 已把 ls 的 `\ ` 还原成真空格，
+        // 裸露的 `rm -rf $path` 会被 sh 拆词，再由 -f 静默吞掉（返回空、文件还在）。
+        val result = runSingleCommand("rm -rf ${shellQuote(path)}")
         WearAdbLogger.i("AdbRepo", "删除文件结果: $path - $result")
         result
     }
 
     suspend fun createDirectory(path: String): String = withContext(Dispatchers.IO) {
         WearAdbLogger.i("AdbRepo", "创建目录: path=$path")
-        val result = runSingleCommand("mkdir -p $path")
+        val result = runSingleCommand("mkdir -p ${shellQuote(path)}")
         WearAdbLogger.i("AdbRepo", "创建目录结果: $path - $result")
         result
     }
 
     suspend fun readFile(path: String): String = withContext(Dispatchers.IO) {
         WearAdbLogger.i("AdbRepo", "读取文件: path=$path")
-        runSingleCommand("cat $path")
+        runSingleCommand("cat ${shellQuote(path)}")
     }
 
     // ── 文件传输 ──
-    suspend fun pushFile(localData: ByteArray, remotePath: String): String = withContext(Dispatchers.IO) {
+    suspend fun pushFile(localData: ByteArray, remotePath: String): PushResult = withContext(Dispatchers.IO) {
         WearAdbLogger.i("AdbRepo", "推送文件(ByteArray): ${localData.size} bytes -> $remotePath")
         android.util.Log.d("AdbRepo", "pushFile(ByteArray): ${localData.size} bytes -> $remotePath")
         try {
@@ -1594,13 +1610,14 @@ class AdbRepository @Inject constructor(
             try { stream.close() } catch (_: Exception) {}
             android.util.Log.d("AdbRepo", "pushFile(ByteArray): stream closed")
 
-            when (respCmd) {
-                0x59414b4f -> "推送成功: $remotePath"  // OKAY
-                0x4c494146 -> "推送失败"               // FAIL
-                else -> "推送完成"
+            val msg = when (respCmd) {
+                0x59414b4f -> appContext.getString(R.string.push_success, remotePath)  // OKAY
+                0x4c494146 -> appContext.getString(R.string.push_failed)               // FAIL
+                else -> appContext.getString(R.string.push_done)
             }
+            PushResult(respCmd == 0x59414b4f, msg)
         } catch (e: Exception) {
-            "推送异常: ${e.message}"
+            PushResult(false, appContext.getString(R.string.push_exception, e.message ?: ""))
         }
     }
 
@@ -1663,7 +1680,7 @@ class AdbRepository @Inject constructor(
                     0x4c494146 -> {       // FAIL
                         android.util.Log.w("AdbRepo", "pullFile: FAIL received")
                         failed = true
-                        failMsg = "拉取失败"
+                        failMsg = appContext.getString(R.string.pull_failed)
                         break
                     }
                     else -> {
@@ -1680,11 +1697,11 @@ class AdbRepository @Inject constructor(
                 PullResult(false, null, failMsg)
             } else {
                 WearAdbLogger.i("AdbRepo", "拉取文件成功: $remotePath, size=${buffer.size()}")
-                PullResult(true, buffer.toByteArray(), "拉取成功: $remotePath")
+                PullResult(true, buffer.toByteArray(), appContext.getString(R.string.pull_ok, remotePath))
             }
         } catch (e: Exception) {
             WearAdbLogger.e("AdbRepo", "拉取文件异常: $remotePath - ${e.message}", e)
-            PullResult(false, null, "拉取异常: ${e.message}")
+            PullResult(false, null, appContext.getString(R.string.pull_exception, e.message ?: ""))
         }
     }
 
@@ -1803,11 +1820,11 @@ class AdbRepository @Inject constructor(
             startupGate.withLock { runSingleCommand(cmd, 10000) }
 
         override suspend fun pushFileTo(localFile: File, remotePath: String): Boolean =
-            pushFile(localFile, remotePath).contains("成功")
+            pushFile(localFile, remotePath).success
 
         /** 启动期推送：与同批命令共用闸门，避免与 `wm size` 抢 mLastLocalId。 */
         override suspend fun pushFileToSerialized(localFile: File, remotePath: String): Boolean =
-            startupGate.withLock { pushFile(localFile, remotePath).contains("成功") }
+            startupGate.withLock { pushFile(localFile, remotePath).success }
 
         override suspend fun openShellStream(cmd: String): com.wearadb.adb.MirrorStream =
             WirelessMirrorStream(manager.openStream("shell:$cmd"))
