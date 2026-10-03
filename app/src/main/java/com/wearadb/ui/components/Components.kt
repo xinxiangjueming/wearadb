@@ -17,9 +17,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.ui.Alignment
-import com.wearadb.ui.navigation.LocalNavTransitionScope
-import com.wearadb.ui.navigation.LocalSharedTransitionScope
 import androidx.compose.ui.Modifier
+import com.wearadb.ui.navigation.revealAnchor
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -162,18 +161,14 @@ fun WearButton(
         shape = shape,
         colors = colors,
         contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
-        modifier = modifier.fillMaxWidth()
+        modifier = modifier
+            .fillMaxWidth()
+            // 一镜到底锚点：sharedKey（=目标 route）持续上报矩形+图层
+            .then(if (sharedKey != null) Modifier.revealAnchor(sharedKey, WearAdbTheme.shape.cornerRadius) else Modifier)
     ) {
-        val stScope = LocalSharedTransitionScope.current
-        val avScope = LocalNavTransitionScope.current
         Text(
             text = text,
-            style = MaterialTheme.typography.titleMedium,
-            modifier = if (sharedKey != null && stScope != null && avScope != null) {
-                with(stScope) {
-                    Modifier.sharedElement(rememberSharedContentState(sharedKey), avScope)
-                }
-            } else Modifier
+            style = MaterialTheme.typography.titleMedium
         )
     }
 }

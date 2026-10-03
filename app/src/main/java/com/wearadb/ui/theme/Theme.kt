@@ -1,7 +1,9 @@
 package com.wearadb.ui.theme
 
+import android.content.res.Configuration
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
@@ -261,17 +263,48 @@ object WearAdbTheme {
         get() = LocalWearAdbShape.current
 }
 
+/**
+ * 应用主题。
+ *
+ * **主题切换闸门**（对齐 PowerMeter PowerMeterTheme / Now in Android 模式）：
+ * 「目标深浅」[darkTheme] 与「已生效深浅」[appliedDark] 分离——目标变化时先 PixelCopy
+ * 截旧界面快照再放行，消除系统深浅色切换的硬切；覆盖层内置于 Box 顶层，全部页面自动获得
+ * 「右下角圆孔扩散露出新主题」动画（见 [ThemeTransition]）。首次组合 appliedDark 即终值，
+ * 无动画；截图失败无动画直接切（降级不劣于现状）。
+ */
 @Composable
 fun WearAdbTheme(
+    // 默认读系统；MainActivity 实际传入 darkThemeState（onCreate 初值 /
+    // onConfigurationChanged / onResume 兜底三处更新——configChanges 含 uiMode 后，
+    // 后台切换深浅时 ViewRootImpl 不分发配置，直读系统值不可依赖）。
+    // 经下方闸门延迟生效，全部渲染取材见 appliedDark。
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    val context = LocalContext.current
-    val colors = if (darkTheme) DarkColors else LightColors
-    val materialScheme = if (darkTheme) colors.toMaterialDark() else colors.toMaterialLight()
+    // ── 主题切换闸门 ──────────────────────────────────────────────────────
+    // 目标深浅变化时先截旧界面快照再放行；全部渲染取材以 appliedDark 为准。
+    var appliedDark by remember { mutableStateOf(darkTheme) }
+    val view = LocalView.current
+
+    LaunchedEffect(darkTheme) {
+        if (appliedDark == darkTheme) return@LaunchedEffect
+        // 已有快照在播（动画未播完又发生新切换）：直接放行，overlay 继续播
+        if (ThemeTransition.snapshot != null) { appliedDark = darkTheme; return@LaunchedEffect }
+        // 宿主未 RESUMED：不截图、不播动画，直接放行
+        val host = ThemeTransition.activityOf(view.context)
+        if (host == null || !ThemeTransition.canAnimateFrom(host)) {
+            appliedDark = darkTheme
+            return@LaunchedEffect
+        }
+        // 系统切换路径：立即截旧界面；失败则无动画直接切
+        ThemeTransition.capture(host)
+        appliedDark = darkTheme
+    }
+
+    val colors = if (appliedDark) DarkColors else LightColors
+    val materialScheme = if (appliedDark) colors.toMaterialDark() else colors.toMaterialLight()
     val shape = WearAdbShape(cornerRadius = screenCornerRadius())
 
-    val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val activity = view.context as ComponentActivity
@@ -282,18 +315,40 @@ fun WearAdbTheme(
 
             // 统一入口：enableEdgeToEdge + 显式透明/关 contrast + 图标明暗 + insets 监听兜底（180° 翻转）。
             // 重复调用仅覆盖 listener，不累积。
-            NavigationBarHelper.setupEdgeToEdge(activity, lightStatusBar = !darkTheme)
+            // 取 appliedDark（已生效深浅）：图标明暗与圆孔揭露动画同步切换，不在目标变化时抢跑
+            NavigationBarHelper.setupEdgeToEdge(activity, lightStatusBar = !appliedDark)
+        }
+    }
+
+    // LocalConfiguration 深色位覆盖（对齐 PowerMeterTheme）：content 里直调
+    // isSystemInDarkTheme() 的取色点不经本函数参数——覆盖后它们与圆孔擦除动画同步切换，
+    // 不绕过闸门硬切。只改 NIGHT 位，density/locale 等字段原样复制。
+    // LocalConfiguration 是 staticCompositionLocalOf：覆盖值变化 → 整个子树重组（放行
+    // 瞬间的一次性成本），无需 recreate。
+    val baseConfig = LocalConfiguration.current
+    val appConfig = remember(baseConfig, appliedDark) {
+        Configuration(baseConfig).apply {
+            uiMode = (uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or
+                (if (appliedDark) Configuration.UI_MODE_NIGHT_YES else Configuration.UI_MODE_NIGHT_NO)
         }
     }
 
     CompositionLocalProvider(
         LocalWearAdbColors provides colors,
-        LocalWearAdbShape provides shape
+        LocalWearAdbShape provides shape,
+        LocalConfiguration provides appConfig
     ) {
         MaterialTheme(
             colorScheme = materialScheme,
-            typography = WearAdbTypography,
-            content = content
-        )
+            typography = WearAdbTypography
+        ) {
+            // Box 不加约束：尺寸由 content 决定（全屏 content → 覆盖层全屏；非全屏场景
+            // 零布局影响）。覆盖层最后声明盖在 content 之上，动画期间拦截全部触摸、
+            // 播完自动从组合移除（见 ThemeTransition）。
+            Box {
+                content()
+                ThemeTransitionOverlay()
+            }
+        }
     }
 }

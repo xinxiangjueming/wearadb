@@ -25,6 +25,7 @@ import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
 import com.wearadb.ui.navigation.Routes
 import com.wearadb.ui.navigation.SharedTitle
+import com.wearadb.ui.navigation.revealAnchor
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
 import com.wearadb.ui.utils.useDualPane
 
@@ -132,7 +133,7 @@ fun DiscoveryScreen(
                 if (pairingDevices.isNotEmpty()) {
                     item { SectionHeader(s.discoveryPairable(pairingDevices.size)) }
                     items(pairingDevices) { device ->
-                        DiscoveredDeviceCard(device = device, label = s.discoveryActionPair) {
+                        DiscoveredDeviceCard(device = device, label = s.discoveryActionPair, anchorKey = Routes.PAIRING) {
                             onNavigateToPairing(device.host, device.port)
                         }
                     }
@@ -188,7 +189,7 @@ fun DiscoveryScreen(
             if (pairingDevices.isNotEmpty()) {
                 item { SectionHeader(s.discoveryPairable(pairingDevices.size)) }
                 items(pairingDevices) { device ->
-                    DiscoveredDeviceCard(device = device, label = s.discoveryActionPair) {
+                    DiscoveredDeviceCard(device = device, label = s.discoveryActionPair, anchorKey = Routes.PAIRING) {
                         onNavigateToPairing(device.host, device.port)
                     }
                 }
@@ -259,10 +260,14 @@ private fun ManualConnectCard(
 private fun DiscoveredDeviceCard(
     device: DiscoveredDevice,
     label: String,
+    anchorKey: String? = null,
     onClick: () -> Unit
 ) {
     val c = WearAdbTheme.colors
-    WearCard(onClick = onClick) {
+    WearCard(
+        onClick = onClick,
+        modifier = if (anchorKey != null) Modifier.revealAnchor(anchorKey, WearAdbTheme.shape.cornerRadius) else Modifier
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Icon(
                 if (device.isPairing) Icons.Outlined.VpnKey else Icons.Outlined.PhoneAndroid,

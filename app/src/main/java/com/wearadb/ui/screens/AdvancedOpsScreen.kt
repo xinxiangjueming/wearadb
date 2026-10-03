@@ -30,9 +30,15 @@ import com.wearadb.ui.components.*
 import com.wearadb.ui.theme.WearAdbTheme
 import com.wearadb.ui.navigation.Routes
 import com.wearadb.ui.navigation.SharedTitle
+import com.wearadb.ui.navigation.revealAnchor
 import com.wearadb.ui.utils.adaptiveHorizontalPadding
 
-private data class OpsItem(val icon: ImageVector, val label: String, val onClick: () -> Unit)
+private data class OpsItem(
+    val icon: ImageVector,
+    val label: String,
+    val anchorKey: String? = null,
+    val onClick: () -> Unit
+)
 
 @Composable
 fun AdvancedOpsScreen(
@@ -71,7 +77,7 @@ fun AdvancedOpsScreen(
     val sections = remember {
         listOf(
             s.opsDisplay to listOf(
-                OpsItem(Icons.Outlined.ScreenshotMonitor, s.mirrorTitle) { onNavigateToScreenMirror() },
+                OpsItem(Icons.Outlined.ScreenshotMonitor, s.mirrorTitle, Routes.SCREEN_MIRROR) { onNavigateToScreenMirror() },
                 OpsItem(Icons.Outlined.Camera, s.opsScreenshot) { showScreenshot = true },
                 OpsItem(Icons.Outlined.LightMode, s.opsScreenOn) { viewModel.screenOn() },
                 OpsItem(Icons.Outlined.DarkMode, s.opsScreenOff) { viewModel.screenOff() },
@@ -120,14 +126,14 @@ fun AdvancedOpsScreen(
         for ((title, items) in sections) {
             item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(title) }
             items(items) { item ->
-                OpsButton(item.icon, item.label) { item.onClick() }
+                OpsButton(item.icon, item.label, anchorKey = item.anchorKey) { item.onClick() }
             }
         }
 
         // ── 电源（重启） ──
         item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(s.opsPower) }
         item(span = { GridItemSpan(maxLineSpan) }) {
-            OpsButton(Icons.Outlined.RestartAlt, s.opsRebootDevice) { showRebootDialog = true }
+            OpsButton(Icons.Outlined.RestartAlt, s.opsRebootDevice, onClick = { showRebootDialog = true })
         }
     }
 
@@ -211,6 +217,7 @@ fun AdvancedOpsScreen(
 private fun OpsButton(
     icon: ImageVector,
     label: String,
+    anchorKey: String? = null,
     onClick: () -> Unit
 ) {
     val c = WearAdbTheme.colors
@@ -218,6 +225,8 @@ private fun OpsButton(
     val shape = remember { RoundedCornerShape(cr) }
     Column(
         modifier = Modifier
+            // 一镜到底锚点：必须在 clip 之前，record 才能把圆角裁剪录进截图
+            .then(if (anchorKey != null) Modifier.revealAnchor(anchorKey, cr) else Modifier)
             .clip(shape)
             .background(c.surfaceVariant, shape)
             .border(1.dp, c.outlineVariant, shape)

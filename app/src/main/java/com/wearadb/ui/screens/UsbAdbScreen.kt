@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import com.wearadb.ui.theme.WearAdbTheme
 import com.wearadb.ui.navigation.Routes
 import com.wearadb.ui.navigation.SharedTitle
+import com.wearadb.ui.navigation.revealAnchor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -140,7 +141,8 @@ fun UsbAdbScreen(
                     title = s.deviceInfoTitle,
                     subtitle = s.usbDescInfo,
                     cornerRadius = cornerRadius,
-                    onClick = onNavigateToDeviceInfo
+                    onClick = onNavigateToDeviceInfo,
+                    anchorKey = Routes.DEVICE_INFO
                 )
 
                 // Shell 命令
@@ -149,7 +151,8 @@ fun UsbAdbScreen(
                     title = s.featureShell,
                     subtitle = s.usbDescShell,
                     cornerRadius = cornerRadius,
-                    onClick = onNavigateToShell
+                    onClick = onNavigateToShell,
+                    anchorKey = Routes.SHELL
                 )
 
                 // 应用管理
@@ -158,7 +161,8 @@ fun UsbAdbScreen(
                     title = s.appsTitle,
                     subtitle = s.usbDescApps,
                     cornerRadius = cornerRadius,
-                    onClick = onNavigateToApps
+                    onClick = onNavigateToApps,
+                    anchorKey = Routes.APPS
                 )
 
                 // 文件管理
@@ -167,7 +171,8 @@ fun UsbAdbScreen(
                     title = s.filesTitle,
                     subtitle = s.usbDescFiles,
                     cornerRadius = cornerRadius,
-                    onClick = onNavigateToFiles
+                    onClick = onNavigateToFiles,
+                    anchorKey = Routes.FILES
                 )
 
                 // 高级功能
@@ -176,7 +181,8 @@ fun UsbAdbScreen(
                     title = s.featureAdvanced,
                     subtitle = s.usbDescAdvanced,
                     cornerRadius = cornerRadius,
-                    onClick = onNavigateToAdvanced
+                    onClick = onNavigateToAdvanced,
+                    anchorKey = Routes.ADVANCED
                 )
 
                 // 重启到 Fastboot
@@ -200,12 +206,16 @@ private fun UsbAdbFeatureCard(
     title: String,
     subtitle: String,
     cornerRadius: androidx.compose.ui.unit.Dp,
+    anchorKey: String? = null,
     onClick: () -> Unit
 ) {
     val colors = WearAdbTheme.colors
     Card(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            // 一镜到底锚点：anchorKey（=目标 route）持续上报矩形+图层
+            .then(if (anchorKey != null) Modifier.revealAnchor(anchorKey, cornerRadius) else Modifier),
         shape = RoundedCornerShape(cornerRadius),
         colors = CardDefaults.cardColors(containerColor = colors.surface)
     ) {

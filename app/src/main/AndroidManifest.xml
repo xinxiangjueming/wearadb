@@ -30,10 +30,13 @@
             android:name="miui.supportAppContinuity"
             android:value="true" />
 
+        <!-- configChanges 含 uiMode：系统深浅色切换不重建本页（重建会丢弃整个 Compose 树、
+             深浅色切换圆孔揭露动画无从谈起），由 MainActivity.onConfigurationChanged 驱动
+             darkThemeState、经 WearAdbTheme 闸门播动画（ui/theme/ThemeTransition.kt） -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.WearAdb">
             <intent-filter>

@@ -1,5 +1,6 @@
 package com.wearadb.ui.screens
 
+import android.content.res.Configuration
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.animation.AnimatedVisibility
@@ -15,6 +16,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,6 +44,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -70,6 +73,10 @@ private const val MOVE_THROTTLE_MS = 16L
  *
  * 触摸回控：页面坐标 → 编码坐标系（letterbox 居中 + scale）→ 设备真实分辨率，
  * 复用 viewModel.tap/swipe（内部已按 USB 通道路由 input tap/swipe）。
+ *
+ * 布局：竖屏沿用纵向堆叠（画面在上，设置折叠在下）；横屏改为左右分栏——
+ * 左侧画面 + 常用按键，右侧设置面板常驻展开。画面区/设置内容/按键行在两种
+ * 布局间以局部 Composable 复用，触摸映射与 Surface 生命周期逻辑完全一致。
  */
 @Composable
 fun ScreenMirrorScreen(
@@ -111,7 +118,7 @@ fun ScreenMirrorScreen(
 
     // 画质/开关等低频设置默认收起，把纵向空间尽量让给画面区。
     // 原先「分辨率信息 + 3 行画质选项 + 1 行开关」常驻，连同 10dp 行距合计约 200dp，
-    // 在竖屏手机上把画面区压得只剩一半左右高度。
+    // 在竖屏手机上把画面区压得只剩一半左右高度。（仅竖屏用到；横屏右侧面板常驻。）
     var optionsExpanded by remember { mutableStateOf(false) }
 
     val statusBarPad = WindowInsets.statusBars.union(WindowInsets.displayCutout)
@@ -119,6 +126,8 @@ fun ScreenMirrorScreen(
     val navBarPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val hPadding = adaptiveHorizontalPadding()
     val cardShape = RoundedCornerShape(WearAdbTheme.shape.cornerRadius)
+
+    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     /** 页面坐标 → 设备真实坐标（letterbox 居中换算），超出画面区域返回 null。 */
     fun mapToDevice(viewPos: Offset): Pair<Int, Int>? {
@@ -162,54 +171,26 @@ fun ScreenMirrorScreen(
         scope.launch { viewModel.startMirror(surface) }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = hPadding),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Spacer(Modifier.height(statusBarPad))
+    // ── 画面区 ──
+    // 按**视频比例**约束自身尺寸（不拉伸）：SurfaceView 默认会把解码 buffer 缩放
+    // 填满自身边界，容器比例 ≠ 视频比例时画面就会变形（手表 464x464 会被拉成
+    // "矮胖"）。等比之后 mapToDevice 的 letterbox 偏移恒为 0，触摸映射也更精确。
+    // 外层布局已设 CenterHorizontally / Center，比例不匹配时在剩余空间内居中。
+    // 圆形显示（circleMode）：容器形状切换为圆形。注意 SurfaceView 渲染在独立
+    // 硬件层、Compose 的 Modifier.clip 对它无效，真正的圆形裁切靠下方 Canvas
+    // 黑角遮罩（全版本）+ SurfaceView 自身 outline oval（API 31+，见 AndroidView.update）。
+    // 竖屏时在 Column 里用 weight(1f) 占纵向剩余空间；横屏时同样用 weight(1f)
+    // 占左栏剩余空间（按键行在其下方）。
+    val areaAspect: Float? =
+        encSize?.takeIf { it.second > 0 }?.let { it.first.toFloat() / it.second }
+            ?: realSize?.takeIf { it.second > 0 }?.let { it.first.toFloat() / it.second }
+    val boxShape = if (circleMode) CircleShape else cardShape
+    val aspectModifier: Modifier =
+        if (areaAspect != null) Modifier.aspectRatio(areaAspect) else Modifier.fillMaxWidth()
 
-        // ── 顶栏 ──
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, s.btnBack, tint = c.onBackground)
-            }
-            Spacer(Modifier.width(8.dp))
-            Text(s.mirrorTitle, style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
-            Spacer(Modifier.weight(1f))
-            when (status) {
-                is MirrorStatus.Streaming -> StatusChip(s.mirrorStatusStreaming, c.accent)
-                is MirrorStatus.Starting -> StatusChip(s.mirrorStatusStarting, c.warning)
-                is MirrorStatus.Error -> StatusChip((status as MirrorStatus.Error).message, c.error)
-                MirrorStatus.Idle -> StatusChip(s.mirrorStatusIdle, c.onSurfaceVariant)
-            }
-        }
-
-        // ── 画面区 ──
-        // 按**视频比例**约束自身尺寸（不拉伸）：SurfaceView 默认会把解码 buffer 缩放
-        // 填满自身边界，容器比例 ≠ 视频比例时画面就会变形（手表 464x464 会被拉成
-        // "矮胖"）。等比之后 mapToDevice 的 letterbox 偏移恒为 0，触摸映射也更精确。
-        // Column 已设 CenterHorizontally，比例不匹配时在剩余空间内水平居中。
-        // 圆形显示（circleMode）：容器形状切换为圆形。注意 SurfaceView 渲染在独立
-        // 硬件层、Compose 的 Modifier.clip 对它无效，真正的圆形裁切靠下方 Canvas
-        // 黑角遮罩（全版本）+ SurfaceView 自身 outline oval（API 31+，见 AndroidView.update）。
-        val areaAspect: Float? =
-            encSize?.takeIf { it.second > 0 }?.let { it.first.toFloat() / it.second }
-                ?: realSize?.takeIf { it.second > 0 }?.let { it.first.toFloat() / it.second }
-        val boxShape = if (circleMode) CircleShape else cardShape
-
+    val videoArea: @Composable (Modifier) -> Unit = { baseModifier ->
         Box(
-            modifier = Modifier
-                .weight(1f)
-                .then(
-                    if (areaAspect != null) Modifier.aspectRatio(areaAspect)
-                    else Modifier.fillMaxWidth()
-                )
+            modifier = baseModifier
                 .clip(boxShape)
                 .background(Color.Black, boxShape)
                 .border(1.dp, c.outlineVariant, boxShape)
@@ -242,25 +223,25 @@ fun ScreenMirrorScreen(
 
                             while (!up) {
                                 val ev = awaitPointerEvent(PointerEventPass.Main)
-                                val c = ev.changes.firstOrNull { it.id == change.id } ?: break
+                                val ch = ev.changes.firstOrNull { it.id == change.id } ?: break
                                 when (ev.type) {
                                     PointerEventType.Move -> {
-                                        val p = mapToDevice(c.position)
+                                        val p = mapToDevice(ch.position)
                                         if (p != null) {
-                                            lastPos = c.position
+                                            lastPos = ch.position
                                             val now = System.currentTimeMillis()
                                             if (now - lastMoveAt >= MOVE_THROTTLE_MS) {
                                                 lastMoveAt = now
                                                 viewModel.touchMove(p.first, p.second, pointerId)
                                             }
                                         }
-                                        c.consume()
+                                        ch.consume()
                                     }
                                     PointerEventType.Release -> {
-                                        val p = mapToDevice(c.position) ?: mapToDevice(lastPos)
+                                        val p = mapToDevice(ch.position) ?: mapToDevice(lastPos)
                                         if (p != null) viewModel.touchUp(p.first, p.second, pointerId)
                                         else viewModel.touchCancel(pointerId)
-                                        c.consume()
+                                        ch.consume()
                                         up = true
                                     }
                                     else -> {
@@ -370,143 +351,102 @@ fun ScreenMirrorScreen(
             }
 
         }
+    }
 
-        // ── 设置开关 + 分辨率信息（合并为一行；收起时只占这一行） ──
-        // 低频设置默认收起，点击右侧「设置」展开。这样常驻高度从
-        // 「1 行分辨率 + 3 行画质 + 1 行开关 + 4 段行距」压到 1 行，画面区显著变大。
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(
-                    // 不带水波纹：展开/收起已有 AnimatedVisibility 过渡，再叠 ripple 视觉上重复
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { optionsExpanded = !optionsExpanded }
-                .padding(vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val enc = encSize
-            val real = realSize
-            if (enc != null && real != null) {
+    // ── 画质/帧率/形态/开关选项（竖屏折叠区与横屏右侧面板共用）──
+    val optionsContent: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // ── 画质/帧率选项（变更即用新参数无缝重启会话） ──
+            // 默认 1024（与 ViewModel 的 _mirrorMaxSize 初始值一致）：手表长边普遍 ~466，
+            // 1024 不损清晰度；大屏设备则避免按原生长边编码灌满 ADB 通道。
+            MirrorOptionRow(
+                label = s.mirrorOptionSize,
+                options = listOf(
+                    s.mirrorAuto to 0,
+                    "1024" to 1024,
+                    "720" to 720,
+                    "480" to 480
+                ),
+                selected = maxSize
+            ) { viewModel.setMirrorMaxSize(it) }
+
+            MirrorOptionRow(
+                label = s.mirrorOptionBitrate,
+                options = listOf(
+                    "1M" to 1_000_000,
+                    "2M" to 2_000_000,
+                    "4M" to 4_000_000,
+                    "8M" to 8_000_000,
+                    "16M" to 16_000_000
+                ),
+                selected = bitRate
+            ) { viewModel.setMirrorBitRate(it) }
+
+            MirrorOptionRow(
+                label = s.mirrorOptionFps,
+                options = listOf(
+                    s.mirrorAuto to 0f,
+                    "10" to 10f,
+                    "15" to 15f,
+                    "24" to 24f,
+                    "30" to 30f,
+                    "60" to 60f,
+                    "90" to 90f,
+                    "120" to 120f
+                ),
+                selected = maxFps
+            ) { viewModel.setMirrorMaxFps(it) }
+
+            // ── 显示形态（纯显示层：圆形 = 视觉裁切，不改会话参数、不重启投屏） ──
+            MirrorOptionRow(
+                label = s.mirrorOptionShape,
+                options = listOf(
+                    s.mirrorAuto to 0,
+                    s.mirrorShapeRect to 1,
+                    s.mirrorShapeCircle to 2
+                ),
+                selected = displayMode
+            ) { viewModel.setMirrorDisplayMode(it) }
+
+            // ── 会话开关（只读 / 熄屏 / 保持唤醒；变更即用新参数无缝重启会话） ──
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    s.mirrorResolution("${enc.first}x${enc.second}", "${real.first}x${real.second}"),
-                    style = MaterialTheme.typography.labelSmall,
+                    s.mirrorOptionToggles,
+                    style = MaterialTheme.typography.labelMedium,
                     color = c.onSurfaceVariant,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.width(52.dp)
                 )
-            } else {
-                Spacer(Modifier.weight(1f))
-            }
-            Text(
-                s.mirrorOptions,
-                style = MaterialTheme.typography.labelSmall,
-                color = c.accent
-            )
-            Icon(
-                if (optionsExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                contentDescription = s.mirrorOptions,
-                tint = c.accent,
-                modifier = Modifier.size(18.dp)
-            )
-        }
-
-        AnimatedVisibility(
-            visible = optionsExpanded,
-            enter = expandVertically(animationSpec = tween(220)) + fadeIn(animationSpec = tween(220)),
-            exit = shrinkVertically(animationSpec = tween(220)) + fadeOut(animationSpec = tween(220))
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                // ── 画质/帧率选项（变更即用新参数无缝重启会话） ──
-                // 默认 1024（与 ViewModel 的 _mirrorMaxSize 初始值一致）：手表长边普遍 ~466，
-                // 1024 不损清晰度；大屏设备则避免按原生长边编码灌满 ADB 通道。
-                MirrorOptionRow(
-                    label = s.mirrorOptionSize,
-                    options = listOf(
-                        s.mirrorAuto to 0,
-                        "1024" to 1024,
-                        "720" to 720,
-                        "480" to 480
-                    ),
-                    selected = maxSize
-                ) { viewModel.setMirrorMaxSize(it) }
-
-                MirrorOptionRow(
-                    label = s.mirrorOptionBitrate,
-                    options = listOf(
-                        "1M" to 1_000_000,
-                        "2M" to 2_000_000,
-                        "4M" to 4_000_000,
-                        "8M" to 8_000_000,
-                        "16M" to 16_000_000
-                    ),
-                    selected = bitRate
-                ) { viewModel.setMirrorBitRate(it) }
-
-                MirrorOptionRow(
-                    label = s.mirrorOptionFps,
-                    options = listOf(
-                        s.mirrorAuto to 0f,
-                        "10" to 10f,
-                        "15" to 15f,
-                        "24" to 24f,
-                        "30" to 30f,
-                        "60" to 60f,
-                        "90" to 90f,
-                        "120" to 120f
-                    ),
-                    selected = maxFps
-                ) { viewModel.setMirrorMaxFps(it) }
-
-                // ── 显示形态（纯显示层：圆形 = 视觉裁切，不改会话参数、不重启投屏） ──
-                MirrorOptionRow(
-                    label = s.mirrorOptionShape,
-                    options = listOf(
-                        s.mirrorAuto to 0,
-                        s.mirrorShapeRect to 1,
-                        s.mirrorShapeCircle to 2
-                    ),
-                    selected = displayMode
-                ) { viewModel.setMirrorDisplayMode(it) }
-
-                // ── 会话开关（只读 / 熄屏 / 保持唤醒；变更即用新参数无缝重启会话） ──
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        s.mirrorOptionToggles,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = c.onSurfaceVariant,
-                        modifier = Modifier.width(52.dp)
+                    FilterChip(
+                        selected = readOnly,
+                        onClick = { viewModel.setMirrorReadOnly(!readOnly) },
+                        label = { Text(s.mirrorOptionReadonly, style = MaterialTheme.typography.labelSmall) }
                     )
-                    Row(
-                        modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilterChip(
-                            selected = readOnly,
-                            onClick = { viewModel.setMirrorReadOnly(!readOnly) },
-                            label = { Text(s.mirrorOptionReadonly, style = MaterialTheme.typography.labelSmall) }
-                        )
-                        FilterChip(
-                            selected = turnOffScreen,
-                            onClick = { viewModel.setMirrorTurnOffScreen(!turnOffScreen) },
-                            label = { Text(s.mirrorOptionScreenOff, style = MaterialTheme.typography.labelSmall) }
-                        )
-                        FilterChip(
-                            selected = stayAwake,
-                            onClick = { viewModel.setMirrorStayAwake(!stayAwake) },
-                            label = { Text(s.mirrorOptionStayAwake, style = MaterialTheme.typography.labelSmall) }
-                        )
-                    }
+                    FilterChip(
+                        selected = turnOffScreen,
+                        onClick = { viewModel.setMirrorTurnOffScreen(!turnOffScreen) },
+                        label = { Text(s.mirrorOptionScreenOff, style = MaterialTheme.typography.labelSmall) }
+                    )
+                    FilterChip(
+                        selected = stayAwake,
+                        onClick = { viewModel.setMirrorStayAwake(!stayAwake) },
+                        label = { Text(s.mirrorOptionStayAwake, style = MaterialTheme.typography.labelSmall) }
+                    )
                 }
             }
         }
+    }
 
-        // ── 常用按键 + 控制按钮（合并为一行，省下一整行高度） ──
-        // 按键组横向可滚：窄屏放不下 6 个键时自动可滑，不会挤掉右侧按钮。
-        // 只读模式下禁用注入。
+    // ── 常用按键 + 开始/停止按钮（两种布局共用）──
+    // 按键组横向可滚：窄屏放不下 6 个键时自动可滑，不会挤掉右侧按钮。
+    // 只读模式下禁用注入。
+    val keysRow: @Composable () -> Unit = {
         val keysEnabled = status is MirrorStatus.Streaming && !readOnly
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -545,6 +485,132 @@ fun ScreenMirrorScreen(
                     Text(s.mirrorRetry)
                 }
             }
+        }
+    }
+
+    // ── 分辨率信息（竖屏在「设置」开关行左侧；横屏在右侧面板顶部）──
+    val resolutionText: String? = encSize?.let { enc ->
+        realSize?.let { real ->
+            s.mirrorResolution("${enc.first}x${enc.second}", "${real.first}x${real.second}")
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = hPadding),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(Modifier.height(statusBarPad))
+
+        // ── 顶栏 ──
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, s.btnBack, tint = c.onBackground)
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(s.mirrorTitle, style = MaterialTheme.typography.headlineMedium, color = c.onBackground)
+            Spacer(Modifier.weight(1f))
+            when (status) {
+                is MirrorStatus.Streaming -> StatusChip(s.mirrorStatusStreaming, c.accent)
+                is MirrorStatus.Starting -> StatusChip(s.mirrorStatusStarting, c.warning)
+                is MirrorStatus.Error -> StatusChip((status as MirrorStatus.Error).message, c.error)
+                MirrorStatus.Idle -> StatusChip(s.mirrorStatusIdle, c.onSurfaceVariant)
+            }
+        }
+
+        if (isLandscape) {
+            // ── 横屏：左右分栏。左 = 画面 + 常用按键；右 = 设置面板（常驻展开，
+            //    横屏高度有限，内容超高时面板内滚动）。不再需要「设置」折叠开关。──
+            Row(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // 左：画面（占满剩余高度）+ 按键行
+                Column(
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    videoArea(Modifier.weight(1f).then(aspectModifier))
+                    keysRow()
+                }
+
+                // 右：设置面板
+                Column(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(300.dp)
+                        .clip(cardShape)
+                        .background(c.surface, cardShape)
+                        .border(1.dp, c.border, cardShape)
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (resolutionText != null) {
+                        Text(
+                            resolutionText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = c.onSurfaceVariant
+                        )
+                    }
+                    optionsContent()
+                }
+            }
+        } else {
+            // ── 竖屏：画面在上，低频设置折叠在下，把纵向空间尽量让给画面 ──
+            videoArea(Modifier.weight(1f).then(aspectModifier))
+
+            // ── 设置开关 + 分辨率信息（合并为一行；收起时只占这一行） ──
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        // 不带水波纹：展开/收起已有 AnimatedVisibility 过渡，再叠 ripple 视觉上重复
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { optionsExpanded = !optionsExpanded }
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (resolutionText != null) {
+                    Text(
+                        resolutionText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = c.onSurfaceVariant,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+                Text(
+                    s.mirrorOptions,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c.accent
+                )
+                Icon(
+                    if (optionsExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                    contentDescription = s.mirrorOptions,
+                    tint = c.accent,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            AnimatedVisibility(
+                visible = optionsExpanded,
+                enter = expandVertically(animationSpec = tween(220)) + fadeIn(animationSpec = tween(220)),
+                exit = shrinkVertically(animationSpec = tween(220)) + fadeOut(animationSpec = tween(220))
+            ) {
+                optionsContent()
+            }
+
+            keysRow()
         }
 
         Spacer(Modifier.height(navBarPad))

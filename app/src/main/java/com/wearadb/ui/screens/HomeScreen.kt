@@ -31,8 +31,7 @@ import com.wearadb.ui.theme.WearAdbTheme
 import com.wearadb.ui.ConnectionViewModel
 import com.wearadb.ui.LocalStrings
 import com.wearadb.ui.utils.*
-import com.wearadb.ui.navigation.LocalNavTransitionScope
-import com.wearadb.ui.navigation.LocalSharedTransitionScope
+import com.wearadb.ui.navigation.revealAnchor
 import com.wearadb.ui.navigation.Routes
 
 @Composable
@@ -160,8 +159,8 @@ fun HomeScreen(
                                 modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                FeatureCard(Icons.Outlined.DeveloperBoard, s.featureFastboot, s.featureFastbootDesc, Modifier.weight(1f), sharedKey = Routes.FASTBOOT, onNavigateToFastboot)
-                                FeatureCard(Icons.Outlined.Usb, s.featureUsbAdb, s.featureUsbAdbDesc, Modifier.weight(1f), sharedKey = Routes.USB_ADB, onNavigateToUsbAdb)
+                                FeatureCard(Icons.Outlined.DeveloperBoard, s.featureFastboot, s.featureFastbootDesc, Modifier.weight(1f), sharedKey = Routes.FASTBOOT, onClick = onNavigateToFastboot, secondaryTone = true)
+                                FeatureCard(Icons.Outlined.Usb, s.featureUsbAdb, s.featureUsbAdbDesc, Modifier.weight(1f), sharedKey = Routes.USB_ADB, onClick = onNavigateToUsbAdb, secondaryTone = true)
                             }
                         }
                     }
@@ -213,8 +212,8 @@ fun HomeScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            FeatureCard(Icons.Outlined.DeveloperBoard, s.featureFastboot, s.featureFastbootDesc, Modifier.weight(1f), sharedKey = Routes.FASTBOOT, onNavigateToFastboot)
-                            FeatureCard(Icons.Outlined.Usb, s.featureUsbAdb, s.featureUsbAdbDesc, Modifier.weight(1f), sharedKey = Routes.USB_ADB, onNavigateToUsbAdb)
+                            FeatureCard(Icons.Outlined.DeveloperBoard, s.featureFastboot, s.featureFastbootDesc, Modifier.weight(1f), sharedKey = Routes.FASTBOOT, onClick = onNavigateToFastboot, secondaryTone = true)
+                            FeatureCard(Icons.Outlined.Usb, s.featureUsbAdb, s.featureUsbAdbDesc, Modifier.weight(1f), sharedKey = Routes.USB_ADB, onClick = onNavigateToUsbAdb, secondaryTone = true)
                         }
                     }
                 }
@@ -355,17 +354,25 @@ private fun FeatureCard(
     subtitle: String,
     modifier: Modifier = Modifier,
     sharedKey: String? = null,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    // 次级色调：与首页「发现设备」「配对」两个 Secondary 按钮同色（深浅色各自跟随 token）。
+    // 默认 false = 沿用 WearCard 体系的 surfaceVariant。
+    // 注意：必须放在 onClick 之后——调用点普遍以「位置实参」形式传 onClick，
+    // 若插在 sharedKey 与 onClick 之间，该位置实参会被匹配到本参数（Boolean）而编译失败。
+    secondaryTone: Boolean = false
 ) {
     val c = WearAdbTheme.colors
-    val stScope = LocalSharedTransitionScope.current
-    val avScope = LocalNavTransitionScope.current
     val shape = remember { RoundedCornerShape(28.dp) }
+    val containerColor = if (secondaryTone) c.buttonSecondary else c.surfaceVariant
+    val titleColor = if (secondaryTone) c.buttonSecondaryText else c.onSurface
+    val subtitleColor = if (secondaryTone) c.buttonSecondaryText else c.onSurfaceVariant
     Column(
         modifier = modifier
+            // 一镜到底锚点：必须在 clip 之前，record 才能把圆角裁剪录进截图
+            .then(if (sharedKey != null) Modifier.revealAnchor(sharedKey, 28.dp) else Modifier)
             .clip(shape)
             .clickable(onClick = onClick)
-            .background(c.surfaceVariant, shape)
+            .background(containerColor, shape)
             .border(1.dp, c.outlineVariant, shape)
             .fillMaxHeight()
             .padding(20.dp),
@@ -376,14 +383,9 @@ private fun FeatureCard(
         Text(
             title,
             style = MaterialTheme.typography.titleMedium,
-            color = c.onSurface,
-            modifier = if (sharedKey != null && stScope != null && avScope != null) {
-                with(stScope) {
-                    Modifier.sharedElement(rememberSharedContentState(sharedKey), avScope)
-                }
-            } else Modifier
+            color = titleColor
         )
-        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
+        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = subtitleColor)
     }
 }
 
