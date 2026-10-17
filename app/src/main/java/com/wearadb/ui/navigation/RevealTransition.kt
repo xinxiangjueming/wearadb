@@ -28,6 +28,7 @@
 
 package com.wearadb.ui.navigation
 
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.core.CubicBezierEasing
@@ -49,6 +50,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -67,6 +69,7 @@ import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -117,6 +120,18 @@ internal fun anchorAlphaIn(raw: Float): Float =
 internal fun contentAlphaOut(raw: Float): Float = 1f - (raw / CONTENT_OUT_END).coerceIn(0f, 1f)
 
 /**
+ * 当前「已生效」深浅。
+ *
+ * ⚠️ 必须读 [LocalConfiguration] 而不是 `isSystemInDarkTheme()`：WearAdbTheme 的主题切换
+ * 闸门把 `uiMode` 深色位写在它提供的 appConfig 上，只有真正放行（截图完成、圆孔揭露开始）
+ * 那一帧才翻转；直读系统值会在圆孔动画开始前就抢跑，与本文件的取值目的不符。
+ */
+@Composable
+private fun appliedDarkTheme(): Boolean =
+    (LocalConfiguration.current.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+        Configuration.UI_MODE_NIGHT_YES
+
+/**
  * 一镜到底会话/锚点登记处。
  *
  * - [updateAnchor]：入口卡片经 [Modifier.revealAnchor] 持续上报窗口矩形 + 绘制图层；
@@ -135,13 +150,20 @@ object RevealTransition {
         var cornerRadiusPx: Float = 0f
     }
 
-    /** 一次转场会话：锚点卡片截图（可空——截图失败仍做纯裁剪展开）+ 窗口矩形快照 + 表面色 */
+    /**
+     * 一次转场会话：锚点卡片截图（可空——截图失败仍做纯裁剪展开）+ 窗口矩形快照 + 表面色。
+     *
+     * ⚠️ [surfaceColor] 是**点击那一刻**从锚点卡片采样来的像素值，本身不随主题变化；
+     * [darkAtCapture] 记录采样时的「已生效深浅」，供 [RevealPage] 判定这份色值是否仍
+     * 属于当前主题（见 RevealPage 底板色注释）。
+     */
     internal class Session(
         val key: String,
         val anchorRect: Rect,
         val bitmap: ImageBitmap?,
         val surfaceColor: Color,
         val anchorCornerRadiusPx: Float,
+        val darkAtCapture: Boolean,
     )
 
     private val anchors = HashMap<String, Anchor>()
@@ -179,8 +201,11 @@ object RevealTransition {
      *
      * key 归一化：带参路由（如 `pairing?host=..&port=..`）的锚点登记在 base route 上，
      * 任一形式都能取到同一个槽位。
+     *
+     * @param darkAtCapture 调用方在**点击那一刻**读到的「已生效深浅」（[appliedDarkTheme]），
+     *   随会话存档用于判定采样色是否过期
      */
-    internal suspend fun capture(key: String): Session? {
+    internal suspend fun capture(key: String, darkAtCapture: Boolean): Session? {
         val base = key.substringBefore('?')
         val anchor = anchors[base] ?: anchors[key] ?: return null
         if (anchor.bounds.isEmpty) return null
@@ -211,7 +236,7 @@ object RevealTransition {
                 bitmap = null
             }
         }
-        return Session(base, rect, bitmap, surface, cornerRadiusPx)
+        return Session(base, rect, bitmap, surface, cornerRadiusPx, darkAtCapture)
     }
 
     /** 登记顶层会话（截图淡入等价真卡片，导航切换被它无缝盖住） */
@@ -306,10 +331,13 @@ fun Modifier.revealAnchor(key: String, cornerRadiusDp: Dp): Modifier = composed 
 @Composable
 fun rememberRevealLauncher(): (key: String, navigate: () -> Unit) -> Unit {
     val scope: CoroutineScope = rememberCoroutineScope()
+    // 截图时刻的「已生效深浅」必须**每次调用现取**：remember 的闭包会冻结捕获值，
+    // 若在源页面首次组合时捕获，之后切过主题再点击，存档的深浅仍是旧的。
+    val darkNow by rememberUpdatedState(appliedDarkTheme())
     return remember {
         { key: String, navigate: () -> Unit ->
             scope.launch {
-                val session = RevealTransition.capture(key)
+                val session = RevealTransition.capture(key, darkNow)
                 if (session != null) RevealTransition.beginSession(session)
                 navigate()
             }
@@ -408,10 +436,27 @@ fun RevealPage(route: String, content: @Composable () -> Unit) {
     val density = LocalDensity.current
     val endCornerRadiusPx = with(density) { WearAdbTheme.shape.cornerRadius.toPx() }
     val pageBackground = WearAdbTheme.colors.background
-    // 不透明底板色：截图采样成功 → 锚点卡片表面色（窗口长大时靠它盖住下方旧列表）；
-    // 采样失败/非顶层会话页 → 回落页面底色（不该出现异色块）
-    val sheetColor = if (session != null && session.surfaceColor != Color.Unspecified)
-        session.surfaceColor else pageBackground
+    // 不透明底板色：窗口长大时靠它盖住下方旧列表。候选 = 锚点卡片表面色（截图采样）。
+    //
+    // ⚠️ 主题一致性（2026-10-18 用户实锤；同源修复见 SportLink adfe1c9
+    //    ClipRevealLayout.applyContainerTheme）：[Session.surfaceColor] 是**点击那一刻**
+    //    采到的像素值，本身就是个死数，不会随主题变化；而深浅色完全可以在页面存续期间
+    //    切换（本页 configChanges 含 uiMode 不重建）。此时内容层背景（pageBackground）已随
+    //    新主题重组，底板却还是旧主题的卡片色——收拢时内容层先淡出，露出的底板就是一块
+    //    旧主题色块（SportLink 真机症状"白圆框里浮深灰胶囊"），即"返回动画颜色没跟随"。
+    //    ⇒ 采样时的深浅与当前已生效深浅不一致时，底板与内容层**同源**降级回 pageBackground，
+    //    保证两层颜色永远同源。
+    //    纯 Compose 派生（随 WearAdbTheme 的 appConfig 自动重组），无需命令式置无效。
+    val appliedDarkNow = appliedDarkTheme()
+    val sheetColor = if (
+        session != null &&
+        session.surfaceColor != Color.Unspecified &&
+        session.darkAtCapture == appliedDarkNow
+    ) {
+        session.surfaceColor
+    } else {
+        pageBackground
+    }
     val clipPath = remember { Path() }
     var pageOrigin by remember { mutableStateOf(Offset.Zero) }
 
@@ -485,13 +530,17 @@ fun RevealOverlay() {
     val animating = RevealTransition.animatingState.value
     val alpha = RevealTransition.anchorAlphaState.floatValue
     val density = LocalDensity.current
+    // 主题一致性（同一处修复的另一半，详见 RevealPage 底板色注释）：锚点截图是**点击
+    // 那一刻**拍下的旧主题像素。会话存续期间切过深浅再返回时，若照常淡入这张图，等于把
+    // 一张旧主题卡片贴回已经换成新主题的列表上——与底板色残块同源，同样是"颜色没跟随"。
+    // ⇒ 与底板同判据：深浅已变则不用这张截图，收拢窗口用当前主题背景色收回卡片矩形。
+    val bitmap = session.bitmap.takeIf { session.darkAtCapture == appliedDarkTheme() }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .then(if (animating) Modifier.revealBlockTouches() else Modifier)
     ) {
-        val bitmap = session.bitmap
         if (bitmap != null && alpha > 0.001f) {
             Image(
                 bitmap = bitmap,
