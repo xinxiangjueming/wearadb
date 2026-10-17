@@ -27,7 +27,8 @@ local.properties
 local.properties
 *.keystore
 !debug.keystore
-google-services.json        # 谨慎：含私钥，最好通过 CI 注入，不要上传公开库
+# 含私钥，最好通过 CI 注入，不要上传公开库
+google-services.json
 *.jks
 
 # ====== IDE 环境（Android Studio） ======
@@ -48,7 +49,8 @@ google-services.json        # 谨慎：含私钥，最好通过 CI 注入，不�
 .gradle/
 gradle-app.setting
 !gradle/wrapper/gradle-wrapper.jar
-gradle.properties          # 仅当里面存放了敏感信息（如密码）时才忽略；通常保留
+# gradle.properties：当前已被 git 跟踪且内容仅为构建参数（无敏感信息），故不设忽略
+# 规则；若日后放入密码等敏感项，需先 git rm --cached 再补规则
 
 # ====== 操作系统生成文件 ======
 .DS_Store
@@ -56,42 +58,17 @@ Thumbs.db
 *.swp
 *.bak
 
+# ====== 项目内务数据（memory / 编译会话，一律不入库） ======
+.workbuddy/
+/.kotlin/sessions/
+
+# ====== 一次性排障产物 ======
+/小白条检查报告.html
+/_diag_log.txt
+/_logcat_full.txt
+/_build_tail.txt
+/diag_device.sh
+
 # ====== 其他 ======
 *.log
 /tmp/
-/小白条检查报告.html
-/app/src/main/java/com/wearadb/.workbuddy/memory/2026-08-14.md
-/app/src/main/java/com/wearadb/.workbuddy/memory/2026-09-05.md
-/.kotlin/sessions/kotlin-compiler-8782062717043388527.salive
-/.workbuddy/memory/2026-09-10.md
-/app/src/main/java/com/wearadb/.workbuddy/memory/2026-09-11.md
-/_diag_log.txt
-/_logcat_full.txt
-/diag_device.sh
-/.workbuddy/memory/MEMORY.md
-/app/src/main/java/com/wearadb/.workbuddy/memory/MEMORY.md
-/.workbuddy/memory/2026-09-14.md
-/.workbuddy/tmp_build.txt
-/.workbuddy/tmp_clean.txt
-/.workbuddy/tmp_libadb_abs.txt
-/.workbuddy/tmp_libadb_jars.txt
-/.workbuddy/tmp_ls.txt
-/_build_tail.txt
-/.workbuddy/tmp_adbd.txt
-/.workbuddy/tmp_adbdev.txt
-/.workbuddy/tmp_app_log.txt
-/.workbuddy/tmp_build2.txt
-/.workbuddy/tmp_build3.txt
-/.workbuddy/tmp_clean2.txt
-/.workbuddy/tmp_clean3.txt
-/.workbuddy/tmp_logcat_filtered.txt
-/.workbuddy/tmp_logcat_phone.txt
-/.workbuddy/tmp_logcat_phone2.txt
-/.workbuddy/tmp_logs_dir.txt
-/.workbuddy/tmp_pull.txt
-/.workbuddy/tmp_ready.txt
-/.workbuddy/tmp_tail2.txt
-/.workbuddy/tmp_ver.txt
-/.workbuddy/tmp_ver2.txt
-/.workbuddy/tmp_window.txt
-/.workbuddy/tmp_window2.txt
