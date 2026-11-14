@@ -101,6 +101,26 @@ interfaceProtocol = 0x01  // ADB
 
 Fastboot 使用相同的 class/subclass，但 protocol 为 `0x03`。
 
+## Fastboot 功能
+
+| 功能 | 命令 |
+|------|------|
+| 扫描设备 | 自动检测 USB 上的 fastboot 设备 |
+| 刷入分区 | `fastboot flash <partition> <image>` |
+| 擦除分区 | `fastboot erase <partition>` |
+| 临时启动 | `fastboot boot <image>` |
+| 解锁 Bootloader | `fastboot flashing unlock` |
+| 锁定 Bootloader | `fastboot flashing lock` |
+| 重启到系统 | `fastboot reboot` |
+| 重启到 Recovery | `fastboot reboot-recovery` |
+| 重启到 Bootloader | `fastboot reboot-bootloader` |
+| OEM 命令 | `fastboot oem <command>` |
+| 上传数据 | `fastboot stage <data>` |
+| 下载数据 | `fastboot fetch` |
+| 获取变量 | `fastboot getvar:all` |
+
+刷入/临时启动/上传均支持进度回调；重启到 Recovery/Bootloader 后自动断开等待重新扫描。
+
 ## 踩坑记录
 
 ### 1. ADB 协议中 arg0/arg1 的方向问题
