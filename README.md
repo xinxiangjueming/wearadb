@@ -1,37 +1,61 @@
 # Wear ADB
 
-无线 ADB + 有线 USB ADB + Fastboot 调试工具，基于 Jetpack Compose 构建。
+运行在 Android 手机/平板上的 ADB 调试工具，起因是调试手表，普通安卓设备同样适用。无线 ADB + 有线 USB ADB + Fastboot + 屏幕投屏，全部在一台没有 root、没有电脑的安卓设备上完成，基于 Jetpack Compose 构建。
 
 ## 功能
 
-- **无线 ADB** — 手动输入 IP:端口 / NSD 自动发现 / Android 11+ 配对码配对
-- **有线 USB ADB** — 通过 USB 直连设备，无需网络，支持 USB 权限自动申请
-- **Shell 终端** — 交互式命令执行 + Shizuku/Scene/黑阈一键激活
-- **设备信息** — 型号/系统/电量/屏幕/内存/存储
+- **无线 ADB** — NSD 自动发现 / 手动输入 IP:端口 / Android 11+ 配对码配对
+- **有线 USB ADB** — USB Host API 直连，无需网络、无需 root、无需 adb 二进制文件
+- **屏幕投屏与控制** — 基于 scrcpy 协议：H.264 实时解码 + 触摸/按键/滚动注入，支持熄屏投屏、保持唤醒、横屏分栏
+- **Shell 终端** — 命令执行 + Shizuku/Scene/黑阈/冰箱等十余个一键激活快捷指令；粘贴 host 侧 `adb shell …` 完整命令时自动剥离前缀
+- **设备信息** — 型号/系统/序列号/电量/屏幕/内存/存储
 - **应用管理** — 列表/搜索/卸载/清除数据/禁用/启用
-- **文件管理** — 目录浏览/查看/删除/Push/Pull
+- **文件管理** — 目录浏览/查看/删除/Push/Pull（中文文件名完整支持）
 - **高级操作** — 重启(Recovery/Bootloader/关机)/截屏/音量/WiFi/蓝牙/导航键/媒体控制
-- **Fastboot 模式** — USB 有线连接 Bootloader 设备，支持刷入/擦除/重启/解锁
+- **Fastboot 模式** — USB 直连 Bootloader 设备，刷入/擦除/临时启动/解锁/锁定/OEM 命令
+
+## 界面
+
+- **深浅色主题** — 跟随系统或手动切换，圆形揭露过渡动画（匀速 400ms）
+- **一镜到底导航** — 页面间共享元素揭露过渡
+- **异形屏适配** — 自动读取小米/Redmi 系统圆角资源，圆角卡片与屏幕贴合
+- **Edge-to-Edge** — 沉浸式状态栏/导航栏，自动避让刘海与挖孔
+- **横屏分栏** — 投屏页横屏时画面与控制区分栏布局
 
 ## 技术架构
 
 ```
-┌─────────────────────────────────────────────────┐
-│                   UI (Compose)                   │
-├──────────────────┬──────────────────────────────┤
-│  无线 ADB 通道    │       有线 USB ADB 通道       │
-│  AdbRepository   │   UsbAdbRepository           │
-│  (libadb-android)│   (自实现 ADB over USB Host)  │
-├──────────────────┴──────────────────────────────┤
-│              Fastboot (自实现 USB Host)           │
-└─────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────┐
+│                  UI (Jetpack Compose)                   │
+├───────────────────┬────────────────────────────────────┤
+│   无线 ADB 通道    │          有线 USB ADB 通道          │
+│   AdbRepository   │   UsbAdbRepository                 │
+│   (libadb-android)│   (自实现 ADB over USB Host API)    │
+├───────────────────┴────────────────────────────────────┤
+│    屏幕投屏 (scrcpy server + H.264 解码 + 控制消息注入)    │
+├────────────────────────────────────────────────────────┤
+│              Fastboot (自实现 USB Host 协议栈)            │
+└────────────────────────────────────────────────────────┘
 ```
 
-无线 ADB 使用 [libadb-android](https://github.com/MuntashirAkon/libadb-android) 库，有线 USB ADB 和 Fastboot 均为自实现协议栈。
+无线 ADB 使用 [libadb-android](https://github.com/MuntashirAkon/libadb-android) 库（本地化 fork 修复了中文路径缺陷，见踩坑记录 #8）；有线 USB ADB、Fastboot、投屏控制通道均为自实现。
+
+## 屏幕投屏与控制
+
+投屏不走 `screenrecord` 之类的取巧方案，而是完整对接 [scrcpy](https://github.com/Genymobile/scrcpy) 服务器协议：
+
+1. 把 scrcpy server 推送到设备 `/data/local/tmp`，`app_process` 启动；
+2. 设备端 H.264 裸流经 ADB 通道传回，`MediaCodec` 硬解后渲染到 `SurfaceView`；
+3. 反向控制走 scrcpy v2.7 控制线协议子集（大端 + 16 位定点浮点）：
+   `INJECT_KEYCODE / INJECT_TEXT / INJECT_TOUCH / INJECT_SCROLL / BACK_OR_SCREEN_ON / SET_DISPLAY_POWER / ROTATE_DEVICE`。
+
+**为什么不用 `adb shell input`**：每个动作都要新建 shell 流、设备端冷启 `app_process` 跑 input 程序，单次 300-600ms，且拖动过程无法注入；控制通道是建会话时就连好的持久连接，单向写、无往返、数毫秒到达。
+
+投屏通道无关：`MirrorStream` 接口统一了 USB 自研流与无线 libadb 流的读写语义，两种连接方式都能投屏。可调参数：分辨率上限（max_size）、码率、帧率上限、熄屏投屏、保持唤醒；音频恒不转发（`audio=false`）。
 
 ## 有线 USB ADB 实现
 
-有线 ADB 通过 Android USB Host API 直接与设备的 ADB 接口通信，无需 root，无需 adb 二进制文件。
+通过 Android USB Host API 直接与设备的 ADB 接口通信，无需 root，无需 adb 二进制文件。
 
 ### 协议流程
 
@@ -137,6 +161,16 @@ override fun onCleared() {
 
 正确做法：`onCleared()` 只清理 ViewModel 自身的资源（如无线 ADB 的 stream），单例的生命周期交给 Application 或显式的用户操作（如点击"断开"按钮）。
 
+### 8. libadb-android 的 A_OPEN 长度缺陷（中文文件名失败）
+
+**坑**: 上游 `AdbProtocol.generateOpen` 按**字符数**（`destination.length()`）分配缓冲区，实际写入的却是 UTF-8 **字节**。只要命令里有一个非 ASCII 字符（中文文件名/路径就是），写入必然越界抛 `BufferOverflowException`——且异常发生在 `sendPacket` 之前，命令根本没发到设备，表现为「删除/读取中文文件名静默失败」。上游 issue #25，3.1.1 仍未修。
+
+解决：本地化 fork 该模块，按编码后的真实字节长度分配（判据：`utf8Len > charLen` 即中招）。
+
+### 9. scrcpy 触摸消息里 actionButton 在 buttons 之前
+
+**坑**: `INJECT_TOUCH` 消息 32 字节中，`actionButton` 位于 `buttons` 之前（control_msg.c: `buf[24]=action_button, buf[28]=buttons`）。顺序写反后设备侧会把按键位当成手势按钮，表现为**点击无效**且无任何报错。
+
 ## 开源参考
 
 本项目参考了以下开源实现，感谢这些项目的作者：
@@ -147,6 +181,7 @@ override fun onCleared() {
 | **AdbLib** | Java | ADB 协议参考 (流多路复用、WRTE 处理) | [cgutman/AdbLib](https://github.com/cgutman/AdbLib) |
 | **ya-webadb** | TypeScript | ADB 协议参考 (WebUSB 实现) | [yume-chan/ya-webadb](https://github.com/yume-chan/ya-webadb) |
 | **ADB-SafeScan** | - | USB 读写技巧 (header/payload 分离发送) | [nickelchan/ADB-SafeScan](https://github.com/nickelchan/ADB-SafeScan) |
+| **scrcpy** | C/Java | 投屏服务器协议与控制线协议 | [Genymobile/scrcpy](https://github.com/Genymobile/scrcpy) |
 
 ### ADB 协议规范
 
@@ -158,31 +193,13 @@ override fun onCleared() {
 
 | 库 | 版本 | 用途 |
 |---|------|------|
-| libadb-android | 3.1.1 | 无线 ADB (TLS/配对/Shell/Sync) |
+| libadb-android | 3.1.1 (本地化) | 无线 ADB (TLS/配对/Shell/Sync) |
 | Conscrypt | 2.5.3 | TLS (libadb-android 需要 exportKeyingMaterial) |
 | BouncyCastle | 1.78 | RSA 密钥对生成 + X.509 自签名证书 (有线 ADB 认证) |
 | Hilt | 2.51.1 | 依赖注入 |
 | Compose BOM | - | UI 框架 |
 | kotlinx-serialization | 1.7.3 | JSON 序列化 |
 | DataStore | 1.1.1 | 持久化偏好设置 |
-
-## Fastboot 功能
-
-| 功能 | 命令 |
-|------|------|
-| 扫描设备 | 自动检测 USB 上的 fastboot 设备 |
-| 刷入分区 | `fastboot flash <partition> <image>` |
-| 擦除分区 | `fastboot erase <partition>` |
-| 临时启动 | `fastboot boot <image>` |
-| 解锁 Bootloader | `fastboot flashing unlock` |
-| 锁定 Bootloader | `fastboot flashing lock` |
-| 重启到系统 | `fastboot reboot` |
-| 重启到 Recovery | `fastboot reboot-recovery` |
-| 重启到 Bootloader | `fastboot reboot-bootloader` |
-| OEM 命令 | `fastboot oem <command>` |
-| 上传数据 | `fastboot stage <data>` |
-| 下载数据 | `fastboot fetch` |
-| 获取变量 | `fastboot getvar:all` |
 
 ## 环境要求
 
@@ -202,24 +219,26 @@ com.wearadb/
 │   ├── UsbAdbStream.kt            ADB 流 (LinkedBlockingQueue + sentinel 关闭)
 │   ├── UsbAdbManager.kt           USB 设备枚举 + 权限 + 连接生命周期
 │   ├── UsbAdbRepository.kt        有线 ADB 仓库 (设备信息/Shell/包管理)
-│   ├── AdbOutputParser.kt         Shell 输出解析 (设备信息/包列表/文件列表/存储)
-│   ├── AdvancedOps.kt             高级操作封装 (按键码常量)
 │   ├── WearAdbConnectionManager.kt  无线 ADB 连接管理器
-│   └── MemoryReceiver.kt          内存信息接收器
+│   ├── ScreenMirrorEngine.kt      投屏会话状态机 (推送/启动/解码/控制)
+│   ├── ScreenMirrorDecoder.kt     H.264 硬解码渲染 (MediaCodec + Surface)
+│   ├── ScrcpyControlProtocol.kt   scrcpy v2.7 控制线协议编码 (触摸/按键/滚动注入)
+│   ├── AdbOutputParser.kt         Shell 输出解析 (设备信息/包列表/文件列表/存储)
+│   ├── ShellQuoting.kt            Shell 参数单引号包裹 (防拆词/防元字符展开)
+│   └── AdvancedOps.kt             高级操作封装 (按键码常量)
 ├── fastboot/                   Fastboot 协议层
 │   ├── FastbootManager.kt         USB 设备枚举 + fastboot 协议通信
 │   └── FastbootRepository.kt      Fastboot 仓库层
 ├── data/
 │   ├── model/                  数据模型
-│   └── repository/             数据仓库
+│   └── repository/             数据仓库 (无线 AdbRepository 等)
 ├── di/
 │   └── AppModule.kt            Hilt 依赖注入
 ├── ui/
 │   ├── components/             通用 UI 组件
-│   ├── navigation/NavGraph.kt  导航 (10 个路由)
-│   ├── screens/                页面
-│   ├── theme/                  主题系统
-│   ├── AppViewModel.kt         全局 ViewModel
+│   ├── navigation/             导航 (11 个路由) + 一镜到底揭露过渡
+│   ├── screens/                页面 (主页/配对/Shell/设备信息/应用/文件/投屏/高级/Fastboot/USB)
+│   ├── theme/                  主题系统 (深浅色/揭露切换动画/圆角适配)
 │   └── utils/                  工具函数
 ├── WearAdbApp.kt               Application 入口
 └── MainActivity.kt             Activity
@@ -251,6 +270,10 @@ com.wearadb/
 
 - **小米/Redmi 设备** — 自动读取系统圆角资源，适配异形屏
 - **折叠屏/大屏** — `resizeableActivity` + `WindowSizeHelper` 自适应布局
+- **横屏** — 投屏页横屏分栏，画面与控制区并排
 - **Edge-to-Edge** — 沉浸式状态栏/导航栏，自动避让刘海
-- **有线 ADB** — 通过 USB Host API 直接通信，无需 root，无需 adb 二进制文件
-- **Fastboot** — 通过 USB Host API 直接与 Bootloader 设备通信，无需 root
+- **有线 ADB / Fastboot** — 通过 USB Host API 直接通信，无需 root，无需 adb 二进制文件
+
+## 姊妹项目
+
+- [adbmanager](https://github.com/xinxiangjueming/adbmanager) — Windows 端 ADB 管理工具 (C# / WinUI 3)，与本项目的投屏遮罩、Shell 工具箱等功能互为呼应。
