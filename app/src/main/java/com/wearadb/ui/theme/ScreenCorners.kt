@@ -55,16 +55,19 @@ object ScreenCorners {
 
     /**
      * Returns the corner radius to use for UI cards/buttons.
-     * Xiaomi: uses top radius (more visible, usually matches bottom)
+     * Xiaomi: uses top radius (more visible, usually matches bottom)，但系统圆角
+     *         小于 28dp 时仍按 28dp 显示（设计下限，避免卡片过于方正）
      * Others: defaults to 28dp
      */
     fun getCornerRadiusDp(context: Context): Dp {
         val px = getTopRadiusPx(context)
-        return if (px > 0) {
+        val radius = if (px > 0) {
             with(context.resources.displayMetrics) { (px / density).dp }
         } else {
             28.dp
         }
+        // 小米系统圆角可能小于 28dp（部分 Redmi 机型），一律按 28dp 下限显示
+        return radius.coerceAtLeast(28.dp)
     }
 }
 
