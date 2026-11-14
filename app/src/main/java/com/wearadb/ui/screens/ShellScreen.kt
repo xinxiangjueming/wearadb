@@ -35,6 +35,18 @@ import com.wearadb.ui.utils.adaptiveHorizontalPadding
 
 data class TerminalLine(val text: String, val isCommand: Boolean = false)
 
+// 输入框已直连设备端 /system/bin/sh，用户常把 host 侧完整命令
+// （adb shell xxx / adb -s <serial> shell xxx）原样粘进来，而设备上没有 adb
+// 可执行文件，会报 inaccessible or not found。故执行前剥掉行首的
+// adb [exe] [-s <serial>] shell 前缀；只匹配行首，不碰命令内部字符串
+// （如 echo "adb shell ..."）。
+private val AdbShellPrefix = Regex(
+    """^\s*adb(?:\.exe)?(?:\s+-s\s+(?:"[^"]*"|'[^']*'|\S+))?\s+shell(?:\s+|$)""",
+    RegexOption.IGNORE_CASE
+)
+
+private fun stripAdbShellPrefix(command: String): String = AdbShellPrefix.replace(command, "").trim()
+
 @Composable
 fun ShellScreen(
     onBack: () -> Unit,
@@ -275,6 +287,14 @@ fun ShellScreen(
         }
 
         // ── Input Bar ──
+        val sendCommand: () -> Unit = {
+            val cmd = stripAdbShellPrefix(commandInput)
+            if (cmd.isNotBlank()) {
+                lines.add(TerminalLine(cmd, isCommand = true))
+                viewModel.executeCommand(cmd)
+                commandInput = ""
+            }
+        }
         Row(
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = navBarPad + 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -288,13 +308,7 @@ fun ShellScreen(
                 textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp, color = c.onSurface),
                 cursorBrush = SolidColor(c.accent),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = {
-                    if (commandInput.isNotBlank()) {
-                        lines.add(TerminalLine(commandInput, isCommand = true))
-                        viewModel.executeCommand(commandInput)
-                        commandInput = ""
-                    }
-                }),
+                keyboardActions = KeyboardActions(onSend = { sendCommand() }),
                 modifier = Modifier
                     .weight(1f)
                     .clip(inputShape)
@@ -313,13 +327,7 @@ fun ShellScreen(
 
             val sendShape = RoundedCornerShape(cr)
             IconButton(
-                onClick = {
-                    if (commandInput.isNotBlank()) {
-                        lines.add(TerminalLine(commandInput, isCommand = true))
-                        viewModel.executeCommand(commandInput)
-                        commandInput = ""
-                    }
-                },
+                onClick = { sendCommand() },
                 modifier = Modifier
                     .size(52.dp)
                     .clip(sendShape)
